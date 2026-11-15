@@ -40,6 +40,39 @@ export function normalizeCustomPosSalesModes(value: unknown): PosSalesModeSettin
   ) as PosSalesModeSettings;
 }
 
+/**
+ * The POS and IT must use the same sales-mode entitlement decision.
+ * Explicit customer/IT selections take precedence over package defaults;
+ * defaults only apply before a selection exists. Never fill missing flags
+ * with true: a partial/legacy contract must not unlock an unselected mode.
+ */
+export function resolvePosSalesModePolicy(
+  contractMetadata: Record<string, unknown>,
+  packageMetadata: Record<string, unknown> | null | undefined
+): PosSalesModeSettings {
+  const raw = contractMetadata.sales_modes;
+  const explicit = raw && typeof raw === "object" && !Array.isArray(raw)
+    ? raw as Record<string, unknown> : null;
+  const packageDefaults = Array.isArray(packageMetadata?.default_sales_modes)
+    ? packageMetadata.default_sales_modes.filter((mode): mode is PosSalesModeKey =>
+        typeof mode === "string" && (POS_SALES_MODE_KEYS as readonly string[]).includes(mode))
+    : [];
+  const modes = normalizeCustomPosSalesModes(explicit ?? Object.fromEntries(
+    packageDefaults.map((key) => [key, true])
+  ));
+  const rawLimit = Number(packageMetadata?.sales_mode_limit);
+  const limit = Number.isFinite(rawLimit) && rawLimit > 0
+    ? Math.min(POS_SALES_MODE_KEYS.length, Math.trunc(rawLimit))
+    : null;
+  if (limit === null || POS_SALES_MODE_KEYS.filter((key) => modes[key]).length <= limit) return modes;
+  // For older invalid contracts, do not invent or enable different modes.
+  // Preserve explicit IT selections in canonical order; new IT writes reject overflow.
+  const allowed = new Set(POS_SALES_MODE_KEYS.filter((key) => modes[key]).slice(0, limit));
+  return Object.fromEntries(POS_SALES_MODE_KEYS.map((key) => [
+    key, allowed.has(key)
+  ])) as PosSalesModeSettings;
+}
+
 export function posUiModeToControlKey(value: string | null | undefined): PosSalesModeKey | null {
   if (value === "home" || value === "takeaway") return "takeaway";
   if (value === "dine_in") return "dine_in";

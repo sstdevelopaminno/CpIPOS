@@ -10,6 +10,7 @@ describe("canonical Business package catalog", () => {
   const service = src("src/lib/services/pos-subscription-center-service.ts");
   const ui = src("src/components/pos-preview/pos-subscription-center.tsx");
   const features = src("src/app/api/pos/features/route.ts");
+  const modePolicy = src("src/lib/pos-sales-modes.ts");
   const featureMap = src("src/lib/pos-feature-map.ts");
   const shared = src("../../packages/shared-types/src/index.ts");
   const demoAiMigration = src("../../supabase/migrations/20260930093500_internal_demo_ai_entitlement.sql");
@@ -60,9 +61,9 @@ describe("canonical Business package catalog", () => {
   });
 
   it("enforces package sales-mode ceilings and package-specific retention", () => {
-    expect(features).toContain("salesModePolicy");
-    expect(features).toContain("sales_mode_limit");
-    expect(features).toContain("default_sales_modes");
+    expect(features).toContain("resolvePosSalesModePolicy");
+    expect(modePolicy).toContain("sales_mode_limit");
+    expect(modePolicy).toContain("default_sales_modes");
     expect(migration).toContain("Starter 6 months, Growth 12 months, Business 24 months");
     expect(migration).toContain("else coalesce(sp.retention_months, 6)");
   });

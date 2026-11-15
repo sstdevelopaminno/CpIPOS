@@ -42,6 +42,6 @@ describe("Optical CUSTOM standalone startup and shift-gate regression", () => {
     expect(initial).toContain("getAuthorizedCustomPosStartupMode");
     expect(initial).toContain("ACTIVATION_TIMEOUT_MS = 30000");
     expect(bridge).toContain("opticalAllowed = isAuthorizedOpticalRetailMode(body.data)");
-    expect(initial).toContain("optical_retail: isAuthorizedOpticalRetailMode(payload.data)");
+    expect(initial).toContain("optical_retail: customPolicy && isAuthorizedOpticalRetailMode(payload.data)");
   });
 });

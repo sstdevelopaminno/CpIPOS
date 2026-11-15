@@ -1260,7 +1260,8 @@ export function PosGeneralSaleTableController({ lang = "th" }: { lang?: Lang }) 
         if (!response.ok || !body?.data) throw new Error("pos_feature_snapshot_unavailable");
         pendingStartupRetryCount = 0;
         window.dispatchEvent(new CustomEvent("cpipos:pos-feature-policy-updated", { detail: body.data }));
-        generalSaleAllowed = Boolean(body?.data?.features?.[POS_MODE_FEATURES.general_sale] === true
+        generalSaleAllowed = Boolean(body?.data?.features?.core_pos_sales === true
+          && body?.data?.features?.[POS_MODE_FEATURES.general_sale] === true
           && body?.data?.sales_modes?.general_sale === true);
         // Optical is independently enabled by IT for this CUSTOM tenant.
         // The ordinary takeaway feature is not a prerequisite for entering its UI.

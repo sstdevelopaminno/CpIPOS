@@ -22,7 +22,8 @@ describe("live POS mode policy refresh across IT and the selector", () => {
     expect(selector).toContain("if (selector) void loadAccess()");
     expect(selector).toContain('fetch("/api/pos/features?refresh=1"');
     expect(selector).toContain("isAuthorizedOpticalRetailMode(body.data)");
-    expect(selector).not.toContain("body?.data?.features?.core_pos_sales === true");
+    expect(selector).toContain("opticalAllowed = isAuthorizedOpticalRetailMode(body.data)");
+    expect(selector).toContain("body?.data?.features?.core_pos_sales === true");
     expect(selector).toContain("sales_modes?.general_sale === true");
     expect(selector).toContain("if (generalSaleActive && (opticalActive ? !opticalAllowed : !generalSaleAllowed))");
     expect(selector).toContain('window.addEventListener("focus", onFocus)');
@@ -43,8 +44,8 @@ describe("live POS mode policy refresh across IT and the selector", () => {
     const entry=source("src/components/pos/pos-entry-gate.tsx");
     const sales=source("src/components/pos/pos-sales-module.tsx");
     expect(startup).toContain('const FEATURES_API = "/api/pos/features?refresh=1"');
-    expect(startup).toContain("getAuthorizedCustomPosStartupMode(order ?? [], productProfile, customModeGrants)");
-    expect(startup).toContain('if (customPolicy && !authorizedCustomMode) return fail("POS-START-GRANTS")');
+    expect(startup).toContain("getAuthorizedCustomPosStartupMode(order ?? [], productProfile, authorizedGrants)");
+    expect(startup).toContain('if (!authorizedMode) return fail("POS-START-GRANTS")');
     expect(startup).toContain("activeModeRef.current = mode;");
     expect(startup).toContain("<SalesComponent lang={lang} startupMode={authorizedMode} onStartupModeReady={onReady} onStartupModeBlocked={onBlocked} />");
     expect(entry).toContain("SalesComponent={PosSalesModule}");

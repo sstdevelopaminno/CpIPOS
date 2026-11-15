@@ -4,7 +4,6 @@ import { useCallback, useEffect, useRef, useState, type ComponentType } from "re
 import {
   buildPosSalesModeOrderStorageKey,
   getPreferredPosSalesMode,
-  getVisiblePosSalesModeOrder,
   getAuthorizedCustomPosStartupMode,
   normalizePosSalesModeOrder,
   parsePosScopeIdentity,
@@ -148,20 +147,21 @@ export function PosInitialSalesModeController({
       if (!payload?.data) return fail("POS-START-FEATURES");
       const customPolicy = payload.data.is_custom === true || payload.data.is_internal_test_full === true;
       launchedWithCustomPolicyRef.current = customPolicy;
-      let customModeGrants: unknown = null;
-      if (customPolicy) {
-        const grants = normalizeCustomPosSalesModes(payload.data.sales_modes);
-        const features = payload.data.features ?? {};
-        customModeGrants = {
-          ...grants,
-          takeaway: grants.takeaway && features.core_pos_sales === true,
-          optical_retail: isAuthorizedOpticalRetailMode(payload.data),
-          general_sale: grants.general_sale && features[POS_MODE_FEATURES.general_sale] === true,
-          dine_in: grants.dine_in && features[POS_MODE_FEATURES.dine_in] === true,
-          buffet_table: grants.buffet_table && features[POS_MODE_FEATURES.buffet_table] === true,
-          delivery: grants.delivery && features[POS_MODE_FEATURES.delivery] === true
-        };
-      }
+      // Both fixed packages and CUSTOM must start in a mode the server grants.
+      // Previously fixed packages fell back to "home" even when IT enabled
+      // only general_sale; this could hide the approved grocery mode on entry.
+      const grants = normalizeCustomPosSalesModes(payload.data.sales_modes);
+      const features = payload.data.features ?? {};
+      const authorizedGrants = {
+        ...grants,
+        takeaway: grants.takeaway && features.core_pos_sales === true,
+        optical_retail: customPolicy && isAuthorizedOpticalRetailMode(payload.data),
+        general_sale: grants.general_sale && features.core_pos_sales === true &&
+          features[POS_MODE_FEATURES.general_sale] === true,
+        dine_in: grants.dine_in && features[POS_MODE_FEATURES.dine_in] === true,
+        buffet_table: grants.buffet_table && features[POS_MODE_FEATURES.buffet_table] === true,
+        delivery: grants.delivery && features[POS_MODE_FEATURES.delivery] === true
+      };
       let productProfile = readCachedProductProfile(scope.tenantId);
       try {
         const fetchedProfile = await fetchCurrentProductProfile(scope.tenantId);
@@ -191,17 +191,14 @@ export function PosInitialSalesModeController({
         } catch { order = null; }
       }
       if (cancelled) return;
-      const authorizedCustomMode = customPolicy
-        ? getAuthorizedCustomPosStartupMode(order ?? [], productProfile, customModeGrants)
-        : null;
-      if (customPolicy && !authorizedCustomMode) return fail("POS-START-GRANTS");
-      const forcePreferred = shouldForcePreferredPosSalesMode(productProfile);
-      const mode: PosStartupSalesMode = customPolicy
-        ? authorizedCustomMode!
-        : forcePreferred
-          ? getPreferredPosSalesMode(productProfile)
-          : getVisiblePosSalesModeOrder(order ?? [], scope.tenantId, productProfile)
-              .find((entry) => entry !== "delivery") ?? "home";
+      const authorizedMode = getAuthorizedCustomPosStartupMode(order ?? [], productProfile, authorizedGrants);
+      if (!authorizedMode) return fail("POS-START-GRANTS");
+      const preferred = getPreferredPosSalesMode(productProfile);
+      const preferredControl = preferred === "home" ? "takeaway" : preferred;
+      // Preserve existing profile preference only when IT actually grants it.
+      const mode: PosStartupSalesMode = !customPolicy &&
+        shouldForcePreferredPosSalesMode(productProfile) &&
+        authorizedGrants[preferredControl] ? preferred : authorizedMode;
       // A restored cart is NOT an authorization bypass. The child applies the
       // authorized mode without submitting or deleting any existing transaction.
       activeModeRef.current = mode;
