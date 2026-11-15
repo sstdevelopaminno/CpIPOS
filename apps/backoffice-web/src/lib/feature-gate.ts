@@ -59,6 +59,7 @@ type LatestContractCacheEntry = {
 };
 
 const FEATURE_DECISION_CACHE_TTL_MS = 60_000;
+const GROCERY_SCANNER_DECISION_TTL_MS = 15_000;
 const LATEST_CONTRACT_CACHE_TTL_MS = 60_000;
 
 export class FeatureGateError extends Error {
@@ -118,7 +119,8 @@ function writeFeatureDecisionCache(cacheKey: string, enabled: boolean) {
   const cache = getFeatureDecisionCache();
   cache.set(cacheKey, {
     enabled,
-    expiresAt: Date.now() + FEATURE_DECISION_CACHE_TTL_MS
+    expiresAt: Date.now() + (cacheKey.endsWith(":barcode_scanner_mode")
+      ? GROCERY_SCANNER_DECISION_TTL_MS : FEATURE_DECISION_CACHE_TTL_MS)
   });
 }
 
@@ -187,8 +189,8 @@ async function contractAllowsAccess(contract: ContractRow | null): Promise<boole
   return hasVerifiedPaidGraceAccess(contract, data);
 }
 
-async function getLatestContract(tenantId: string): Promise<ContractRow | null> {
-  const cached = readLatestContractCache(tenantId);
+async function getLatestContract(tenantId: string, forceFresh = false): Promise<ContractRow | null> {
+  const cached = !forceFresh ? readLatestContractCache(tenantId) : undefined;
   if (cached !== undefined) return cached;
 
   const inFlight = getLatestContractInFlight();
@@ -237,7 +239,7 @@ export async function hasBranchFeature(tenantId: string, branchId: string | null
     return enabled;
   }
 
-  const contract = await getLatestContract(tenantId);
+  const contract = await getLatestContract(tenantId, featureCode === "barcode_scanner_mode");
   if (!await contractAllowsAccess(contract)) {
     writeFeatureDecisionCache(cacheKey, false);
     return false;
