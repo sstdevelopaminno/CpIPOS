@@ -84,6 +84,6 @@ describe("CUSTOM IMDC Optical as the only permitted POS sales mode", () => {
   const startup=read("src/components/pos/pos-initial-sales-mode-controller.tsx");
   expect(bridge).toContain('const allowed = request.mode === OPTICAL_MODE_ID ? opticalAllowed : generalSaleAllowed');
   expect(bridge).toContain('activated: allowed && correctMode');
-  expect(startup).toContain('if (customPolicy && !authorizedCustomMode) return fail("POS-START-GRANTS")');
+  expect(startup).toContain('if (!authorizedMode) return fail("POS-START-GRANTS")');
  });
 });
