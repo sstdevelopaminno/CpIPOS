@@ -12,7 +12,7 @@
 Store codes are public tenant identifiers; some legacy employee codes are derived or
 have demo aliases. **Two codes alone are not sufficiently strong credentials for
 tenant-wide financial access.** The accountant employee-code screen therefore also
-requires the existing staff PIN (4-6 digits) in that same screen. This keeps a two-screen
+requires the existing staff PIN (4-8 digits) in that same screen. This keeps a two-screen
 entry path; PIN enrollment is mandatory before activation. If a code/PIN is missing,
 access must fail closed rather than fallback to another staff role or default branch.
 
@@ -53,6 +53,21 @@ No database migrations are included in this branch.
 - This is **not** a new paid add-on or database entitlement row. Existing IT menu policy may explicitly hide/lock navigation, but it cannot grant Finance to an ineligible package.
 - Current draft is a blank finance landing workspace; submenus and money data will be designed in a subsequent phase.
 - No Production database writes or migrations.
+
+## Accountant menu profile and IT synchronization
+- IT repository `CpIPOS-IT` owns the tenant `main.finance` navigation switch
+  and exposes an Accountant role in User / POS permissions, with explicit option
+  to provision the role for all currently active branches without overwriting Owner/Manager.
+- Accountant Finance session uses a **separate menu shell**: Finance, More
+  (Sales Summary, Receipt History, Tax Invoices, Stock Management, Product Sales),
+  Settings (all keys except `settings.users`) and Package Payment.
+- The IT menu policy's explicit denials affect Finance navigation on the
+  Accountant side, including parent menu denial. Direct Finance routes validate
+  the same policy. Client navigation never authorizes an underlying POS API.
+- Menu pages are currently **safe placeholders**, not live accounting, stock
+  write, tax issuance, package payment, or settings flows.
+- New branches need an Accountant role assignment before tenant-wide Finance
+  session can be used again. Integration/transaction API work is a future phase.
 
 ## Release gates
 1. Confirm employee-code and PIN enrollment for each test accountant, including all active branch roles.
