@@ -4,6 +4,7 @@ import bcrypt from "bcryptjs";
 import { clearPreEntryFlowState, readPreEntryFlowState } from "@/lib/server/pre-entry-state";
 import { clearFinanceSession, verifyFinanceIdentity, writeFinanceSession } from "@/lib/server/finance-session";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
+import { hasFinancePackageAccess } from "@/lib/server/finance-package-access";
 import { buildRateLimitKey, enforceRateLimit, getClientIpAddress, readRateLimitSetting } from "@/lib/server/rate-limit";
 import { getRequestMeta, writeAuditLog } from "@/lib/server/audit-log";
 
@@ -45,6 +46,7 @@ export async function POST(request: Request) {
   }
 
   try {
+    if (!await hasFinancePackageAccess(flow.tenantId)) return denied(403);
     const db = getSupabaseServiceClient();
     // Require an explicitly provisioned employee code. UUID-derived/demo codes are NOT
     // suitable credentials for tenant-wide financial access.
