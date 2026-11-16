@@ -6,6 +6,7 @@ import type { NextResponse } from "next/server";
 import { readRequiredEnv } from "@/lib/env";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 import { hasAllBranchAccountingGrant } from "@/lib/finance-branch-access";
+import { hasFinancePackageAccess } from "@/lib/server/finance-package-access";
 
 const COOKIE_NAME = "cpi_finance_session";
 const SESSION_SECONDS = 60 * 60;
@@ -109,5 +110,6 @@ export async function requireFinanceSession(): Promise<FinanceIdentity | null> {
   const store = await cookies();
   const token = decodeFinanceToken(store.get(COOKIE_NAME)?.value ?? "");
   if (!token) return null;
+  if (!await hasFinancePackageAccess(token.tenantId)) return null;
   return verifyFinanceIdentity(token.tenantId, token.userId);
 }
