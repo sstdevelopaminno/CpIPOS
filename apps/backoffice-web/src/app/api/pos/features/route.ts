@@ -234,7 +234,16 @@ export async function GET(request: Request) {
           loader
         });
     const { snapshot, menuPolicy } = bundle.value;
-    const financeAccess = scope.session.role === "owner" && await hasFinancePackageAccess(scope.session.tenant_id);
+    // Finance is fail-closed, but a transient Finance entitlement lookup must not
+    // take down the unrelated sales, shift, and device menus.
+    let financeAccess = false;
+    if (scope.session.role === "owner") {
+      try {
+        financeAccess = await hasFinancePackageAccess(scope.session.tenant_id);
+      } catch {
+        console.warn("[pos/features] finance entitlement unavailable; withholding Finance menu");
+      }
+    }
 
     const response = ok({
       tenant_id: scope.session.tenant_id,
