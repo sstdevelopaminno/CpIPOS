@@ -116,7 +116,7 @@ export function PosStaffMenu({ lang, collapsed, orientation = "vertical", sessio
       item.roles.includes(effectiveRole) &&
       (item.href !== "/preview/pos/finance" || (sessionRole === "owner" && financeAllowed)) &&
       (!item.href.startsWith("/preview/pos/optical/") || opticalMenuAllowed) &&
-      (item.href === "/preview/pos/finance" || !isCustom || isCustomPosMenuVisible(posMenuKeyForRoute(item.href) ?? "", menuPolicy, true))),
+      (!isCustom || isCustomPosMenuVisible(posMenuKeyForRoute(item.href) ?? "", menuPolicy, true))),
     [effectiveRole, sessionRole, lang, isCustom, menuPolicy, opticalMenuAllowed, financeAllowed]
   );
   const isHorizontal = orientation === "horizontal";
