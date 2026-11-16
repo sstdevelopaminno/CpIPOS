@@ -76,6 +76,9 @@ export function isCustomPosMenuVisible(
 ): boolean {
   if (!isCustom) return isPosMenuEnabled(key, overrides);
   if (isPosMenuAlwaysEnabled(key)) return true;
+  // Finance is included by package (Business/CUSTOM), not a separate CUSTOM upsell.
+  // An explicit IT navigation disable still wins; package/role checks remain server-side.
+  if (key === "main.finance") return overrides[key] !== false;
   const entry = catalog.get(key);
   if (!entry) return false;
   if (overrides[key] !== true) return false;
