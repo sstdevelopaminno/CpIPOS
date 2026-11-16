@@ -196,6 +196,7 @@ export default function LoginStorePage() {
   const [error, setError] = useState("");
   const [popup, setPopup] = useState<PopupState>({ type: "none" });
   const [showStoreCode, setShowStoreCode] = useState(false);
+  const [accountingLogin, setAccountingLogin] = useState(false);
   const activeControllerRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
@@ -266,7 +267,7 @@ export default function LoginStorePage() {
       }
 
       const flowMode = body.data.next_step === "employee" ? "single" : "multi";
-      navigateTo = body.data.next_step === "employee" ? `/login/employee?flow=${flowMode}` : `/login/branches?flow=${flowMode}`;
+      navigateTo = accountingLogin ? "/login/accounting" : body.data.next_step === "employee" ? `/login/employee?flow=${flowMode}` : `/login/branches?flow=${flowMode}`;
       cacheBranches(body.data.branches ?? []);
       warmRoute(router, navigateTo);
     } catch (requestError) {
@@ -367,6 +368,11 @@ export default function LoginStorePage() {
             <span>{storeCode.length}/32</span>
           </div>
 
+          <label className="mt-3 flex items-center gap-3 rounded-lg bg-blue-50 p-3 text-sm font-semibold text-slate-800">
+            <input type="checkbox" checked={accountingLogin} onChange={(event) => setAccountingLogin(event.target.checked)}
+              className="h-4 w-4 accent-blue-700" />
+            <span>{lang === "lo" ? "ເຂົ້າລະບົບບັນຊີ (ທຸກສາຂາ)" : lang === "en" ? "Accounting (all branches)" : "เข้าสู่ระบบฝ่ายบัญชี (ทุกสาขา)"}</span>
+          </label>
           <button type="submit" className="store-v2-login-btn" disabled={loading || !storeCode.trim()}>
             {loading ? copy.submitting : copy.submit}
           </button>

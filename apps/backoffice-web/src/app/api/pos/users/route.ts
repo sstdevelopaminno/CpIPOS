@@ -9,6 +9,7 @@ import { enforceQuota, FeatureGateError } from "@/lib/feature-gate";
 import { featureGateFail, requirePosApiFeature } from "@/lib/pos-api-feature-guard";
 import { PosGuardError, type PosPermission } from "@/lib/pos-session-guard";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
+import { planOfficeAccountantBranches } from "@/lib/accountant-branch-provisioning";
 
 type BranchRole = "owner" | "manager" | "staff" | "accountant" | "kitchen";
 type ScopeMode = "all_devices" | "single_device";
@@ -304,6 +305,29 @@ async function findEmployeeCodeOwner(input: { tenantId: string; employeeCode: st
   return data?.user_id ?? null;
 }
 
+/** Server-owned store scope; browsers cannot choose an office accountant's branch list. */
+async function grantAccountantAllActiveBranches(tenantId: string, userId: string) {
+  const db = getSupabaseServiceClient();
+  const [branches, existing] = await Promise.all([
+    db.from("branches").select("id").eq("tenant_id", tenantId).eq("is_active", true),
+    db.from("user_branch_roles").select("branch_id,role")
+      .eq("tenant_id", tenantId).eq("user_id", userId)
+  ]);
+  if (branches.error || existing.error) throw new Error("accountant_branch_scope_unavailable");
+  const rows = planOfficeAccountantBranches({
+    tenantId, userId,
+    activeBranchIds: (branches.data ?? []).map(branch => String(branch.id)),
+    existing: (existing.data ?? []).map(role => ({
+      branch_id: String(role.branch_id), role: String(role.role)
+    }))
+  });
+  const result = await db.from("user_branch_roles").upsert(rows, {
+    onConflict: "user_id,tenant_id,branch_id"
+  });
+  if (result.error) throw new Error("accountant_branch_grant_failed");
+  return rows.length;
+}
+
 export async function GET(request: Request) {
   try {
     const auth = await getPosUsersAuthContext("users:view");
@@ -443,7 +467,12 @@ export async function PATCH(request: Request) {
       const employeeCode = normalizeEmployeeCode(rawEmployeeCode) || currentEmployeeCode;
       const employeeCodeChanged = employeeCode !== currentEmployeeCode;
       const positionTitle = String(payload.position_title ?? "").trim();
-      const permissionRole = normalizePermissionRole(payload.permission_role, nextRole);
+      const permissionRole = nextRole === "accountant"
+        ? "accountant" : normalizePermissionRole(payload.permission_role, nextRole);
+      if ((targetRole === "accountant") !== (nextRole === "accountant")) {
+        return fail("accountant_separate_user_required",
+          "Create a separate office Accountant user instead of converting a POS staff role.", 409);
+      }
       if (!fullName || !email || !email.includes("@")) return fail("invalid_profile", "Full name and valid email are required.", 422);
       if (rawEmployeeCode && !isValidEmployeeCode(rawEmployeeCode)) return fail("invalid_employee_code", "Employee code must contain numbers only.", 422);
 
@@ -464,6 +493,13 @@ export async function PATCH(request: Request) {
       if (profileError) return fail("user_profile_update_failed", profileError.message, 500);
       if (!updatedProfile) return fail("user_profile_not_found", "User profile was not found.", 404);
 
+      if (nextRole === "accountant") {
+        try { await grantAccountantAllActiveBranches(auth.tenantId!, userId); }
+        catch (error) {
+          return fail("accountant_branch_grant_failed",
+            error instanceof Error ? error.message : "Unable to assign Accountant branches.", 409);
+        }
+      }
       if (nextRole !== targetRole) {
         const { data: updatedRole, error: roleError } = await supabase.from("user_branch_roles").update({ role: nextRole }).eq("tenant_id", auth.tenantId!).eq("branch_id", branchId).eq("user_id", userId).select("user_id,role").maybeSingle<{ user_id: string; role: BranchRole }>();
         if (roleError) return fail("user_role_update_failed", roleError.message, 500);
@@ -484,7 +520,7 @@ export async function PATCH(request: Request) {
     if (action === "set_pin") {
       const payload = body as Extract<PatchPayload, { action: "set_pin" }>;
       const pin = String(payload.pin ?? "").trim();
-      if (!/^\d{4,12}$/.test(pin)) return fail("invalid_pin", "PIN must be 4-12 digits.", 422);
+      if (!/^\d{4,12}$/.test(pin) || (targetRole === "accountant" && !/^\d{4,8}$/.test(pin))) return fail("invalid_pin", "Invalid PIN length; office Accountants require 4-8 digits.", 422);
       if (targetRole === "staff") return fail("staff_pin_requires_owner_grant", "Staff PIN must be configured by the owner together with cancel-bill approval.", 403);
       const ownerActorSettingOwnerPin = auth.branchRole === "owner" && targetRole === "owner";
       const approval = ownerActorSettingOwnerPin ? { approved: true } : await requireApprovalPin({ pin: payload.approval_pin, tenantId: auth.tenantId!, branchId });
@@ -525,6 +561,7 @@ export async function PATCH(request: Request) {
     }
 
     if (action === "set_device_scope") {
+      if (targetRole === "accountant") return fail("accountant_office_only", "Accountants never bind to cashier POS terminals.", 403);
       const payload = body as Extract<PatchPayload, { action: "set_device_scope" }>;
       const scopeMode = payload.scope_mode === "single_device" ? "single_device" : "all_devices";
       const deviceId = String(payload.device_id ?? "").trim() || null;
@@ -565,12 +602,15 @@ export async function POST(request: Request) {
     if (!isValidEmployeeCode(rawEmployeeCodeInput)) return fail("invalid_employee_code", "Employee code must contain numbers only.", 422);
     const employeeCodeInput = normalizeEmployeeCode(rawEmployeeCodeInput);
     const positionTitle = String(body.position_title ?? "").trim();
-    const permissionRole = normalizePermissionRole(body.permission_role, role);
+    const permissionRole = role === "accountant" ? "accountant" : normalizePermissionRole(body.permission_role, role);
     const canApproveCancelBill = role === "staff" && Boolean(body.can_approve_cancel_bill);
 
     if (!fullName || !branchId) return fail("invalid_profile", "Full name and branch are required.", 422);
     if (requestedEmail && !requestedEmail.includes("@")) return fail("invalid_email", "A valid email is required.", 422);
     if (pin && !/^\d{4,12}$/.test(pin)) return fail("invalid_pin", "PIN must be 4-12 digits.", 422);
+    if (role === "accountant" && !/^\d{4,8}$/.test(pin)) {
+      return fail("accountant_pin_required", "Office Accountants require a 4-8 digit PIN.", 422);
+    }
     if (scopeMode === "single_device" && !deviceId) return fail("invalid_scope_device", "device_id is required for single_device mode.", 422);
     if (role === "staff" && pin && !canApproveCancelBill) return fail("staff_pin_requires_owner_grant", "Staff PIN requires owner-granted cancel-bill authority.", 403);
     if (canApproveCancelBill && !/^\d{4,12}$/.test(pin)) return fail("staff_pin_required", "A 4-12 digit staff PIN is required when enabling cancel-bill approval.", 422);
@@ -598,6 +638,14 @@ export async function POST(request: Request) {
       catch (error) {
         if (error instanceof FeatureGateError) return fail(error.code, error.message, error.status);
         return fail("user_quota_lookup_failed", "Unable to verify tenant user quota.", 500);
+      }
+    }
+    if (role === "accountant" && existingProfile?.id) {
+      const prior = await supabase.from("user_branch_roles").select("role")
+        .eq("tenant_id", auth.tenantId!).eq("user_id", existingProfile.id);
+      if (prior.error) return fail("accountant_role_lookup_failed", "Unable to verify existing roles.", 503);
+      if ((prior.data ?? []).some(item => item.role !== "accountant")) {
+        return fail("accountant_separate_user_required", "Use a separate user account for office accounting.", 409);
       }
     }
     if (existingProfile?.id && await isItProtectedPrimaryOwner(auth.tenantId!, existingProfile.id)) {
@@ -646,10 +694,23 @@ export async function POST(request: Request) {
       return fail("employee_code_check_failed", error instanceof Error ? error.message : "Unable to verify employee code.", 500);
     }
 
-    const { error: roleError } = await supabase.from("user_branch_roles").upsert({ user_id: userId, tenant_id: auth.tenantId!, branch_id: branchId, role, is_default: false }, { onConflict: "user_id,tenant_id,branch_id" });
-    if (roleError) {
-      if (createdAuthUserId) await supabase.auth.admin.deleteUser(createdAuthUserId).catch(() => undefined);
-      return fail("user_role_create_failed", roleError.message, 500);
+    let accountantBranchCount = 0;
+    if (role === "accountant") {
+      try {
+        accountantBranchCount = await grantAccountantAllActiveBranches(auth.tenantId!, userId);
+      } catch (error) {
+        if (createdAuthUserId) await supabase.auth.admin.deleteUser(createdAuthUserId).catch(() => undefined);
+        return fail("accountant_branch_grant_failed",
+          error instanceof Error ? error.message : "Unable to assign all active branches.", 409);
+      }
+    } else {
+      const { error: roleError } = await supabase.from("user_branch_roles").upsert({
+        user_id: userId, tenant_id: auth.tenantId!, branch_id: branchId, role, is_default: false
+      }, { onConflict: "user_id,tenant_id,branch_id" });
+      if (roleError) {
+        if (createdAuthUserId) await supabase.auth.admin.deleteUser(createdAuthUserId).catch(() => undefined);
+        return fail("user_role_create_failed", roleError.message, 500);
+      }
     }
 
     try {
@@ -660,10 +721,16 @@ export async function POST(request: Request) {
       return fail("pos_user_profile_create_failed", error instanceof Error ? error.message : "Unable to create POS user profile.", 500);
     }
 
-    const scopeWrite = await supabase.from("pos_user_device_scopes").upsert({ user_id: userId, tenant_id: auth.tenantId!, branch_id: branchId, scope_mode: scopeMode, device_id: scopeMode === "single_device" ? deviceId : null }, { onConflict: "tenant_id,branch_id,user_id" });
-    if (scopeWrite.error && !isMissingRelationError(scopeWrite.error, "pos_user_device_scopes")) {
-      if (createdAuthUserId) await supabase.auth.admin.deleteUser(createdAuthUserId).catch(() => undefined);
-      return fail("pos_user_scope_create_failed", scopeWrite.error.message, 500);
+    // Accountant uses an office-only Finance token, never a device-scoped POS session.
+    if (role !== "accountant") {
+      const scopeWrite = await supabase.from("pos_user_device_scopes").upsert({
+        user_id: userId, tenant_id: auth.tenantId!, branch_id: branchId,
+        scope_mode: scopeMode, device_id: scopeMode === "single_device" ? deviceId : null
+      }, { onConflict: "tenant_id,branch_id,user_id" });
+      if (scopeWrite.error && !isMissingRelationError(scopeWrite.error, "pos_user_device_scopes")) {
+        if (createdAuthUserId) await supabase.auth.admin.deleteUser(createdAuthUserId).catch(() => undefined);
+        return fail("pos_user_scope_create_failed", scopeWrite.error.message, 500);
+      }
     }
 
     if (canApproveCancelBill) {
@@ -676,8 +743,8 @@ export async function POST(request: Request) {
       }
     }
 
-    void appendAuditLog({ tenantId: auth.tenantId!, branchId, actorUserId: auth.userId, actorRole: auth.branchRole ?? "manager", targetUserId: userId, action: "pos_user_created", targetTable: "users_profiles", targetId: userId, metadata: { role, employee_code: employeeCode, position_title: positionTitle, reused_profile: Boolean(existingProfile), can_approve_cancel_bill: canApproveCancelBill } });
-    return ok({ user_id: userId, branch_id: branchId, role }, 201);
+    void appendAuditLog({ tenantId: auth.tenantId!, branchId, actorUserId: auth.userId, actorRole: auth.branchRole ?? "manager", targetUserId: userId, action: "pos_user_created", targetTable: "users_profiles", targetId: userId, metadata: { role, employee_code: employeeCode, position_title: positionTitle, reused_profile: Boolean(existingProfile), can_approve_cancel_bill: canApproveCancelBill, accountant_branch_count: accountantBranchCount, office_only: role === "accountant" } });
+    return ok({ user_id: userId, branch_id: role === "accountant" ? null : branchId, role, accountant_branch_count: accountantBranchCount }, 201);
   } catch (error) {
     const featureError = featureGateFail(error);
     if (featureError) return featureError;
@@ -701,14 +768,24 @@ export async function DELETE(request: Request) {
     const supabase = getSupabaseServiceClient();
     const targetRole = await getTargetRole({ tenantId: auth.tenantId!, branchId, userId });
     if (!targetRole) return fail("user_not_found", "User was not found in this branch.", 404);
-    const deleteScope = await supabase.from("pos_user_device_scopes").delete().eq("tenant_id", auth.tenantId!).eq("branch_id", branchId).eq("user_id", userId);
+    // Office accountant is one tenant-wide identity; remove *all* its branch grants.
+    const deleteScopeQuery = supabase.from("pos_user_device_scopes").delete()
+      .eq("tenant_id", auth.tenantId!).eq("user_id", userId);
+    const deleteScope = targetRole === "accountant"
+      ? await deleteScopeQuery
+      : await deleteScopeQuery.eq("branch_id", branchId);
     if (deleteScope.error && !isMissingRelationError(deleteScope.error, "pos_user_device_scopes")) return fail("pos_user_scope_delete_failed", deleteScope.error.message, 500);
-    const { error: deleteRoleError } = await supabase.from("user_branch_roles").delete().eq("tenant_id", auth.tenantId!).eq("branch_id", branchId).eq("user_id", userId);
-    if (deleteRoleError) return fail("user_delete_failed", deleteRoleError.message, 500);
+
+    const deleteRolesQuery = supabase.from("user_branch_roles").delete()
+      .eq("tenant_id", auth.tenantId!).eq("user_id", userId);
+    const deleteRoles = targetRole === "accountant"
+      ? await deleteRolesQuery
+      : await deleteRolesQuery.eq("branch_id", branchId);
+    if (deleteRoles.error) return fail("user_delete_failed", deleteRoles.error.message, 500);
     const { count } = await supabase.from("user_branch_roles").select("id", { count: "exact", head: true }).eq("user_id", userId);
     if ((count ?? 0) === 0) await supabase.from("users_profiles").update({ is_active: false }).eq("id", userId);
-    void appendAuditLog({ tenantId: auth.tenantId!, branchId, actorUserId: auth.userId, actorRole: "owner", targetUserId: userId, action: "pos_user_deleted", targetTable: "user_branch_roles", targetId: userId, metadata: { target_role: targetRole } });
-    return ok({ user_id: userId, branch_id: branchId, deleted: true });
+    void appendAuditLog({ tenantId: auth.tenantId!, branchId, actorUserId: auth.userId, actorRole: "owner", targetUserId: userId, action: "pos_user_deleted", targetTable: "user_branch_roles", targetId: userId, metadata: { target_role: targetRole, tenant_wide: targetRole === "accountant" } });
+    return ok({ user_id: userId, branch_id: targetRole === "accountant" ? null : branchId, deleted: true });
   } catch (error) {
     const featureError = featureGateFail(error);
     if (featureError) return featureError;

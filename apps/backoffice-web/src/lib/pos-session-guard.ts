@@ -464,18 +464,7 @@ function computePermissions(role: string): PosPermission[] {
     ];
   }
   if (normalized === "accountant") {
-    return [
-      "sales:view",
-      "sales:list:view",
-      "reports:view",
-      "receipts:view",
-      "users:view",
-      "monitor:view",
-      "system:notice:view",
-      "sales:enter",
-      "attendance:view_self",
-      "attendance:view_all_branch"
-    ];
+    return ["system:notice:view"];
   }
   return [
     "sales:view",
@@ -726,6 +715,9 @@ export async function requirePosSession(): Promise<PosSessionScope> {
   const session = await resolveSessionFromCookies();
   assertActiveSession(session);
   const scopedSession = await resolveScopeSession(session);
+  if (scopedSession.role === "accountant") {
+    throw new PosGuardError("accountant_finance_only", "Accounting users must use the finance session.", 403);
+  }
   const extras = await loadScopeExtras(scopedSession);
   await assertSubscriptionAllowsSales(scopedSession.tenant_id);
   return {

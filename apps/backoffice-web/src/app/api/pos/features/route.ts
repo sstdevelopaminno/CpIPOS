@@ -7,6 +7,7 @@ import { readThroughRuntimeCache } from "@/lib/route-runtime-cache";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 import { getTenantPosMenuOverrides } from "@/lib/server/pos-menu-policy-service";
 import { getInternalItTestMode } from "@/lib/server/internal-it-test-store";
+import { hasFinancePackageAccess } from "@/lib/server/finance-package-access";
 import { isCustomPosMenuVisible } from "@/lib/pos-menu-policy";
 import { OPTICAL_MORE_FEATURES } from "@/lib/server/optical-more-feature-access";
 import { hasVerifiedPaidGraceAccess, type PaidGraceFeatureRuntime } from "@/lib/paid-grace-feature-access";
@@ -233,6 +234,16 @@ export async function GET(request: Request) {
           loader
         });
     const { snapshot, menuPolicy } = bundle.value;
+    // Finance is fail-closed, but a transient Finance entitlement lookup must not
+    // take down the unrelated sales, shift, and device menus.
+    let financeAccess = false;
+    if (scope.session.role === "owner") {
+      try {
+        financeAccess = await hasFinancePackageAccess(scope.session.tenant_id);
+      } catch {
+        console.warn("[pos/features] finance entitlement unavailable; withholding Finance menu");
+      }
+    }
 
     const response = ok({
       tenant_id: scope.session.tenant_id,
@@ -240,6 +251,7 @@ export async function GET(request: Request) {
       features: snapshot.features,
       menu_policy: menuPolicy,
       is_custom: snapshot.isCustom,
+      finance_access: financeAccess,
       is_internal_test_full: "internalTestFull" in snapshot && snapshot.internalTestFull === true,
       sales_modes: snapshot.salesModes,
       optical_more_access: "opticalMoreAccess" in snapshot ? snapshot.opticalMoreAccess : {},

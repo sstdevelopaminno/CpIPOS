@@ -7,7 +7,7 @@ import { t, type Language } from "@/lib/i18n";
 import { isCustomPosMenuVisible, isPosMenuEnabled, posMenuKeyForRoute } from "@/lib/pos-menu-policy";
 import { POS_MENU_LOCK_TITLE_EN, POS_MENU_LOCK_TITLE_TH, featureForPosRoute } from "@/lib/pos-feature-map";
 
-type IconName = "sales" | "list" | "kitchen" | "shift" | "more" | "payment" | "ai" | "bell" | "glasses" | "work_orders";
+type IconName = "sales" | "list" | "kitchen" | "shift" | "more" | "payment" | "ai" | "bell" | "glasses" | "work_orders" | "finance";
 type PosRole = "owner" | "manager" | "staff" | "accountant" | "kitchen";
 type MenuKey = "pos_menu_sales" | "pos_menu_sales_list" | "pos_menu_shift";
 type MenuDef = {
@@ -34,6 +34,7 @@ function MenuIcon({ name }: { name: IconName }) {
   if (name === "work_orders") return <svg {...common}><rect x="4" y="4" width="16" height="17" rx="2" /><path d="M8 2h8v4H8zM8 11h8m-8 4h8m-8 4h5" /></svg>;
   if (name === "bell") return <svg {...common}><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4" /></svg>;
   if (name === "more") return <svg {...common}><rect x="4" y="4" width="7" height="7" rx="1.5" /><rect x="13" y="4" width="7" height="7" rx="1.5" /><rect x="4" y="13" width="7" height="7" rx="1.5" /><rect x="13" y="13" width="7" height="7" rx="1.5" /></svg>;
+  if (name === "finance") return <svg {...common}><rect x="3" y="3" width="18" height="18" rx="3" /><path d="M7 8h10M7 12h4m-4 4h4m3-4h3m-3 4h3" /></svg>;
   if (name === "payment") return <svg {...common}><rect x="3" y="6" width="18" height="12" rx="2" /><line x1="3" y1="10" x2="21" y2="10" /><path d="M7 15h3" /><path d="M15 15h2" /></svg>;
   return <svg {...common}><path d="M12 3l1.2 3.1L16 7.3l-2.8 1.2L12 12l-1.2-3.5L8 7.3l2.8-1.2L12 3Z" /><path d="M5 13l.8 2.2L8 16l-2.2.8L5 19l-.8-2.2L2 16l2.2-.8L5 13Z" /><path d="M18 12l.9 2.4L21 15.3l-2.1.9L18 19l-.9-2.8-2.1-.9 2.1-.9L18 12Z" /></svg>;
 }
@@ -43,6 +44,7 @@ const MENU_DEFS: MenuDef[] = [
   { key: "pos_menu_sales_list", href: "/preview/pos/sales-list", icon: "list", roles: ["owner", "manager", "staff"], feature: featureForPosRoute("/preview/pos/sales-list") },
   { key: null, labelTh: "ครัว", labelEn: "Kitchen", href: "/preview/pos/kitchen", icon: "kitchen", roles: ["owner", "manager", "staff", "kitchen"], feature: null },
   { key: "pos_menu_shift", href: "/preview/pos/shift", icon: "shift", roles: ["owner", "manager", "staff"], feature: featureForPosRoute("/preview/pos/shift") },
+  { key: null, labelTh: "การเงิน", labelEn: "Finance", href: "/preview/pos/finance", icon: "finance", roles: ["owner"], feature: null },
   { key:null,labelTh:"ลูกค้าแว่นตา",labelEn:"Optical customers",href:"/preview/pos/optical/customers",icon:"glasses",roles:["owner","manager","staff"],feature:null },
   { key:null,labelTh:"ใบสั่งงาน",labelEn:"Work orders",href:"/preview/pos/optical/work-orders",icon:"work_orders",roles:["owner","manager","staff"],feature:null }
 ];
@@ -63,12 +65,13 @@ const MORE_CHILD_ROUTES = [
 
 function resolveMenuRole(role: PosRole | null): PosRole {
   if (!role) return "owner";
-  if (role === "accountant") return "manager";
+  if (role === "accountant") return "accountant";
   return role;
 }
 
 function labelFor(item: MenuDef, lang: Language) {
   if (item.key) return t(lang, item.key);
+  if(item.href==="/preview/pos/finance") return lang === "lo" ? "ການເງິນ" : lang === "en" ? "Finance" : "การเงิน";
   if(item.href==="/preview/pos/optical/customers")return lang==="lo"?"ລູກຄ້າແວ່ນຕາ":lang==="en"?"Optical customers":"ลูกค้าแว่นตา";
   if(item.href==="/preview/pos/optical/work-orders")return lang==="lo"?"ໃບສັ່ງງານ":lang==="en"?"Work orders":"ใบสั่งงาน";
   return lang === "lo" ? "ເຮືອນຄົວ" : lang === "th" ? item.labelTh ?? "ครัว" : item.labelEn ?? "Kitchen";
@@ -93,7 +96,7 @@ function entryClass(args: { active: boolean; locked: boolean; horizontal: boolea
   return `group relative inline-flex min-h-[42px] items-center text-[13px] font-semibold leading-tight transition ${layout} ${state}`;
 }
 
-export function PosStaffMenu({ lang, collapsed, orientation = "vertical", sessionRole, enabledFeatures, menuPolicy, isCustom = false, opticalMenuAllowed = false, onLockedFeature, onLockedMenu }: {
+export function PosStaffMenu({ lang, collapsed, orientation = "vertical", sessionRole, enabledFeatures, menuPolicy, isCustom = false, opticalMenuAllowed = false, financeAllowed = false, onLockedFeature, onLockedMenu }: {
   lang: Language;
   collapsed: boolean;
   orientation?: "vertical" | "horizontal";
@@ -102,6 +105,7 @@ export function PosStaffMenu({ lang, collapsed, orientation = "vertical", sessio
   menuPolicy: Record<string, boolean>;
   isCustom?: boolean;
   opticalMenuAllowed?:boolean;
+  financeAllowed?:boolean;
   onLockedFeature: () => void;
   onLockedMenu: (menuLabel: string) => void;
 }) {
@@ -110,9 +114,10 @@ export function PosStaffMenu({ lang, collapsed, orientation = "vertical", sessio
   const menuItems = useMemo(
      () => MENU_DEFS.map((item) => ({ ...item, label: labelFor(item, lang) })).filter((item) =>
       item.roles.includes(effectiveRole) &&
+      (item.href !== "/preview/pos/finance" || (sessionRole === "owner" && financeAllowed)) &&
       (!item.href.startsWith("/preview/pos/optical/") || opticalMenuAllowed) &&
       (!isCustom || isCustomPosMenuVisible(posMenuKeyForRoute(item.href) ?? "", menuPolicy, true))),
-    [effectiveRole, lang, isCustom, menuPolicy, opticalMenuAllowed]
+    [effectiveRole, sessionRole, lang, isCustom, menuPolicy, opticalMenuAllowed, financeAllowed]
   );
   const isHorizontal = orientation === "horizontal";
   const moreVisible = effectiveRole === "owner" || effectiveRole === "manager";
