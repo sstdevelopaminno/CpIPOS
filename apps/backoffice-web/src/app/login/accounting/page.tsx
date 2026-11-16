@@ -76,9 +76,9 @@ export default function AccountingLoginPage() {
           </label>
           <label className="block text-sm font-semibold">PIN ยืนยันตัวตน
             <input type="password" inputMode="numeric" autoComplete="current-password"
-              pattern="[0-9]{4,6}" minLength={4} maxLength={6}
+              pattern="[0-9]{4,8}" minLength={4} maxLength={8}
               className="mt-1 w-full rounded-xl border border-slate-300 p-3"
-              value={pin} onChange={(event) => setPin(event.target.value.replace(/\D/g, "").slice(0, 6))}
+              value={pin} onChange={(event) => setPin(event.target.value.replace(/\D/g, "").slice(0, 8))}
               required />
           </label>
           {error ? <p className="text-sm text-red-700" role="alert">{error}</p> : null}
