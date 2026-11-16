@@ -5,6 +5,8 @@ import { clearPreEntryFlowState, readPreEntryFlowState } from "@/lib/server/pre-
 import { clearFinanceSession, verifyFinanceIdentity, writeFinanceSession } from "@/lib/server/finance-session";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 import { hasFinancePackageAccess } from "@/lib/server/finance-package-access";
+import { getTenantPosMenuOverrides } from "@/lib/server/pos-menu-policy-service";
+import { isAccountantMenuVisible } from "@/lib/accountant-menu-policy";
 import { buildRateLimitKey, enforceRateLimit, getClientIpAddress, readRateLimitSetting } from "@/lib/server/rate-limit";
 import { getRequestMeta, writeAuditLog } from "@/lib/server/audit-log";
 
@@ -22,7 +24,7 @@ export async function POST(request: Request) {
   const input = await request.json().catch(() => null) as LoginInput | null;
   const code = String(input?.employee_code ?? "").trim();
   const pin = String(input?.pin ?? "").trim();
-  if (!/^\d{1,32}$/.test(code) || !/^\d{4,6}$/.test(pin)) return denied(400);
+  if (!/^\d{1,32}$/.test(code) || !/^\d{4,8}$/.test(pin)) return denied(400);
 
   const flow = readPreEntryFlowState(await cookies());
   if (!flow || (flow.stage !== "store_verified" && flow.stage !== "branch_selected") || !flow.tenantId) {
@@ -47,6 +49,7 @@ export async function POST(request: Request) {
 
   try {
     if (!await hasFinancePackageAccess(flow.tenantId)) return denied(403);
+    if (!isAccountantMenuVisible("main.finance", await getTenantPosMenuOverrides(flow.tenantId))) return denied(403);
     const db = getSupabaseServiceClient();
     // Require an explicitly provisioned employee code. UUID-derived/demo codes are NOT
     // suitable credentials for tenant-wide financial access.
