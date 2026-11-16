@@ -10,6 +10,7 @@ type ContextResponse = {
 export default function AccountingLoginPage() {
   const router = useRouter();
   const [store, setStore] = useState("");
+  const [contextReady, setContextReady] = useState(false);
   const [code, setCode] = useState("");
   const [pin, setPin] = useState("");
   const [busy, setBusy] = useState(false);
@@ -26,6 +27,7 @@ export default function AccountingLoginPage() {
           return;
         }
         setStore(body.data.tenant.name ?? "");
+        setContextReady(true);
       })
       .catch(() => { if (active) setError("ไม่สามารถตรวจสอบร้านค้าได้ กรุณาลองใหม่"); });
     return () => { active = false; };
@@ -80,7 +82,7 @@ export default function AccountingLoginPage() {
               required />
           </label>
           {error ? <p className="text-sm text-red-700" role="alert">{error}</p> : null}
-          <button type="submit" disabled={busy || !store}
+          <button type="submit" disabled={busy || !contextReady}
             className="w-full rounded-xl bg-blue-700 p-3 font-bold text-white disabled:opacity-60">
             {busy ? "กำลังยืนยัน..." : "เข้าสู่เมนูการเงิน"}
           </button>
