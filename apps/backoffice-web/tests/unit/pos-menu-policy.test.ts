@@ -26,6 +26,10 @@ describe("IT-controlled POS tenant menu policy", () => {
     expect(isCustomPosMenuVisible("settings.branding", {"main.settings":true,"settings.branding":false,"settings.store":true},true)).toBe(false);
     expect(isCustomPosMenuVisible("settings.store", {"main.settings":true,"settings.store":true,"settings.branding":false},true)).toBe(true);
   });
+  it("includes Finance navigation for CUSTOM without IT opt-in, but honors an explicit navigation lock", () => {
+    expect(isCustomPosMenuVisible("main.finance", {}, true)).toBe(true);
+    expect(isCustomPosMenuVisible("main.finance", { "main.finance": false }, true)).toBe(false);
+  });
   it("hides CUSTOM menus unless IT explicitly enabled the menu and its parent", () => {
     expect(isCustomPosMenuVisible("main.more", {}, true)).toBe(false);
     expect(isCustomPosMenuVisible("more.stock", { "more.stock": true }, true)).toBe(false);
@@ -37,6 +41,7 @@ describe("IT-controlled POS tenant menu policy", () => {
   });
   it("matches the most specific parent/submenu route and never disables unknown paths", () => {
     expect(posMenuKeyForRoute("/preview/pos")).toBe("main.sales");
+    expect(posMenuKeyForRoute("/preview/pos/finance")).toBe("main.finance");
     expect(posMenuKeyForRoute("/preview/pos/more")).toBe("main.more");
     expect(posMenuKeyForRoute("/preview/pos/stock/media")).toBe("more.stock");
     expect(posMenuKeyForRoute("/preview/pos/kitchen/manage")).toBe("more.kitchen_manage");
