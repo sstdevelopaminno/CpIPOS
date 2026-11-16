@@ -69,14 +69,14 @@ export default function AccountingLoginPage() {
           <label className="block text-sm font-semibold">รหัสพนักงานบัญชี
             <input inputMode="numeric" autoComplete="username" pattern="[0-9]{1,32}"
               className="mt-1 w-full rounded-xl border border-slate-300 p-3"
-              value={code} onChange={(event) => setCode(event.target.value.replace(/\\D/g, "").slice(0, 32))}
+              value={code} onChange={(event) => setCode(event.target.value.replace(/\D/g, "").slice(0, 32))}
               required />
           </label>
           <label className="block text-sm font-semibold">PIN ยืนยันตัวตน
             <input type="password" inputMode="numeric" autoComplete="current-password"
               pattern="[0-9]{4,6}" minLength={4} maxLength={6}
               className="mt-1 w-full rounded-xl border border-slate-300 p-3"
-              value={pin} onChange={(event) => setPin(event.target.value.replace(/\\D/g, "").slice(0, 6))}
+              value={pin} onChange={(event) => setPin(event.target.value.replace(/\D/g, "").slice(0, 6))}
               required />
           </label>
           {error ? <p className="text-sm text-red-700" role="alert">{error}</p> : null}
