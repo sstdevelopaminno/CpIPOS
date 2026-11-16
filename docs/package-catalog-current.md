@@ -47,3 +47,12 @@ Trial is lifecycle-based and is not a paid package row. Trial must fail closed a
 ## Retired packages
 
 Any package code other than `starter`, `growth`, `business` or `custom` is not customer-selectable. Legacy referenced rows remain retired audit/history records only.
+
+## Finance entitlement (2026-11-16)
+
+- **Business:** Finance main menu included for Owner and the isolated Accountant role.
+- **CUSTOM:** Finance main menu included under the same verified owner/accountant and tenant access rules.
+- **Starter / Growth:** No Finance menu or Finance page/API access.
+- Active package contract, verified paid-grace conditions, authenticated role and tenant isolation remain mandatory.
+- An explicit IT navigation lock may hide a Finance menu but cannot grant Finance to an ineligible package.
+- Finance submenus, real financial records and ledger operations are not yet released.
