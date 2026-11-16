@@ -1,11 +1,13 @@
-import { redirect } from "next/navigation";
+import { notFound } from "next/navigation";
+import { hasFinancePackageAccess } from "@/lib/server/finance-package-access";
 import { requirePosSession } from "@/lib/pos-session-guard";
 
 export const dynamic = "force-dynamic";
 
 export default async function OwnerFinancePage() {
   const scope = await requirePosSession();
-  if (String(scope.session.role).toLowerCase() !== "owner") redirect("/preview/pos");
+  if (String(scope.session.role).toLowerCase() !== "owner") notFound();
+  if (!await hasFinancePackageAccess(scope.session.tenant_id)) notFound();
   return (
     <section className="h-full w-full overflow-y-auto bg-slate-50 p-4 text-slate-900 md:p-7">
       <div className="mx-auto max-w-5xl rounded-2xl border border-slate-200 bg-white p-7 shadow-sm">
