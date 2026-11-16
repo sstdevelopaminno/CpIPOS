@@ -6,6 +6,7 @@ export const POS_MENU_GROUPS = [
   { key: "sales_list", label: "รายการขาย", href: "/preview/pos/sales-list", children: [] },
   { key: "kitchen", label: "ครัว", href: "/preview/pos/kitchen", children: [] },
   { key: "shift", label: "เปิด/ปิดกะ", href: "/preview/pos/shift", children: [] },
+  { key: "finance", label: "การเงิน", href: "/preview/pos/finance", children: [] },
   { key: "ai_assistant", label: "CpiPOS AI ผู้ช่วยร้านค้า", href: "/preview/pos/ai-assistant", children: [] },
   { key: "more", label: "เพิ่มเติม", href: "/preview/pos/more", children: [
     { key: "sales_summary", label: "สรุปยอดขาย", href: "/preview/pos/sales-summary" },
