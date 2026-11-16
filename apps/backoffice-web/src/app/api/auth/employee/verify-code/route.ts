@@ -280,6 +280,18 @@ export async function POST(request: Request) {
     }
 
     const normalizedRole = String(employee.role ?? "").trim().toLowerCase();
+    if (normalizedRole === "accountant") {
+      return withTimingHeaders(
+        NextResponse.json({
+          data: null,
+          error: {
+            code: "finance_login_required",
+            message: "บัญชีต้องเข้าสู่เมนูการเงินผ่านตัวเลือกฝ่ายบัญชีในหน้ารหัสร้าน"
+          }
+        }, { status: 403 }),
+        startedAt
+      );
+    }
     const isKitchen = normalizedRole === "kitchen";
     const effectivePermissions = isKitchen ? ["pos.kitchen.access"] : employee.permissions;
 
