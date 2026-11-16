@@ -21,7 +21,7 @@ export async function POST(request: Request) {
   const input = await request.json().catch(() => null) as LoginInput | null;
   const code = String(input?.employee_code ?? "").trim();
   const pin = String(input?.pin ?? "").trim();
-  if (!/^\\d{1,32}$/.test(code) || !/^\\d{4,6}$/.test(pin)) return denied(400);
+  if (!/^\d{1,32}$/.test(code) || !/^\d{4,6}$/.test(pin)) return denied(400);
 
   const flow = readPreEntryFlowState(await cookies());
   if (!flow || (flow.stage !== "store_verified" && flow.stage !== "branch_selected") || !flow.tenantId) {
