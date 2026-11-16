@@ -44,6 +44,16 @@ No database migrations are included in this branch.
   them to use the Finance path.
 - Accountant no longer inherits manager/sales menu or sales permissions.
 
+## Package and main menu contract (2026-11-16)
+- Finance is a **primary POS menu** placed after Shift (following current main-menu sidebar layout).
+- Finance is included for **Business and CUSTOM** only. Starter, Growth, retired/unknown plans and inactive subscriptions are denied.
+- Owner sees Finance in the normal POS sidebar only when the trusted package decision is true.
+- Accountant sees only its separate Finance workspace; it never inherits POS sale/shift/menu access.
+- Both owner direct page and accountant login/session recheck the effective current package server-side.
+- This is **not** a new paid add-on or database entitlement row. Existing IT menu policy may explicitly hide/lock navigation, but it cannot grant Finance to an ineligible package.
+- Current draft is a blank finance landing workspace; submenus and money data will be designed in a subsequent phase.
+- No Production database writes or migrations.
+
 ## Release gates
 1. Confirm employee-code and PIN enrollment for each test accountant, including all active branch roles.
 2. Test same-tenant 1 branch, same-tenant multiple branches, missing role, inactive branch,
