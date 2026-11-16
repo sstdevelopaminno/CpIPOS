@@ -5,6 +5,7 @@ import { cookies } from "next/headers";
 import type { NextResponse } from "next/server";
 import { readRequiredEnv } from "@/lib/env";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
+import { hasAllBranchAccountingGrant } from "@/lib/finance-branch-access";
 
 const COOKIE_NAME = "cpi_finance_session";
 const SESSION_SECONDS = 60 * 60;
@@ -96,11 +97,8 @@ export async function verifyFinanceIdentity(tenantId: string, userId: string): P
   if (!tenantResult.data?.is_active || !userResult.data?.is_active) return null;
   const branchIds = (branchResult.data ?? []).map((branch) => String(branch.id));
   if (branchIds.length === 0) return null;
-  const accountantBranches = new Set(
-    (rolesResult.data ?? []).filter((role) => role.role === "accountant").map((role) => String(role.branch_id))
-  );
   // Fail closed until Owner assigns accountant to EVERY active branch.
-  if (!branchIds.every((id) => accountantBranches.has(id))) return null;
+  if (!hasAllBranchAccountingGrant(branchIds, rolesResult.data ?? [])) return null;
   return {
     tenantId,
     userId,
