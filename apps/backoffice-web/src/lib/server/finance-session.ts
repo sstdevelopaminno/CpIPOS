@@ -18,8 +18,6 @@ type FinanceToken = {
   exp: number;
 };
 
-type CookieReader = { get: (name: string) => { value: string } | undefined };
-
 export type FinanceIdentity = {
   tenantId: string;
   userId: string;
