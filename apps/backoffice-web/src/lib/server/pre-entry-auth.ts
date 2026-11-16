@@ -144,7 +144,7 @@ export function roleToPermissions(role: BranchRole): string[] {
     return ["pos.sales.access", "pos.device.override_in_use", "pos.shift.open", "pos.sales.refund", "pos.sales.discount", "pos.sales.void", "pos.reports.view"];
   }
   if (role === "accountant") {
-    return ["pos.sales.access", "pos.reports.view"];
+    return ["finance.access"];
   }
   return ["pos.sales.access", "pos.shift.open"];
 }
