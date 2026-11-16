@@ -113,9 +113,10 @@ export function PosStaffMenu({ lang, collapsed, orientation = "vertical", sessio
   const menuItems = useMemo(
      () => MENU_DEFS.map((item) => ({ ...item, label: labelFor(item, lang) })).filter((item) =>
       item.roles.includes(effectiveRole) &&
+      (item.href !== "/preview/pos/finance" || sessionRole === "owner") &&
       (!item.href.startsWith("/preview/pos/optical/") || opticalMenuAllowed) &&
       (item.href === "/preview/pos/finance" || !isCustom || isCustomPosMenuVisible(posMenuKeyForRoute(item.href) ?? "", menuPolicy, true))),
-    [effectiveRole, lang, isCustom, menuPolicy, opticalMenuAllowed]
+    [effectiveRole, sessionRole, lang, isCustom, menuPolicy, opticalMenuAllowed]
   );
   const isHorizontal = orientation === "horizontal";
   const moreVisible = effectiveRole === "owner" || effectiveRole === "manager";
