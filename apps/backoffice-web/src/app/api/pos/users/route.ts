@@ -520,7 +520,7 @@ export async function PATCH(request: Request) {
     if (action === "set_pin") {
       const payload = body as Extract<PatchPayload, { action: "set_pin" }>;
       const pin = String(payload.pin ?? "").trim();
-      if (!/^\d{4,12}$/.test(pin)) return fail("invalid_pin", "PIN must be 4-12 digits.", 422);
+      if (!/^\d{4,12}$/.test(pin) || (targetRole === "accountant" && !/^\d{4,8}$/.test(pin))) return fail("invalid_pin", "Invalid PIN length; office Accountants require 4-8 digits.", 422);
       if (targetRole === "staff") return fail("staff_pin_requires_owner_grant", "Staff PIN must be configured by the owner together with cancel-bill approval.", 403);
       const ownerActorSettingOwnerPin = auth.branchRole === "owner" && targetRole === "owner";
       const approval = ownerActorSettingOwnerPin ? { approved: true } : await requireApprovalPin({ pin: payload.approval_pin, tenantId: auth.tenantId!, branchId });
@@ -768,14 +768,24 @@ export async function DELETE(request: Request) {
     const supabase = getSupabaseServiceClient();
     const targetRole = await getTargetRole({ tenantId: auth.tenantId!, branchId, userId });
     if (!targetRole) return fail("user_not_found", "User was not found in this branch.", 404);
-    const deleteScope = await supabase.from("pos_user_device_scopes").delete().eq("tenant_id", auth.tenantId!).eq("branch_id", branchId).eq("user_id", userId);
+    // Office accountant is one tenant-wide identity; remove *all* its branch grants.
+    const deleteScopeQuery = supabase.from("pos_user_device_scopes").delete()
+      .eq("tenant_id", auth.tenantId!).eq("user_id", userId);
+    const deleteScope = targetRole === "accountant"
+      ? await deleteScopeQuery
+      : await deleteScopeQuery.eq("branch_id", branchId);
     if (deleteScope.error && !isMissingRelationError(deleteScope.error, "pos_user_device_scopes")) return fail("pos_user_scope_delete_failed", deleteScope.error.message, 500);
-    const { error: deleteRoleError } = await supabase.from("user_branch_roles").delete().eq("tenant_id", auth.tenantId!).eq("branch_id", branchId).eq("user_id", userId);
-    if (deleteRoleError) return fail("user_delete_failed", deleteRoleError.message, 500);
+
+    const deleteRolesQuery = supabase.from("user_branch_roles").delete()
+      .eq("tenant_id", auth.tenantId!).eq("user_id", userId);
+    const deleteRoles = targetRole === "accountant"
+      ? await deleteRolesQuery
+      : await deleteRolesQuery.eq("branch_id", branchId);
+    if (deleteRoles.error) return fail("user_delete_failed", deleteRoles.error.message, 500);
     const { count } = await supabase.from("user_branch_roles").select("id", { count: "exact", head: true }).eq("user_id", userId);
     if ((count ?? 0) === 0) await supabase.from("users_profiles").update({ is_active: false }).eq("id", userId);
-    void appendAuditLog({ tenantId: auth.tenantId!, branchId, actorUserId: auth.userId, actorRole: "owner", targetUserId: userId, action: "pos_user_deleted", targetTable: "user_branch_roles", targetId: userId, metadata: { target_role: targetRole } });
-    return ok({ user_id: userId, branch_id: branchId, deleted: true });
+    void appendAuditLog({ tenantId: auth.tenantId!, branchId, actorUserId: auth.userId, actorRole: "owner", targetUserId: userId, action: "pos_user_deleted", targetTable: "user_branch_roles", targetId: userId, metadata: { target_role: targetRole, tenant_wide: targetRole === "accountant" } });
+    return ok({ user_id: userId, branch_id: targetRole === "accountant" ? null : branchId, deleted: true });
   } catch (error) {
     const featureError = featureGateFail(error);
     if (featureError) return featureError;
