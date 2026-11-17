@@ -2,8 +2,10 @@ import "server-only";
 
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 import {
-  parseFinanceDateRange, summarizeFinanceSales,
-  type FinanceSalesOrder, type FinanceSalesPayment, type FinanceSalesBranch
+  parseFinanceDateRange, parseFinanceSalesRecordFilters,
+  summarizeFinanceSales, paginateFinanceSalesRecords,
+  type FinanceSalesOrder, type FinanceSalesPayment, type FinanceSalesBranch,
+  type FinanceSalesRecordsPage
 } from "@/lib/finance-sales-analytics";
 import { FinanceReportError, type FinanceReadScope } from "@/lib/server/finance-report-guard";
 
@@ -11,7 +13,9 @@ const BATCH_SIZE = 500;
 const MAX_ORDERS = 3000;
 const PAYMENT_CHUNK = 100;
 
-export type FinanceSalesReport = ReturnType<typeof summarizeFinanceSales> & {
+export type FinanceSalesReport = Omit<ReturnType<typeof summarizeFinanceSales>, "records"> & {
+  table: FinanceSalesRecordsPage;
+  availableMethods: string[];
   range: { from: string; to: string; timezone: "Asia/Bangkok"; basis: "payment_completed_at" };
   branches: FinanceSalesBranch[];
   selectedBranchId: string | null;
@@ -26,13 +30,29 @@ export type FinanceSalesReport = ReturnType<typeof summarizeFinanceSales> & {
  */
 export async function loadFinanceSalesReport(
   scope: FinanceReadScope,
-  filters: { from: string | null; to: string | null; branchId: string | null }
+  filters: {
+    from: string | null; to: string | null; branchId: string | null;
+    billNo?: string | null; method?: string | null;
+    reconciliation?: string | null; page?: string | null; pageSize?: string | null;
+  }
 ): Promise<FinanceSalesReport> {
   let range: ReturnType<typeof parseFinanceDateRange>;
   try {
     range = parseFinanceDateRange(filters.from, filters.to);
   } catch (error) {
     throw new FinanceReportError(error instanceof Error ? error.message : "finance_invalid_date", 422);
+  }
+  let recordFilters: ReturnType<typeof parseFinanceSalesRecordFilters>;
+  try {
+    recordFilters = parseFinanceSalesRecordFilters({
+      billNo: filters.billNo ?? null,
+      method: filters.method ?? null,
+      reconciliation: filters.reconciliation ?? null,
+      page: filters.page ?? null,
+      pageSize: filters.pageSize ?? null
+    });
+  } catch {
+    throw new FinanceReportError("finance_invalid_record_filter", 422);
   }
   const db = getSupabaseServiceClient();
   const { data: allBranches, error: branchError } = await db.from("branches")
@@ -49,18 +69,19 @@ export async function loadFinanceSalesReport(
   const selectedBranchIds = filters.branchId ? [filters.branchId] : branches.map(branch => branch.id);
 
   const orders: FinanceSalesOrder[] = [];
-  for (let offset = 0; offset <= MAX_ORDERS; offset += BATCH_SIZE) {
-    if (offset === MAX_ORDERS) throw new FinanceReportError("finance_report_too_many_sales_narrow_dates", 422);
-    const { data, error } = await db.from("orders")
-      .select("id,branch_id,order_no,status,grand_total,total_amount,paid_total,metadata,payment_completed_at")
+  for (let offset = 0; offset < MAX_ORDERS; offset += BATCH_SIZE) {
+    const { data, error, count } = await db.from("orders")
+      .select("id,branch_id,order_no,status,grand_total,total_amount,paid_total,metadata,payment_completed_at", { count: "exact" })
       .eq("tenant_id", scope.tenantId)
       .in("branch_id", selectedBranchIds)
       .eq("status", "completed")
       .gte("payment_completed_at", range.startIso)
       .lt("payment_completed_at", range.endExclusiveIso)
       .order("payment_completed_at", { ascending: false })
+      .order("id", { ascending: false })
       .range(offset, offset + BATCH_SIZE - 1);
-    if (error) throw new FinanceReportError("finance_sales_query_failed", 503);
+    if (error || count === null) throw new FinanceReportError("finance_sales_query_failed", 503);
+    if (count > MAX_ORDERS) throw new FinanceReportError("finance_report_too_many_sales_narrow_dates", 422);
     const page = (data ?? []) as FinanceSalesOrder[];
     orders.push(...page);
     if (page.length < BATCH_SIZE) break;
@@ -84,9 +105,12 @@ export async function loadFinanceSalesReport(
       throw new FinanceReportError("finance_payments_too_many_narrow_dates", 422);
     payments.push(...((data ?? []) as FinanceSalesPayment[]));
   }
-  const summary = summarizeFinanceSales(orders, payments, branches);
+  const { records, ...summary } = summarizeFinanceSales(orders, payments, branches);
+  const table = paginateFinanceSalesRecords(records, recordFilters);
+  const availableMethods = [...new Set(summary.methods.map(item => item.method))].sort();
   return {
     ...summary,
+    table, availableMethods,
     range: { from: range.from, to: range.to, timezone: "Asia/Bangkok", basis: "payment_completed_at" },
     branches, selectedBranchId: filters.branchId, scannedCompletedOrders: orders.length,
     readOnly: true,
