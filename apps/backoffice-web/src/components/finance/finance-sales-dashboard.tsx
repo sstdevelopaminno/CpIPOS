@@ -73,8 +73,10 @@ function currencyTotals(report: FinanceSalesReport) {
   return report.totals;
 }
 
-export function FinanceSalesDashboard({ actor }: { actor: FinanceActor }) {
-  const [tab, setTab] = useState<FinanceTab>("dashboard");
+export function FinanceSalesDashboard({
+  actor, initialTab = "dashboard"
+}: { actor: FinanceActor; initialTab?: FinanceTab }) {
+  const [tab, setTab] = useState<FinanceTab>(initialTab);
   const [draft, setDraft] = useState<Search>(() => initialSearch());
   const [applied, setApplied] = useState<Search>(() => initialSearch());
   const [page, setPage] = useState(1);
