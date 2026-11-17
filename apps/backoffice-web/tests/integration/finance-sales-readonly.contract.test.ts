@@ -17,6 +17,8 @@ describe("Finance Dashboard read-only security contract", () => {
     expect(auth).toContain("await requirePosSession()");
     expect(auth).toContain('toLowerCase() !== "owner"');
     expect(auth).toContain("await hasFinancePackageAccess(tenantId)");
+    expect(auth).toContain('.eq("role", "owner")');
+    expect(auth).toContain('branchIds.includes(posScope.session.branch_id)');
     expect(auth).toContain('overrides["main.finance"] === false');
     expect(owner).toContain('overrides["main.finance"] === false');
     expect(owner).toContain('<FinanceSalesDashboard actor="owner" />');
