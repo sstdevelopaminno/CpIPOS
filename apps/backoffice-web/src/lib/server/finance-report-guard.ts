@@ -5,13 +5,14 @@ import { requireFinanceSession } from "@/lib/server/finance-session";
 import { getTenantPosMenuOverrides } from "@/lib/server/pos-menu-policy-service";
 import { isAccountantMenuVisible } from "@/lib/accountant-menu-policy";
 import { requirePosSession } from "@/lib/pos-session-guard";
+import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 
 export type FinanceReportActor = "accountant" | "owner";
 export type FinanceReadScope = {
   actor: FinanceReportActor;
   tenantId: string;
   userId: string;
-  branchIds: string[] | null; // null means verified tenant Owner; list means verified Accountant grants
+  branchIds: string[]; // always explicit, verified branch grants for the selected actor
 };
 export class FinanceReportError extends Error {
   constructor(public code: string, public status: number = 403) {
@@ -45,8 +46,18 @@ export async function requireFinanceReadScope(actor: FinanceReportActor): Promis
   const overrides = await getTenantPosMenuOverrides(tenantId);
   if (overrides["main.finance"] === false)
     throw new FinanceReportError("finance_menu_disabled", 403);
+  // A branch Owner POS login is not proof of ownership in unrelated branches.
+  // Only explicitly recorded Owner memberships may be read by this report.
+  const grants = await getSupabaseServiceClient().from("user_branch_roles")
+    .select("branch_id")
+    .eq("tenant_id", tenantId).eq("user_id", posScope.session.user_id)
+    .eq("role", "owner");
+  if (grants.error) throw new FinanceReportError("finance_owner_branches_unavailable", 503);
+  const branchIds = (grants.data ?? []).map(row => String(row.branch_id));
+  if (!branchIds.includes(posScope.session.branch_id))
+    throw new FinanceReportError("finance_owner_scope_required", 403);
   return {
     actor, tenantId, userId: posScope.session.user_id,
-    branchIds: null
+    branchIds
   };
 }
