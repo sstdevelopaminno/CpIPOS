@@ -59,9 +59,11 @@ function money(value: number): number {
   return Math.round((value + Number.EPSILON) * 100) / 100;
 }
 function dateBangkok(value: string): string {
-  return new Intl.DateTimeFormat("en-CA", {
+  const parts = new Intl.DateTimeFormat("en-US", {
     year: "numeric", month: "2-digit", day: "2-digit", timeZone: "Asia/Bangkok"
-  }).format(new Date(value));
+  }).formatToParts(new Date(value));
+  const part = (type: string) => parts.find(item => item.type === type)?.value ?? "";
+  return `${part("year")}-${part("month")}-${part("day")}`;
 }
 function empty(currency: SalesCurrencyCode): FinanceSalesBucket {
   return { currency, billed: 0, received: 0, bills: 0, unmatchedBills: 0 };
