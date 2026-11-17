@@ -8,9 +8,11 @@ type FinanceActor = "owner" | "accountant";
 type ApiResult = { data?: FinanceSalesReport | null; error?: { code?: string; message?: string } | null };
 
 function bangkokDate(date: Date = new Date()): string {
-  return new Intl.DateTimeFormat("en-CA", {
+  const parts = new Intl.DateTimeFormat("en-US", {
     timeZone: "Asia/Bangkok", year: "numeric", month: "2-digit", day: "2-digit"
-  }).format(date);
+  }).formatToParts(date);
+  const part = (type: string) => parts.find(item => item.type === type)?.value ?? "";
+  return `${part("year")}-${part("month")}-${part("day")}`;
 }
 function rangeStart(days: number): string {
   const date = new Date(Date.now() - (days - 1) * 86_400_000);
