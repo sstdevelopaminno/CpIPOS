@@ -139,3 +139,22 @@ export async function loadAccountantStoreOverview(identity: FinanceIdentity) {
     }))
   };
 }
+
+
+export async function loadAccountantContractOverview(identity: FinanceIdentity) {
+  const db = getSupabaseServiceClient();
+  const response = await db.from("tenant_subscription_contracts")
+    .select("id,status,billing_cycle,amount_per_cycle,started_at,ended_at,created_at")
+    .eq("tenant_id", identity.tenantId)
+    .order("created_at", { ascending: false }).limit(1).maybeSingle();
+  if (response.error) throw new Error("finance_subscription_overview_unavailable");
+  const c = response.data;
+  if (!c) return null;
+  return {
+    status: String(c.status ?? "unknown"),
+    billingCycle: c.billing_cycle ? String(c.billing_cycle) : null,
+    amountPerCycle: c.amount_per_cycle === null ? null : amount(c.amount_per_cycle),
+    startedAt: c.started_at ? String(c.started_at) : null,
+    endedAt: c.ended_at ? String(c.ended_at) : null
+  };
+}
