@@ -246,7 +246,7 @@ export function FinanceSalesDashboard({ actor }: { actor: FinanceActor }) {
           <div className="mt-3 flex flex-wrap items-center gap-2">
             <button type="submit" disabled={loading}
               className="rounded bg-[#1264ac] px-5 py-2 text-xs font-bold text-white shadow-sm hover:bg-[#0b4c87] disabled:opacity-60">
-              ค้นหา (F3)
+              ค้นหา
             </button>
             <button type="button" className={actionClass}
               onClick={() => { const next = initialSearch(); setDraft(next); apply(next); setTab("dashboard"); }}>ล้างตัวกรอง</button>
