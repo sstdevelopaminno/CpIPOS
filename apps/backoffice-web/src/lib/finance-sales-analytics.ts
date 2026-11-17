@@ -168,6 +168,29 @@ export type FinanceSalesRecordFilters = {
   page: number;
   pageSize: number;
 };
+export function parseFinanceSalesRecordFilters(raw: {
+  billNo: string | null;
+  method: string | null;
+  reconciliation: string | null;
+  page: string | null;
+  pageSize: string | null;
+}): FinanceSalesRecordFilters {
+  const billNo = (raw.billNo ?? "").trim();
+  const method = (raw.method ?? "all").trim();
+  const reconciliation = raw.reconciliation ?? "all";
+  const pageRaw = raw.page ?? "1";
+  const sizeRaw = raw.pageSize ?? "20";
+  if (billNo.length > 80 || method.length > 60 || !method ||
+    !["all", "matched", "unmatched", "missing_payment"].includes(reconciliation) ||
+    !/^[1-9]\d{0,3}$/.test(pageRaw) || !["20", "50"].includes(sizeRaw)) {
+    throw new Error("finance_invalid_record_filter");
+  }
+  return {
+    billNo, method, reconciliation: reconciliation as FinanceReconciliationFilter,
+    page: Number(pageRaw), pageSize: Number(sizeRaw)
+  };
+}
+
 export type FinanceSalesRecordsPage = {
   rows: FinanceSalesRecent[];
   totalRows: number;
