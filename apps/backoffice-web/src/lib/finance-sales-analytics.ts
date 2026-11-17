@@ -89,6 +89,7 @@ export function summarizeFinanceSales(
   byBranch: FinanceSalesByBranch[];
   methods: FinanceSalesMethod[];
   recent: FinanceSalesRecent[];
+  records: FinanceSalesRecent[];
 } {
   const branchMap = new Map(branches.map(branch => [branch.id, branch]));
   const paymentsByOrder = new Map<string, FinanceSalesPayment[]>();
@@ -153,7 +154,49 @@ export function summarizeFinanceSales(
     daily: [...daily.values()].sort((a, b) => a.date.localeCompare(b.date) || a.currency.localeCompare(b.currency)),
     byBranch: [...byBranch.values()].sort((a, b) => a.branchName.localeCompare(b.branchName) || a.currency.localeCompare(b.currency)),
     methods: [...methods.values()].sort((a, b) => a.currency.localeCompare(b.currency) || a.method.localeCompare(b.method)),
-    recent: recent.sort((a, b) => b.completedAt.localeCompare(a.completedAt)).slice(0, 50)
+    records: recent.sort((a, b) => b.completedAt.localeCompare(a.completedAt) || b.orderId.localeCompare(a.orderId)),
+    recent: recent.slice(0, 50)
+  };
+}
+
+
+export type FinanceReconciliationFilter = "all" | "matched" | "unmatched" | "missing_payment";
+export type FinanceSalesRecordFilters = {
+  billNo: string;
+  method: string;
+  reconciliation: FinanceReconciliationFilter;
+  page: number;
+  pageSize: number;
+};
+export type FinanceSalesRecordsPage = {
+  rows: FinanceSalesRecent[];
+  totalRows: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+};
+/** Filter the FULL authorized period, not the recent-50 preview. Totals in the
+ * financial dashboard are independently calculated for the date + branch only.
+ */
+export function paginateFinanceSalesRecords(
+  records: readonly FinanceSalesRecent[],
+  filters: FinanceSalesRecordFilters
+): FinanceSalesRecordsPage {
+  const bill = filters.billNo.trim().toLocaleLowerCase();
+  const rows = records.filter(row => {
+    if (bill && !row.orderNo.toLocaleLowerCase().includes(bill)) return false;
+    if (filters.method !== "all" && !row.methods.includes(filters.method)) return false;
+    if (filters.reconciliation === "matched" && row.unmatched) return false;
+    if (filters.reconciliation === "unmatched" && !row.unmatched) return false;
+    if (filters.reconciliation === "missing_payment" && row.methods.length > 0) return false;
+    return true;
+  });
+  const totalPages = Math.max(1, Math.ceil(rows.length / filters.pageSize));
+  const page = Math.min(filters.page, totalPages);
+  return {
+    rows: rows.slice((page - 1) * filters.pageSize, page * filters.pageSize),
+    totalRows: rows.length,
+    page, pageSize: filters.pageSize, totalPages
   };
 }
 
