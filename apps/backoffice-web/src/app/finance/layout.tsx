@@ -51,7 +51,7 @@ export default async function FinanceLayout({ children }: { children: ReactNode 
         </nav>
         <div className="mt-6 border-t border-white/15 pt-4"><FinanceLogout /></div>
       </aside>
-      <main className="min-w-0 flex-1 overflow-y-auto p-4 md:p-8">{children}</main>
+      <main className="min-w-0 flex-1 overflow-y-auto p-2 sm:p-3 lg:p-4">{children}</main>
     </div>
   );
 }
