@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { FinanceNavIcon } from "./finance-nav-icon";
 
 export function FinanceLogout() {
   const [error, setError] = useState("");
@@ -24,9 +25,10 @@ export function FinanceLogout() {
       <button
         type="button"
         onClick={() => void logout()}
-        className="rounded-lg border border-white/40 px-4 py-2 text-sm font-semibold hover:bg-white/10"
+        className="flex w-full items-center justify-center gap-2.5 rounded-lg border border-sky-300/25 bg-white/[0.06] px-4 py-2.5 text-sm font-bold text-slate-100 transition-colors hover:border-rose-300/40 hover:bg-rose-400/10 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-sky-300"
       >
-        ออกจากระบบ
+        <FinanceNavIcon name="logout" />
+        <span>ออกจากระบบ</span>
       </button>
       {error ? <p role="alert" className="text-xs text-rose-200">{error}</p> : null}
     </div>
