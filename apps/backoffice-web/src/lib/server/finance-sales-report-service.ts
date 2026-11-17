@@ -40,9 +40,9 @@ export async function loadFinanceSalesReport(
     .eq("tenant_id", scope.tenantId).eq("is_active", true)
     .order("name", { ascending: true });
   if (branchError) throw new FinanceReportError("finance_branches_unavailable", 503);
-  const assigned = scope.branchIds ? new Set(scope.branchIds) : null;
+  const assigned = new Set(scope.branchIds);
   const branches = ((allBranches ?? []) as FinanceSalesBranch[])
-    .filter(branch => !assigned || assigned.has(branch.id));
+    .filter(branch => assigned.has(branch.id));
   if (!branches.length) throw new FinanceReportError("finance_no_authorized_branches", 403);
   if (filters.branchId && !branches.some(branch => branch.id === filters.branchId))
     throw new FinanceReportError("finance_branch_not_permitted", 403);
