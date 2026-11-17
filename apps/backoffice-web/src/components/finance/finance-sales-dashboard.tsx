@@ -155,7 +155,7 @@ export function FinanceSalesDashboard({ actor }: { actor: FinanceActor }) {
   const totals = report ? currencyTotals(report) : [];
   const showGrid = tab === "dashboard" || tab === "sales" || tab === "reconcile";
   return (
-    <div className="space-y-3 text-slate-900">
+    <div className="w-full min-w-0 space-y-3 text-slate-900">
       <div className="overflow-hidden rounded-lg border border-[#c5d4e7] bg-white shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-2 bg-[#0c345e] px-4 py-2.5 text-white">
           <div className="flex flex-wrap items-center gap-3">
@@ -266,7 +266,7 @@ export function FinanceSalesDashboard({ actor }: { actor: FinanceActor }) {
             <span>{loading ? "กำลังรีเฟรช…" : "ข้อมูลล่าสุดจากเซิร์ฟเวอร์ · ไม่แก้ไขรายการ"}</span>
           </div>
           {tab === "dashboard" || tab === "reconcile" ? (
-            <div className="grid gap-3 lg:grid-cols-2 xl:grid-cols-3">
+            <div className={totals.length === 1 ? "grid grid-cols-1 gap-3" : totals.length === 2 ? "grid grid-cols-1 gap-3 lg:grid-cols-2" : "grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3"}>
               {totals.map(total => (
                 <section key={total.currency} className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
                   <div className="flex items-center justify-between border-b border-slate-200 bg-[#f1f5fb] px-4 py-2">
@@ -294,7 +294,7 @@ export function FinanceSalesDashboard({ actor }: { actor: FinanceActor }) {
           ) : null}
 
           {tab === "dashboard" ? (
-            <div className="grid gap-3 xl:grid-cols-2">
+            <div className="grid min-w-0 gap-3 lg:grid-cols-2">
               <section className="rounded-lg border border-slate-200 bg-white p-4">
                 <h3 className="mb-3 text-sm font-bold">ยอดรับชำระรายวัน</h3>
                 {totals.map(total => {
