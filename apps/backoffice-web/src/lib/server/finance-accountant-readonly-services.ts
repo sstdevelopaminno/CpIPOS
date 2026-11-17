@@ -117,3 +117,25 @@ export async function loadAccountantProductSales(identity: FinanceIdentity): Pro
     rows: [...aggregate.values()].sort((a, b) => a.branchName.localeCompare(b.branchName) || a.product.localeCompare(b.product))
   };
 }
+
+
+/** Tenant and active branch identity for read-only Accountant settings pages.
+ * Never makes an edit to tenant master data.
+ */
+export async function loadAccountantStoreOverview(identity: FinanceIdentity) {
+  const db = getSupabaseServiceClient();
+  const [tenant, branches] = await Promise.all([
+    db.from("tenants").select("id,name,is_active").eq("id", identity.tenantId).maybeSingle(),
+    db.from("branches").select("id,code,name,is_active").eq("tenant_id", identity.tenantId)
+      .in("id", identity.branchIds).order("name")
+  ]);
+  if (tenant.error || branches.error || !tenant.data) throw new Error("finance_store_overview_unavailable");
+  return {
+    name: String(tenant.data.name),
+    active: Boolean(tenant.data.is_active),
+    branches: (branches.data ?? []).map(b => ({
+      id: String(b.id), code: String(b.code ?? ""), name: String(b.name),
+      active: Boolean(b.is_active)
+    }))
+  };
+}
