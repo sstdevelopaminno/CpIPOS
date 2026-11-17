@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseFinanceDateRange, summarizeFinanceSales } from "../../src/lib/finance-sales-analytics";
+import { parseFinanceDateRange, summarizeFinanceSales, paginateFinanceSalesRecords, parseFinanceSalesRecordFilters } from "../../src/lib/finance-sales-analytics";
 
 const branches = [{ id: "b1", name: "สาขาหนึ่ง", code: "B1" }, { id: "b2", name: "สาขาสอง", code: "B2" }];
 const orders = [
@@ -52,4 +52,33 @@ describe("Finance read-only sales analytics", () => {
       startIso: "2026-11-16T17:00:00.000Z", endExclusiveIso: "2026-11-17T17:00:00.000Z"
     });
   });
+  it("filters from every authorized completed order and paginates without changing summary totals", () => {
+    const summary = summarizeFinanceSales(orders, payments, branches);
+    expect(summary.records).toHaveLength(3);
+    const options = { billNo: "", method: "all", reconciliation: "all" as const, page: 1, pageSize: 2 };
+    const first = paginateFinanceSalesRecords(summary.records, options);
+    expect(first.totalRows).toBe(3);
+    expect(first.totalPages).toBe(2);
+    expect(first.rows.map(row => row.orderNo)).toEqual(["003", "002"]);
+    const second = paginateFinanceSalesRecords(summary.records, { ...options, page: 2 });
+    expect(second.rows.map(row => row.orderNo)).toEqual(["001"]);
+    expect(paginateFinanceSalesRecords(summary.records, { ...options, billNo: "001" }).rows).toHaveLength(1);
+    expect(paginateFinanceSalesRecords(summary.records, { ...options, method: "bank_transfer" }).rows.map(row => row.orderNo)).toEqual(["001"]);
+    expect(paginateFinanceSalesRecords(summary.records, { ...options, reconciliation: "unmatched" }).rows.map(row => row.orderNo)).toEqual(["002"]);
+    expect(paginateFinanceSalesRecords(summary.records, { ...options, reconciliation: "matched" }).totalRows).toBe(2);
+    expect(summary.totals.find(row => row.currency === "THB")?.billed).toBe(160);
+  });
+
+  it("validates untrusted table filter and page input before server reads", () => {
+    const base = { billNo: " 001 ", method: null, reconciliation: null, page: null, pageSize: null };
+    expect(parseFinanceSalesRecordFilters(base)).toEqual({
+      billNo: "001", method: "all", reconciliation: "all", page: 1, pageSize: 20
+    });
+    expect(() => parseFinanceSalesRecordFilters({ ...base, reconciliation: "cancelled" })).toThrow("finance_invalid_record_filter");
+    expect(() => parseFinanceSalesRecordFilters({ ...base, page: "-1" })).toThrow("finance_invalid_record_filter");
+    expect(() => parseFinanceSalesRecordFilters({ ...base, page: "10000" })).toThrow("finance_invalid_record_filter");
+    expect(() => parseFinanceSalesRecordFilters({ ...base, pageSize: "999" })).toThrow("finance_invalid_record_filter");
+    expect(() => parseFinanceSalesRecordFilters({ ...base, billNo: "x".repeat(81) })).toThrow("finance_invalid_record_filter");
+  });
+
 });
