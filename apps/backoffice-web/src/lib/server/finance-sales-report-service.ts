@@ -69,15 +69,18 @@ export async function loadFinanceSalesReport(
   const payments: FinanceSalesPayment[] = [];
   for (let offset = 0; offset < orders.length; offset += PAYMENT_CHUNK) {
     const ids = orders.slice(offset, offset + PAYMENT_CHUNK).map(order => order.id);
-    const { data, error } = await db.from("payments")
-      .select("id,order_id,method,status,amount")
+    const { data, error, count } = await db.from("payments")
+      .select("id,order_id,method,status,amount", { count: "exact" })
       .eq("tenant_id", scope.tenantId)
       .in("branch_id", selectedBranchIds)
       .in("order_id", ids)
       .eq("status", "paid")
-      .limit(1001);
-    if (error) throw new FinanceReportError("finance_payments_query_failed", 503);
-    if ((data ?? []).length >= 1001)
+      .limit(1000);
+    if (error || count === null)
+      throw new FinanceReportError("finance_payments_query_failed", 503);
+    // The Supabase Data API can cap output at 1,000 rows. Never present a
+    // truncated sum as a confirmed financial receipt total.
+    if (count >= 1000 || (data ?? []).length >= 1000)
       throw new FinanceReportError("finance_payments_too_many_narrow_dates", 422);
     payments.push(...((data ?? []) as FinanceSalesPayment[]));
   }
