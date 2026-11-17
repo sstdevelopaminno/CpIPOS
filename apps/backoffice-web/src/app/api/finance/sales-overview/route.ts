@@ -15,7 +15,12 @@ export async function GET(request: Request) {
     const report = await loadFinanceSalesReport(scope, {
       from: url.searchParams.get("from"),
       to: url.searchParams.get("to"),
-      branchId: url.searchParams.get("branchId")
+      branchId: url.searchParams.get("branchId"),
+      billNo: url.searchParams.get("billNo"),
+      method: url.searchParams.get("method"),
+      reconciliation: url.searchParams.get("reconciliation"),
+      page: url.searchParams.get("page"),
+      pageSize: url.searchParams.get("pageSize")
     });
     const response = ok(report);
     response.headers.set("Cache-Control", "private, no-store, max-age=0");
