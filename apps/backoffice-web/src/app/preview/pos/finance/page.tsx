@@ -20,7 +20,7 @@ export default async function OwnerFinancePage() {
           <p className="text-sm font-bold text-blue-700">CpiPOS · Finance · READ ONLY</p>
           <h1 className="mt-2 text-2xl font-extrabold">การเงิน</h1>
           <p className="mt-2 text-sm text-slate-600">
-            เจ้าของร้านเข้าสู่ระบบตามขั้นตอน POS เดิม · ตรวจสอบรายรับจากการขายทุกสาขาได้โดยไม่แก้ไขรายการ
+            เจ้าของร้านเข้าสู่ระบบตามขั้นตอน POS เดิม · ตรวจสอบรายรับจากการขายของสาขาที่ได้รับสิทธิ์ โดยไม่แก้ไขรายการ
           </p>
         </header>
         <FinanceSalesDashboard actor="owner" />
