@@ -6,7 +6,7 @@ export const dynamic = "force-dynamic";
 export default async function FinancePage() {
   await requireAccountantPage("main.finance");
   return (
-    <section className="w-full min-w-0 text-slate-900">
+    <section className="finance-office-workbench w-full min-w-0 text-slate-900">
       <FinanceSalesDashboard actor="accountant" />
     </section>
   );

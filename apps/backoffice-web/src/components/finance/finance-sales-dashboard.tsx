@@ -156,7 +156,7 @@ export function FinanceSalesDashboard({ actor }: { actor: FinanceActor }) {
   const showGrid = tab === "dashboard" || tab === "sales" || tab === "reconcile";
   return (
     <div className="w-full min-w-0 space-y-3 text-slate-900">
-      <div className="overflow-hidden rounded-lg border border-[#c5d4e7] bg-white shadow-sm">
+      <div className={"overflow-hidden border border-[#c5d4e7] bg-white shadow-sm " + (actor === "accountant" ? "rounded-none border-x-0 border-t-0" : "rounded-lg")}>
         <div className="flex flex-wrap items-center justify-between gap-2 bg-[#0c345e] px-4 py-2.5 text-white">
           <div className="flex flex-wrap items-center gap-3">
             <span className="text-sm font-black tracking-wide">CpiPOS <span className="text-cyan-300">FINANCE</span></span>
