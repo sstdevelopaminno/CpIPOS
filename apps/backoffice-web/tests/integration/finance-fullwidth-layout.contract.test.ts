@@ -6,6 +6,7 @@ const read = (path: string) => readFileSync(resolve(process.cwd(), path), "utf8"
 const ownerPage = read("src/app/preview/pos/finance/page.tsx");
 const accountantPage = read("src/app/finance/page.tsx");
 const accountantLayout = read("src/app/finance/layout.tsx");
+const accountantShell = read("src/app/finance/finance-accountant-shell.tsx");
 const workbench = read("src/components/finance/finance-sales-dashboard.tsx");
 
 describe("Finance full-width workbench for Owner and Accountant", () => {
@@ -26,7 +27,8 @@ describe("Finance full-width workbench for Owner and Accountant", () => {
     expect(accountantPage).not.toContain("<header");
     expect(accountantPage).not.toContain("max-w-7xl");
     expect(accountantPage).toContain('w-full min-w-0');
-    expect(accountantLayout).toContain('min-w-0 flex-1 overflow-y-auto p-2 sm:p-3 lg:p-4');
+    expect(accountantShell).toContain('min-w-0 flex-1 overflow-y-auto p-2 sm:p-3 lg:p-4');
+    expect(accountantLayout).toContain('<FinanceAccountantShell');
   });
 
   it("lets single-currency totals span the available width without affecting financial operations", () => {

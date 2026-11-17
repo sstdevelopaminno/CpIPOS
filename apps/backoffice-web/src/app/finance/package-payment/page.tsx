@@ -1,17 +1,50 @@
 import Link from "next/link";
 import { requireAccountantPage } from "@/lib/server/accountant-page-guard";
+import { loadAccountantContractOverview } from "@/lib/server/finance-accountant-readonly-services";
 
 export const dynamic = "force-dynamic";
 
 export default async function AccountantPackagePaymentPage() {
-  await requireAccountantPage("main.package_payment");
+  const identity = await requireAccountantPage("main.package_payment");
+  let contract: Awaited<ReturnType<typeof loadAccountantContractOverview>> | null = null;
+  let error = false;
+  try { contract = await loadAccountantContractOverview(identity); } catch { error = true; }
+
   return (
-    <section className="mx-auto max-w-4xl rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-      <p className="text-xs font-bold tracking-wide text-blue-700">CpiPOS Finance</p>
-      <h1 className="mt-2 text-2xl font-extrabold">ชำระแพ็กเกจ</h1>
-      <p className="mt-3 text-slate-600">เมนูสำหรับบัญชีแสดงแล้ว ขณะนี้ยังไม่เชื่อมการชำระเงินจริงใน Session บัญชี
-        เพื่อไม่ให้ใช้ Session เจ้าของร้านหรือเครื่องแคชเชียร์แทนกัน</p>
-      <Link href="/finance" className="mt-6 inline-block text-sm font-semibold text-blue-700 underline">กลับไปการเงิน</Link>
+    <section className="w-full min-w-0 space-y-4 text-slate-900">
+      <header className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+        <p className="text-xs font-bold text-blue-700">CpiPOS FINANCE · ฝ่ายบัญชี</p>
+        <h1 className="mt-1 text-xl font-extrabold">ชำระแพ็กเกจ</h1>
+        <p className="mt-2 text-xs text-slate-600">
+          ตรวจสอบสถานะสัญญาร้านในระบบ (อ่านอย่างเดียว) โดยยังไม่สร้างรายการรับชำระใหม่
+        </p>
+      </header>
+      {error ? <div role="alert" className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm">
+        ไม่สามารถอ่านข้อมูลสัญญาได้ กรุณาตรวจสอบกับฝ่าย IT
+      </div> : (
+        <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+          <h2 className="text-sm font-bold">สัญญาแพ็กเกจล่าสุด</h2>
+          {contract ? (
+            <dl className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <div><dt className="text-xs text-slate-500">สถานะสัญญา</dt>
+                <dd className="mt-1 text-sm font-bold">{contract.status}</dd></div>
+              <div><dt className="text-xs text-slate-500">รอบสัญญา</dt>
+                <dd className="mt-1 text-sm font-bold">{contract.billingCycle ?? "—"}</dd></div>
+              <div><dt className="text-xs text-slate-500">จำนวนเงินต่อรอบตามสัญญา</dt>
+                <dd className="mt-1 text-sm font-bold">{contract.amountPerCycle?.toLocaleString("th-TH") ?? "—"}</dd></div>
+              <div><dt className="text-xs text-slate-500">วันสิ้นสุดตามสัญญา</dt>
+                <dd className="mt-1 text-sm font-bold">{contract.endedAt ? new Date(contract.endedAt).toLocaleDateString("th-TH", { timeZone: "Asia/Bangkok" }) : "—"}</dd></div>
+            </dl>
+          ) : <p className="mt-3 text-sm text-slate-500">ยังไม่มีข้อมูลสัญญาแพ็กเกจ</p>}
+          <p className="mt-4 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950">
+            การชำระเงินจริงต้องดำเนินการผ่านขั้นตอนที่ตรวจสอบสิทธิ์และ Settlement ก่อน
+            หน้านี้ไม่ออกใบเสร็จ ไม่รับชำระ และไม่เปลี่ยนสัญญาหรือสิทธิ์ของร้าน
+          </p>
+        </section>
+      )}
+      <Link href="/finance" className="inline-block rounded border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-800 hover:bg-blue-100">
+        กลับไปการเงิน
+      </Link>
     </section>
   );
 }
