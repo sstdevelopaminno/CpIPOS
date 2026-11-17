@@ -65,9 +65,9 @@ export async function loadAccountantProductSales(identity: FinanceIdentity): Pro
 }> {
   const db = getSupabaseServiceClient();
   const today = todayBangkok();
-  const startDate = new Date(Date.parse(today + "T00:00:00+07:00") - 6 * 86_400_000);
-  const from = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Bangkok",
-    year: "numeric", month: "2-digit", day: "2-digit" }).format(startDate);
+  const [year, month, day] = today.split("-").map(Number);
+  const from = new Date(Date.UTC(year, month - 1, day) - 6 * 86_400_000)
+    .toISOString().slice(0, 10);
   const range = parseFinanceDateRange(from, today);
   const branchIds = identity.branchIds;
   if (!branchIds.length) throw new Error("finance_no_authorized_branches");
