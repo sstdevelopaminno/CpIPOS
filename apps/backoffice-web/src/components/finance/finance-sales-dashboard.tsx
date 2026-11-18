@@ -164,6 +164,9 @@ export function FinanceSalesDashboard({
             <span>CpiPOS FINANCE</span>
             <span className="border-l border-white/30 pl-2 font-semibold">{actor === "owner" ? "เจ้าของร้าน" : "ฝ่ายบัญชี"}</span>
           </div>
+          <span className="ml-auto self-center rounded border border-white/25 px-2 py-1 text-[10px] font-semibold text-white/90">
+            อ่านอย่างเดียว · READ ONLY
+          </span>
           {tabs.map(item => (
             <button type="button" key={item.id} onClick={() => selectTab(item.id)}
               aria-current={tab === item.id ? "page" : undefined}
