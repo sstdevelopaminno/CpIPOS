@@ -29,7 +29,7 @@ describe("Accountant Finance receipts and tax invoice workflows", () => {
     expect(service).toContain('.in("branch_id", identity.branchIds)');
     expect(service).toContain('.eq("status", "paid")');
     expect(service).toContain('db.from("finance_receipt_revisions").insert({');
-    expect(service).toContain('snapshot.revision + 1');
+    expect(service).toContain('old.receipt.revision + 1');
     expect(service).toContain('finance_receipt_revision_conflict');
     expect(service).toContain('finance_document_total_mismatch');
     expect(service).toContain('finance_tax_invoice_requires_credit_or_replacement');
