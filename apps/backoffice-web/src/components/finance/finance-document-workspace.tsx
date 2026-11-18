@@ -469,7 +469,7 @@ export function FinanceDocumentWorkspace({ kind }: { kind: Kind }) {
                     onChange={e => setReason(e.target.value)} placeholder="ระบุสาเหตุและหลักฐานประกอบ" /></label>
                 <div className="flex flex-wrap justify-end gap-2 border-t border-slate-200 pt-4">
                   <button type="submit" disabled={working || reason.trim().length < 10} className={primary}>{working ? "กำลังบันทึก..." : "บันทึกฉบับแก้ไข"}</button>
-                  <button type="button" className={btn} onClick={() => setEdit(null)}>ยกเลิกการแก้ไข</button>
+                  <button type="button" className={btn} disabled={working} onClick={() => setEdit(null)}>ยกเลิกการแก้ไข</button>
                 </div>
               </form> : null}
           </FinanceDialog>
