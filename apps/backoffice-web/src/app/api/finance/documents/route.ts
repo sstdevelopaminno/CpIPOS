@@ -36,7 +36,8 @@ export async function GET(request: Request) {
   const url = new URL(request.url);
   const mode = url.searchParams.get("mode") ?? "list";
   try {
-    const identity = await authorized(mode === "buyers" ? "more.tax_invoices" : "more.receipts");
+    const kind = url.searchParams.get("kind");
+    const identity = await authorized(mode === "buyers" || kind === "tax" ? "more.tax_invoices" : "more.receipts");
     if (mode === "detail") {
       const orderId = url.searchParams.get("orderId") ?? "";
       return ok(await loadFinanceDocument(identity, orderId));
