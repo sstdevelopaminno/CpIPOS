@@ -87,7 +87,7 @@ export function FinanceAccountantShell({
           <FinanceLogout collapsed={collapsed} />
         </footer>
       </aside>
-      <main className="min-w-0 flex-1 overflow-y-auto p-2 sm:p-3 lg:p-4 has-[.finance-office-workbench]:p-0">
+      <main className="min-w-0 flex-1 overflow-y-auto p-2 sm:p-3 lg:p-4 has-[.finance-office-workbench]:p-0 has-[.finance-secondary-workbench]:p-0">
         {children}
       </main>
     </div>
