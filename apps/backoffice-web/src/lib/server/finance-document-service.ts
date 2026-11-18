@@ -82,11 +82,9 @@ export async function loadFinanceDocument(identity: FinanceIdentity, orderId: st
       .eq("branch_id", branchId).eq("order_id", orderId).eq("status", "paid").limit(100),
     db.from("pos_tax_invoices").select("id,invoice_no,issued_at,status,seller_snapshot,buyer_snapshot,order_snapshot,items_snapshot,tax_snapshot")
       .eq("tenant_id", identity.tenantId).eq("branch_id", branchId).eq("order_id", orderId).maybeSingle(),
-    db.from("audit_logs").select("id,created_at,action,new_value")
-      .eq("tenant_id", identity.tenantId).eq("branch_id", branchId)
-      .eq("target_table", "orders").eq("target_id", orderId)
-      .in("action", ["finance_receipt_corrected", "finance_receipt_voided"])
-      .order("created_at", { ascending: true }).limit(200),
+    db.from("finance_receipt_revisions").select("id,created_at,action,snapshot,reason,revision")
+      .eq("tenant_id", identity.tenantId).eq("branch_id", branchId).eq("order_id", orderId)
+      .order("revision", { ascending: true }).limit(200),
     loadReceiptStoreProfile(identity.tenantId)
   ]);
   if (branch.error || lines.error || payments.error || invoice.error || logs.error)
@@ -109,11 +107,11 @@ export async function loadFinanceDocument(identity: FinanceIdentity, orderId: st
   };
   let receipt = original;
   const revisions = (logs.data ?? []).map(row => {
-    const s = revisionRow(row.new_value);
+    const s = revisionRow({ snapshot: row.snapshot });
     if (s && s.orderId === orderId && s.branchId === branchId) receipt = s;
     return {
       id: String(row.id), createdAt: String(row.created_at),
-      action: String(row.action), reason: plain(asRecord(row.new_value).reason, 500)
+      action: String(row.action), reason: plain(row.reason, 500)
     };
   });
   const i = invoice.data;
@@ -181,20 +179,37 @@ export async function appendFinanceReceiptCorrection(
     });
   }
   const db = getSupabaseServiceClient();
-  // This is one append-only correction event, not an UPDATE of a POS order or issued tax invoice.
-  const { error } = await db.from("audit_logs").insert({
+  // A unique (tenant, branch, order, revision) constraint rejects concurrent overwrites.
+  // The immutable revision row is itself the authoritative edit/void audit trail.
+  const revisionWrite = await db.from("finance_receipt_revisions").insert({
+    tenant_id: identity.tenantId, branch_id: snapshot.branchId,
+    order_id: snapshot.orderId, revision: snapshot.revision,
+    action: snapshot.voided ? "voided" : "corrected",
+    snapshot, reason: input.reason.trim(), actor_user_id: identity.userId
+  });
+  if (revisionWrite.error) {
+    if (revisionWrite.error.code === "23505")
+      throw new FinanceDocumentError("finance_receipt_revision_conflict", 409);
+    throw new FinanceDocumentError("finance_receipt_audit_write_failed", 503);
+  }
+  // Secondary audit stream, in addition to the append-only canonical revision table.
+  const standardAudit = await db.from("audit_logs").insert({
     tenant_id: identity.tenantId, branch_id: snapshot.branchId,
     actor_user_id: identity.userId, actor_role: "accountant",
-    action: input.action === "void" ? "finance_receipt_voided" : "finance_receipt_corrected",
+    action: snapshot.voided ? "finance_receipt_voided" : "finance_receipt_corrected",
     target_table: "orders", target_id: snapshot.orderId,
     old_value: { snapshot: old.receipt }, new_value: { snapshot, reason: input.reason.trim() },
     metadata: { module: "finance_documents", version: snapshot.revision,
       original_order_total: old.original.totalAmount,
-      document_type: "receipt_correction", user_agent: request.headers.get("user-agent")?.slice(0, 250) },
+      document_type: "receipt_correction",
+      user_agent: request.headers.get("user-agent")?.slice(0, 250) },
     module: "finance", entity_type: "receipt", entity_id: snapshot.orderId,
     before_data: { revision: old.receipt.revision }, after_data: { revision: snapshot.revision }
   });
-  if (error) throw new FinanceDocumentError("finance_receipt_audit_write_failed", 503);
+  if (standardAudit.error) {
+    // Never undo the immutable correction: a consistent version history still exists.
+    console.error("[finance/documents] secondary audit unavailable", standardAudit.error.message);
+  }
   return loadFinanceDocument(identity, input.orderId);
 }
 
