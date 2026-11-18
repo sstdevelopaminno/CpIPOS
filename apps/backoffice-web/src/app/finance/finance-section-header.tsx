@@ -7,7 +7,7 @@ export function FinanceSectionHeader({ title, subtitle, group }: {
     <header className="w-full min-w-0 border-b border-[#a9c5e6] bg-[#155c94] px-5 py-3 text-white">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-[11px] font-semibold text-sky-100">
+          <p className="text-xs font-semibold leading-5 text-sky-100">
             <Link href="/finance" className="hover:underline">การเงิน</Link>
             {group ? " / " + (group === "more" ? "เพิ่มเติม" : "ตั้งค่า") : "" }
           </p>
