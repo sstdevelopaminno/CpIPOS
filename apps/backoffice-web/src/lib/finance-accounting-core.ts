@@ -7,7 +7,7 @@ export type FinanceCurrency = "THB" | "LAK" | "USD";
 export type FinanceDocumentKind =
   | "sales_quote" | "sales_order" | "delivery_note" | "sales_invoice"
   | "purchase_request" | "purchase_order" | "goods_receipt" | "supplier_bill"
-  | "expense_voucher" | "payment_voucher";
+  | "expense_voucher" | "receipt_voucher" | "payment_voucher";
 export type FinanceDocumentStatus = "draft" | "submitted" | "approved" | "issued" | "rejected" | "voided";
 export type FinanceDocumentAction = "submit" | "approve" | "reject" | "issue" | "void";
 export type FinanceAccountingEvent =
