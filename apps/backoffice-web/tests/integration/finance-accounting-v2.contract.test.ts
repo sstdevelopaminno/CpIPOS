@@ -5,7 +5,7 @@ import { applyFinanceDocumentAction, assertBalancedFinanceJournal,
   currencyToMinor, financeAgingAsOf, financePostingKey } from "../../src/lib/finance-accounting-core";
 
 const file=(p:string)=>readFileSync(resolve(process.cwd(),p),"utf8");
-const sql=file("../../supabase/migrations/20261118133000_finance_accounting_v2_documents_journal.sql");
+const sql=file("../../supabase/migrations/20261118164343_finance_accounting_v2_documents_journal.sql");
 const service=file("src/lib/server/finance-accounting-workflow.ts");
 const api=file("src/app/api/finance/accounting/route.ts");
 const ui=file("src/components/finance/finance-accounting-register.tsx");

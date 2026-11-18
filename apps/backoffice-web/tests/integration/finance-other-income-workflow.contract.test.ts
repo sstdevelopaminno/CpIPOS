@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 const source = (path: string) => readFileSync(resolve(process.cwd(), path), "utf8");
-const migration = source("../../supabase/migrations/20261118133000_finance_accounting_v2_documents_journal.sql");
+const migration = source("../../supabase/migrations/20261118164343_finance_accounting_v2_documents_journal.sql");
 const page = source("src/app/finance/[module]/page.tsx");
 const income = source("src/components/finance/finance-income-workspace.tsx");
 const registry = source("src/components/finance/finance-other-income-register.tsx");

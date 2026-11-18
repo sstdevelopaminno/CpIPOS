@@ -4,7 +4,7 @@ on:
   pull_request:
     branches: [main]
     paths:
-      - 'supabase/migrations/20261118133000_finance_accounting_v2_documents_journal.sql'
+      - 'supabase/migrations/20261118164343_finance_accounting_v2_documents_journal.sql'
       - 'scripts/tests/finance-accounting-staging-*.sql'
       - '.github/workflows/finance-accounting-staging.yml'
   workflow_dispatch:
@@ -47,7 +47,7 @@ jobs:
         run: |
           set -euo pipefail
           cat scripts/tests/finance-accounting-staging-bootstrap.sql \
-            supabase/migrations/20261118133000_finance_accounting_v2_documents_journal.sql \
+            supabase/migrations/20261118164343_finance_accounting_v2_documents_journal.sql \
             scripts/tests/finance-accounting-staging-smoke.sql \
             scripts/tests/finance-accounting-staging-lifecycle.sql \
             | docker exec -i "${{ job.services.postgres.id }}" \
