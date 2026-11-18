@@ -42,13 +42,15 @@ describe("Accountant menu collapse, branding and read-only integration", () => {
 
   it("renders real read-only sales/receipts/catalog reports for accounting routes", () => {
     expect(page).toContain('requireAccountantPage(item.key)');
-    expect(page).toContain('getTenantPosMenuOverrides(identity.tenantId)');
+    expect(page).toContain('requireAccountantPage(item.key)');
+    expect(page).toContain('<FinanceSectionHeader title={item.label}');
     expect(page).toContain('<FinanceSalesDashboard actor="accountant" initialTab="dashboard" />');
-    expect(page).toContain('<FinanceSalesDashboard actor="accountant" initialTab="sales" />');
+    expect(page).toContain('<FinanceDocumentWorkspace kind="receipt" />');
+    expect(page).toContain('<FinanceDocumentWorkspace kind="tax" />');
     expect(page).toContain('loadAccountantProductCatalog(identity)');
     expect(page).toContain('loadAccountantProductSales(identity)');
     expect(page).toContain('loadAccountantStoreOverview(identity)');
-    expect(page).toContain('isAccountantMenuVisible(entry.key, overrides)');
+    expect(page).toContain('import { FinanceDocumentWorkspace }');
     expect(page).toContain('taxView');
   });
 
@@ -60,8 +62,8 @@ describe("Accountant menu collapse, branding and read-only integration", () => {
     expect(service).toContain('finance_product_sales_too_many_orders');
     expect(service).toContain('finance_catalog_too_large');
     expect(service).not.toMatch(/\.(insert|update|upsert|delete|rpc)\s*\(/);
-    expect(page).toContain('ยังไม่ใช่ต้นฉบับใบเสร็จ');
-    expect(page).toContain('ยังไม่เปิดการออกเอกสาร');
+    expect(page).toContain('FinanceDocumentWorkspace kind="receipt"');
+    expect(page).toContain('FinanceDocumentWorkspace kind="tax"');
     expect(packagePage).toContain('loadAccountantContractOverview(identity)');
     expect(packagePage).toContain('requireAccountantPage("main.package_payment")');
     expect(packagePage).toContain('หน้านี้ไม่ออกใบเสร็จ ไม่รับชำระ');
