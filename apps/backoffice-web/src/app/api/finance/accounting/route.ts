@@ -2,7 +2,8 @@ import { fail, ok } from "@/lib/http";
 import {
   accountingIdentity, accountingBranches, accountingDocuments, accountingAging,
   accountingAccounts, accountingCreate, accountingTransition, accountingPost,
-  accountingCreateAccount, accountingJournals, FinanceAccountingError
+  accountingCreateAccount, accountingJournals, accountingJournalDetail, accountingDocumentDetail,
+  FinanceAccountingError
 } from "@/lib/server/finance-accounting-workflow";
 import { todayBangkok } from "@/lib/finance-sales-analytics";
 import { FinanceCoreError } from "@/lib/finance-accounting-core";
@@ -34,6 +35,10 @@ export async function GET(request:Request) {
       return nonCache(ok(await accountingAccounts(identity)));
     if(view==="journals")
       return nonCache(ok(await accountingJournals(identity,branch)));
+    if(view==="journal_detail")
+      return nonCache(ok(await accountingJournalDetail(identity,url.searchParams.get("journalId")??"")));
+    if(view==="document_detail")
+      return nonCache(ok(await accountingDocumentDetail(identity,url.searchParams.get("documentId")??"")));
     if(view==="aging") {
       const side=url.searchParams.get("side");
       if(side!=="AR" && side!=="AP")

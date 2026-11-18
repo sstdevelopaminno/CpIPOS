@@ -140,6 +140,78 @@ export async function accountingJournals(identity:FinanceIdentity, branchId:stri
     postedAt:String(j.posted_at),postedBy:String(j.posted_by)
   }))};
 }
+export async function accountingDocumentDetail(identity: FinanceIdentity, id: string) {
+  const document = await getAccountingDocument(identity,id);
+  const db = getPrimarySupabaseServiceClient();
+  const [lines, events] = await Promise.all([
+    db.from("finance_accounting_document_lines")
+      .select("line_no,description,quantity,unit_minor,line_minor")
+      .eq("tenant_id",identity.tenantId).eq("branch_id",document.branchId)
+      .eq("document_id",document.id).order("line_no").limit(100),
+    db.from("finance_accounting_document_events")
+      .select("action,old_status,new_status,created_at,actor_user_id,event_payload")
+      .eq("tenant_id",identity.tenantId).eq("branch_id",document.branchId)
+      .eq("document_id",document.id).order("created_at",{ascending:false}).limit(101)
+  ]);
+  failClosedDb(lines.error); failClosedDb(events.error);
+  if ((events.data??[]).length>100)
+    throw new FinanceAccountingError("finance_accounting_audit_too_many",422);
+  return {
+    document,
+    lines:(lines.data??[]).map(line=>({
+      no:Number(line.line_no),description:String(line.description),
+      quantity:Number(line.quantity),unitMinor:Number(line.unit_minor),
+      totalMinor:Number(line.line_minor)
+    })),
+    events:(events.data??[]).map(event=>({
+      action:String(event.action),previous:String(event.old_status??""),
+      current:String(event.new_status),timestamp:String(event.created_at),
+      actorId:String(event.actor_user_id)
+    }))
+  };
+}
+
+export async function accountingJournalDetail(identity: FinanceIdentity, id: string) {
+  await authorize(identity,"finance.ledger");
+  const journalId = uuid(id);
+  const db = getPrimarySupabaseServiceClient();
+  const result = await db.from("finance_accounting_journals")
+    .select("id,branch_id,document_id,accounting_date,currency,debit_total_minor,credit_total_minor,posted_at,posted_by")
+    .eq("tenant_id",identity.tenantId).in("branch_id",identity.branchIds)
+    .eq("id",journalId).maybeSingle();
+  failClosedDb(result.error);
+  if(!result.data) throw new FinanceAccountingError("finance_accounting_journal_not_found",404);
+  const journal = result.data;
+  const items=await db.from("finance_accounting_journal_lines")
+    .select("line_no,account_id,currency,debit_minor,credit_minor")
+    .eq("tenant_id",identity.tenantId).eq("branch_id",journal.branch_id)
+    .eq("journal_id",journalId).order("line_no").limit(101);
+  failClosedDb(items.error);
+  if((items.data??[]).length>100)
+    throw new FinanceAccountingError("finance_accounting_journal_lines_too_many",422);
+  const accountIds=[...new Set((items.data??[]).map(item=>String(item.account_id)))];
+  const accounts=accountIds.length?await db.from("finance_accounting_chart")
+    .select("id,account_code,account_name")
+    .eq("tenant_id",identity.tenantId).in("id",accountIds):null;
+  if(accounts) failClosedDb(accounts.error);
+  const codes=new Map((accounts?.data??[]).map(account=>[
+    String(account.id),{code:String(account.account_code),name:String(account.account_name)}
+  ]));
+  return {
+    journal:{id:journalId,documentId:String(journal.document_id),
+      date:String(journal.accounting_date),currency:String(journal.currency),
+      debitMinor:Number(journal.debit_total_minor),creditMinor:Number(journal.credit_total_minor),
+      postedAt:String(journal.posted_at),postedBy:String(journal.posted_by)},
+    lines:(items.data??[]).map(item=>({
+      no:Number(item.line_no),accountId:String(item.account_id),
+      code:codes.get(String(item.account_id))?.code??"-",
+      name:codes.get(String(item.account_id))?.name??"-",
+      currency:String(item.currency),debitMinor:Number(item.debit_minor),
+      creditMinor:Number(item.credit_minor)
+    }))
+  };
+}
+
 export async function accountingAging(identity: FinanceIdentity,side:"AR"|"AP",branchId:string|null,asOf:string) {
   await authorize(identity,side==="AR"?"finance.sales_receivables":"finance.purchases_payables");
   if (branchId) validBranch(identity,branchId);
