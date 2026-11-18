@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { FinanceSalesBranch, FinanceSalesRecordsPage } from "@/lib/finance-sales-analytics";
 import type { FinanceDocumentDetail, FinanceReceiptLine, FinanceReceiptSnapshot } from "@/lib/server/finance-document-service";
 import { formatSalesMoney } from "@/lib/pos-money";
@@ -84,6 +84,9 @@ export function FinanceDocumentWorkspace({ kind }: { kind: Kind }) {
   const [query, setQuery] = useState(0);
   const [list, setList] = useState<ListPayload | null>(null);
   const [selected, setSelected] = useState<FinanceDocumentDetail | null>(null);
+  const [openingOrderId, setOpeningOrderId] = useState<string | null>(null);
+  // Ignore a delayed detail response after closing its modal.
+  const detailRequest = useRef(0);
   const [edit, setEdit] = useState<Edit | null>(null);
   const [reason, setReason] = useState("");
   const [buyers, setBuyers] = useState<Buyer[]>([]);
@@ -99,16 +102,44 @@ export function FinanceDocumentWorkspace({ kind }: { kind: Kind }) {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
 
-  const loadDetail = useCallback(async (orderId: string) => {
-    setError("");
+  const loadDetail = useCallback(async (orderId: string, token?: number) => {
     const res = await fetch("/api/finance/documents?mode=detail&kind=" + kind + "&orderId=" + encodeURIComponent(orderId), { cache: "no-store" });
     const json = await res.json().catch(() => null) as Api<FinanceDocumentDetail> | null;
     if (!res.ok || !json?.data) throw new Error(json?.error?.code ?? "finance_receipt_detail_unavailable");
+    if (token !== undefined && token !== detailRequest.current) return null;
     setSelected(json.data);
     setEdit(null);
     setReason("");
     return json.data;
   }, [kind]);
+
+  const closeDetails = () => {
+    if (working) return;
+    detailRequest.current += 1;
+    setOpeningOrderId(null);
+    setSelected(null);
+    setEdit(null);
+    setReason("");
+    setError("");
+  };
+
+  const openBill = async (orderId: string) => {
+    if (working) return;
+    const token = ++detailRequest.current;
+    setSelected(null);
+    setOpeningOrderId(orderId);
+    setError("");
+    try {
+      await loadDetail(orderId, token);
+    } catch (cause) {
+      if (token === detailRequest.current) {
+        const code = cause instanceof Error ? cause.message : "";
+        setError(errorMessages[code] ?? code ?? "ไม่สามารถโหลดรายละเอียดบิลได้");
+      }
+    } finally {
+      if (token === detailRequest.current) setOpeningOrderId(null);
+    }
+  };
 
   useEffect(() => {
     let alive = true;
@@ -242,9 +273,11 @@ export function FinanceDocumentWorkspace({ kind }: { kind: Kind }) {
                 <td className="px-3 py-2 text-right tabular-nums">{money(row.billed, row.currency)}</td>
                 <td className="px-3 py-2 text-right tabular-nums">{money(row.received, row.currency)}</td>
                 <td className="px-3 py-2 text-center">
-                  <button type="button" className={btn} disabled={working} onClick={() => {
-                    void loadDetail(row.orderId).catch(e => setError(e instanceof Error ? e.message : "อ่านเอกสารไม่ได้"));
-                  }}>เลือกบิล</button>
+                  <button type="button" className={btn}
+                    disabled={working || openingOrderId !== null}
+                    onClick={() => { void openBill(row.orderId); }}>
+                    {openingOrderId === row.orderId ? "กำลังเปิด..." : "เลือกบิล"}
+                  </button>
                 </td>
               </tr>
             ))}
@@ -259,16 +292,14 @@ export function FinanceDocumentWorkspace({ kind }: { kind: Kind }) {
         </div> : null}
       </section>
 
-      {selected && receipt ? (
-        <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
-          <div className="flex flex-wrap items-center justify-between gap-2 bg-[#e8f0fa] px-4 py-3">
-            <div>
-              <h2 className="text-sm font-bold text-[#153f6e]">{kind === "tax" ? "รายละเอียดใบกำกับภาษี" : "รายละเอียดใบเสร็จ"} · {receipt.orderNo}</h2>
-              <p className="mt-1 text-xs text-slate-600">{receipt.branchName} · {receipt.currency} · ฉบับแก้ไข {receipt.revision} · {receipt.voided ? "ยกเลิกเอกสาร" : "ใช้งาน"}</p>
-            </div>
-            <button type="button" className={btn} onClick={() => { setSelected(null); setEdit(null); }}>ปิดรายละเอียด</button>
-          </div>
-          <div className="space-y-4 p-4">
+      {(openingOrderId !== null || (selected && receipt)) ? (
+        <FinanceDialog open busy={working} size="xl" onClose={closeDetails}
+          title={receipt ? (kind === "tax" ? "รายละเอียดใบกำกับภาษี" : "รายละเอียดใบเสร็จย้อนหลัง") : "กำลังเปิดรายละเอียดบิล"}
+          description={receipt
+            ? `บิล ${receipt.orderNo} · ${receipt.branchName} · ${receipt.currency} · ฉบับแก้ไข ${receipt.revision} · ${receipt.voided ? "ยกเลิกเอกสาร" : "ใช้งาน"}`
+            : "กำลังอ่านข้อมูลจากระบบ POS ตามสิทธิ์สาขาของฝ่ายบัญชี"}>
+          {receipt ? (
+            <div className="space-y-5">
             <div className="flex flex-wrap items-end gap-2">
               <label className="text-xs font-semibold text-slate-600">ขนาดกระดาษ
                 <select className={field + " mt-1"} value={paper} onChange={e => setPaper(Number(e.target.value) as 58 | 80)}>
@@ -330,16 +361,26 @@ export function FinanceDocumentWorkspace({ kind }: { kind: Kind }) {
                 ยกเลิกเอกสารใบเสร็จ
               </button>
             ) : null}
-            {selected.revisions.length ? (
-              <div className="text-xs text-slate-600">
+            {selected?.revisions.length ? (
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
                 <b>ประวัติการแก้ไข/ยกเลิก</b>
-                <ul className="mt-1 space-y-1">{selected.revisions.map(r =>
+                <ul className="mt-2 space-y-1">{selected.revisions.map(r =>
                   <li key={r.id}>{new Date(r.createdAt).toLocaleString("th-TH", { timeZone: "Asia/Bangkok" })} · {r.action} · {r.reason}</li>
                 )}</ul>
               </div>
             ) : null}
+            <div className="flex justify-end border-t border-slate-200 pt-4">
+              <button type="button" className={btn} disabled={working}
+                onClick={closeDetails}>ปิดรายละเอียด</button>
+            </div>
           </div>
-        </section>
+          ) : (
+            <div role="status" aria-live="polite" className="flex min-h-44 items-center justify-center gap-3 text-sm text-slate-600">
+              <span aria-hidden="true" className="h-5 w-5 animate-spin rounded-full border-2 border-slate-300 border-t-blue-600" />
+              กำลังโหลดรายละเอียดบิล...
+            </div>
+          )}
+        </FinanceDialog>
       ) : null}
       {selected && receipt && kind === "tax" ? (
         <>
