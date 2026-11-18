@@ -92,6 +92,18 @@ describe("Accountant independent other-income workflow and professional module U
     expect(register).toContain('ยอดค้างชำระ');
   });
 
+  it("posts approved other-income documents only by explicit balanced GL choice", () => {
+    expect(registry).toContain('action: "post_document"');
+    expect(registry).toContain("debitAccountId: debit");
+    expect(registry).toContain("creditAccountId: credit");
+    expect(registry).toContain('item.type === "asset"');
+    expect(registry).toContain('item.type === "income"');
+    expect(registry).toContain("setPostAllowed(false)");
+    expect(registry).toContain('selected.status === "issued" && !selected.postedJournalId && postAllowed');
+    expect(migration).toContain("v_doc.document_kind='other_income'");
+    expect(migration).toContain("finance_accounting_posting_not_approved");
+  });
+
   it("keeps bank transfers separate from POS payment-mismatch and real statements", () => {
     expect(banking).toContain('<FinanceAccountingRegister module="banking" />');
     expect(banking).toContain('FinanceSalesDashboard actor="accountant" initialTab="reconcile" showTabs={false}');

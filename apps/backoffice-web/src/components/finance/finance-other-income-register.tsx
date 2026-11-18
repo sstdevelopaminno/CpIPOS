@@ -6,6 +6,7 @@ import { FinanceDialog } from "./finance-dialog";
 import type { OtherIncomeRow } from "@/lib/server/finance-other-income-service";
 
 type Branch = { id: string; name: string; code: string };
+type ChartAccount = { id: string; code: string; name: string; type: string };
 type Envelope<T> = { data?: T | null; error?: { code: string; message: string } | null };
 type PaymentMethod = "cash" | "transfer" | "card" | "cheque" | "other";
 const apiPath = "/api/finance/accounting/other-income";
@@ -58,7 +59,7 @@ function displayedTime(iso: string) {
 }
 function displayedDate(raw: string) {
   const [y, m, d] = raw.split("-");
-  return y && m && d ? d + "/" + m + "/" + y : dash(raw);
+  return y && m && d && Number.isFinite(Number(y)) ? d + "/" + m + "/" + (Number(y) + 543) : dash(raw);
 }
 function methodName(value: string) {
   return methods.find(item => item.value === value)?.label ?? "-";
@@ -85,6 +86,10 @@ export function FinanceOtherIncomeRegister() {
   const [notice, setNotice] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
   const [selected, setSelected] = useState<OtherIncomeRow | null>(null);
+  const [postAccounts, setPostAccounts] = useState<ChartAccount[]>([]);
+  const [debit, setDebit] = useState("");
+  const [credit, setCredit] = useState("");
+  const [postAllowed, setPostAllowed] = useState(false);
   const [reason, setReason] = useState("");
   const [requestKey, setRequestKey] = useState("");
   const [date, setDate] = useState(bangkokToday);
@@ -180,6 +185,42 @@ export function FinanceOtherIncomeRegister() {
       await load();
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : "บันทึกไม่สำเร็จ");
+    } finally { setBusy(false); }
+  }
+
+  async function openDetail(item: OtherIncomeRow) {
+    setError(""); setReason(""); setSelected(item);
+    setDebit("");setCredit("");setPostAccounts([]);setPostAllowed(false);
+    if (item.status !== "issued" || item.postedJournalId) return;
+    try {
+      const payload = await request<{ accounts: ChartAccount[] }>("/api/finance/accounting?view=accounts");
+      setPostAccounts(payload.accounts);
+      setPostAllowed(true);
+    } catch {
+      // Reading/approving the income voucher does not imply GL posting access.
+      setPostAllowed(false);
+    }
+  }
+
+  async function postIncome() {
+    if (!selected || !debit || !credit || busy || !postAllowed) return;
+    setBusy(true);setError("");
+    try {
+      await request<{ id: string; idempotent: boolean }>("/api/finance/accounting", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "post_document",
+          documentId: selected.id,
+          debitAccountId: debit,
+          creditAccountId: credit
+        })
+      });
+      setSelected(null);
+      setNotice("ลงบัญชีจากเลขที่ " + selected.number + " สำเร็จ · ตรวจสอบรหัสรายการซ้ำแล้ว");
+      await load();
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : "ไม่สามารถลงบัญชีได้");
     } finally { setBusy(false); }
   }
 
@@ -283,7 +324,7 @@ export function FinanceOtherIncomeRegister() {
                   </td>
                   <td className="px-3 py-2">
                     <button type="button" className={action}
-                      onClick={() => { setError(""); setReason(""); setSelected(item); }}>เรียกดู</button>
+                      onClick={() => { void openDetail(item); }}>เรียกดู</button>
                   </td>
                 </tr>
               );
@@ -325,7 +366,7 @@ export function FinanceOtherIncomeRegister() {
             </div>
             <div>
               <label className={label} htmlFor="other-income-price">ราคาต่อหน่วย *</label>
-              <input id="other-income-price" className={field} type="number" min="0.01" step="any"
+              <input id="other-income-price" className={field} type="number" min={currency === "LAK" ? "1" : "0.01"} step={currency === "LAK" ? "1" : "0.01"}
                 required value={unitPrice} onChange={event => setUnitPrice(event.target.value)} />
             </div>
             <div>
@@ -408,6 +449,37 @@ export function FinanceOtherIncomeRegister() {
               <p className="rounded-md bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
                 ลงบัญชีแล้ว · {selected.postedJournalId}
               </p> : null}
+            {selected.status === "issued" && !selected.postedJournalId && postAllowed ? (
+              <div className="grid gap-3 rounded-md border border-[#d5e4f3] bg-[#f8fbff] p-3 sm:grid-cols-2">
+                <div className="sm:col-span-2">
+                  <h3 className="text-sm font-bold text-[#1d4c78]">ลงบัญชีรายรับอื่น ๆ</h3>
+                  <p className="mt-1 text-xs text-slate-500">
+                    ต้องเลือกบัญชีสินทรัพย์เดบิตและบัญชีรายได้เครดิตจริง
+                    ระบบตรวจสอบสิทธิ์อนุมัติและป้องกันรายการซ้ำที่เซิร์ฟเวอร์
+                  </p>
+                </div>
+                <div>
+                  <label className={label} htmlFor="other-income-debit">เดบิต · สินทรัพย์</label>
+                  <select id="other-income-debit" className={field} value={debit}
+                    onChange={event => setDebit(event.target.value)}>
+                    <option value="">เลือกบัญชีเดบิต</option>
+                    {postAccounts.filter(item => item.type === "asset").map(item => (
+                      <option key={item.id} value={item.id}>{item.code} — {item.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className={label} htmlFor="other-income-credit">เครดิต · รายได้</label>
+                  <select id="other-income-credit" className={field} value={credit}
+                    onChange={event => setCredit(event.target.value)}>
+                    <option value="">เลือกบัญชีเครดิต</option>
+                    {postAccounts.filter(item => item.type === "income").map(item => (
+                      <option key={item.id} value={item.id}>{item.code} — {item.name}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            ) : null}
             {selected.status === "issued" && !selected.postedJournalId ? (
               <div>
                 <label className={label} htmlFor="other-income-void-reason">เหตุผลยกเลิก (ขั้นต่ำ 10 ตัวอักษร)</label>
@@ -428,6 +500,9 @@ export function FinanceOtherIncomeRegister() {
               ) : null}
               {selected.status === "approved" ?
                 <button type="button" className={primary} disabled={busy} onClick={() => void transition("issue")}>ออกเอกสาร</button> : null}
+              {selected.status === "issued" && !selected.postedJournalId && postAllowed ?
+                <button type="button" className={primary} disabled={busy || !debit || !credit}
+                  onClick={() => { void postIncome(); }}>ลงบัญชี</button> : null}
               {selected.status === "issued" && !selected.postedJournalId ?
                 <button type="button" className={action} disabled={busy || reason.trim().length < 10}
                   onClick={() => void transition("void")}>ยกเลิกพร้อมเหตุผล</button> : null}
