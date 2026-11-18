@@ -7,6 +7,8 @@ import { authorizeOpticalMoreMenu } from "@/lib/server/optical-more-feature-acce
 import { requirePosSession } from "@/lib/pos-session-guard";
 import { queueRoutedReceiptReprint } from "@/lib/printing/routed-print-service";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
+import { loadFinanceDocument } from "@/lib/server/finance-document-service";
+import { renderFinanceOfficeDocumentHtml } from "@/lib/printing/finance-office-print-html";
 
 type ReprintPayload = {
   manager_pin?: string | null;
@@ -14,6 +16,7 @@ type ReprintPayload = {
   receipt_html?: string | null;
   order_no?: string | null;
   windows_local_bridge?: boolean;
+  office_paper?: "A5" | "A4";
 };
 
 export async function POST(req: Request, context: { params: Promise<{ orderId: string }> }) {
@@ -73,6 +76,45 @@ export async function POST(req: Request, context: { params: Promise<{ orderId: s
         runtime_device_code: scope.session.device_code
       }
     });
+
+    // A5/A4 print is authorized against the same manager/owner PIN and the
+    // server-side original source of truth. It never queues a thermal job.
+    if (body?.office_paper === "A5" || body?.office_paper === "A4") {
+      const detail = await loadFinanceDocument({
+        tenantId: auth.tenantId!, userId: auth.userId!,
+        name: null, branchIds: [auth.branchId!]
+      }, orderId);
+      if (body.order_no?.trim() && detail.receipt.orderNo !== body.order_no.trim())
+        return fail("receipt_order_mismatch", "Receipt does not match the selected order.", 409);
+      if (detail.receipt.voided)
+        return fail("receipt_voided", "Voided receipts cannot be printed.", 409);
+      if (detail.receipt.currency === "USD")
+        return fail("receipt_office_currency_unsupported", "A5/A4 receipts require supported currency.", 409);
+      const html = renderFinanceOfficeDocumentHtml({ detail, kind: "receipt", paper: body.office_paper });
+      await appendAuditLog({
+        tenantId: auth.tenantId ?? undefined,
+        branchId: auth.branchId ?? undefined,
+        actorUserId: auth.userId,
+        actorRole: auth.branchRole ?? auth.platformRole,
+        action: "receipt_reprint_office_browser_authorized",
+        targetTable: "orders", targetId: orderId,
+        metadata: {
+          paper: body.office_paper,
+          approved_by: approval.approverUserId,
+          runtime_device_code: scope.session.device_code,
+          outcome: "authorized_browser_preview_not_physical_delivery",
+          note: body.note ?? null
+        }
+      });
+      return ok({
+        mode: "office_browser_authorized" as const,
+        order_id: detail.receipt.orderId,
+        order_no: detail.receipt.orderNo,
+        html,
+        fallback_to_browser_print: false,
+        jobs: []
+      });
+    }
 
     // Windows-native reprint: after the SAME manager/owner PIN approval and
     // tenant/branch/session scope checks, authorize one explicit local print.

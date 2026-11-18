@@ -14,7 +14,8 @@ const packagePage = source("src/app/finance/package-payment/page.tsx");
 const documentApi = source("src/app/api/finance/documents/route.ts");
 const printApi = source("src/app/api/finance/documents/print/route.ts");
 const workspace = source("src/components/finance/finance-document-workspace.tsx");
-const office = source("src/lib/printing/finance-office-print-html.ts");
+const office = source("src/lib/printing/office-document-html.ts");
+const officeAdapter = source("src/lib/printing/finance-office-print-html.ts");
 
 describe("Accountant financial workbench, authorization and print contracts", () => {
   it("keeps sidebar logo and collapse behavior and lists Finance modules without More", () => {
@@ -71,7 +72,7 @@ describe("Accountant financial workbench, authorization and print contracts", ()
     expect(printApi).toContain('renderFinanceOfficeDocumentHtml({ detail, kind: "receipt", paper: width })');
     expect(office).toContain("@page { size:");
     expect(office).toContain("escapeHtml");
-    expect(office).toContain('tax.status !== "issued"');
+    expect(officeAdapter).toContain('tax.status !== "issued"');
     expect(office).toContain("ไม่ใช่การบันทึกรายการรับเงินหรือออกใบกำกับภาษีใหม่");
   });
 });
