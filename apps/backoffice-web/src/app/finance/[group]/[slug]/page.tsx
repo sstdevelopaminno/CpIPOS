@@ -1,13 +1,11 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { FinanceSalesDashboard } from "@/components/finance/finance-sales-dashboard";
 import { FinanceDocumentWorkspace } from "@/components/finance/finance-document-workspace";
 import { FinanceSectionHeader } from "@/app/finance/finance-section-header";
 import {
-  ACCOUNTANT_MORE_MENU, ACCOUNTANT_SETTINGS_MENU, accountantMenuItem, isAccountantMenuVisible
+  accountantMenuItem
 } from "@/lib/accountant-menu-policy";
 import { requireAccountantPage } from "@/lib/server/accountant-page-guard";
-import { getTenantPosMenuOverrides } from "@/lib/server/pos-menu-policy-service";
 import {
   loadAccountantProductCatalog, loadAccountantProductSales, loadAccountantStoreOverview
 } from "@/lib/server/finance-accountant-readonly-services";
@@ -25,9 +23,6 @@ export default async function AccountantFeaturePage({ params }: {
   const item = accountantMenuItem(group, slug);
   if (!item) notFound();
   const identity = await requireAccountantPage(item.key);
-  const overrides = await getTenantPosMenuOverrides(identity.tenantId);
-  const related = (group === "more" ? ACCOUNTANT_MORE_MENU : ACCOUNTANT_SETTINGS_MENU)
-    .filter(entry => isAccountantMenuVisible(entry.key, overrides));
   const summaryView = group === "more" && slug === "sales-summary";
   const receiptView = group === "more" && slug === "receipts";
   const productSalesView = group === "more" && slug === "product-sales";
@@ -49,8 +44,8 @@ export default async function AccountantFeaturePage({ params }: {
 
   return (
     <section className="finance-secondary-workbench w-full min-w-0 text-slate-900">
-      <FinanceSectionHeader title={item.label} group={group as "more" | "settings"}
-        subtitle={`ฝ่ายบัญชี · ${identity.branchIds.length} สาขาที่ได้รับสิทธิ์`} />
+      {!summaryView ? <FinanceSectionHeader title={item.label} group={group as "more" | "settings"}
+        subtitle={`ฝ่ายบัญชี · ${identity.branchIds.length} สาขาที่ได้รับสิทธิ์`} /> : null}
       <div className="space-y-4 p-3 md:p-4">
       {summaryView ? <FinanceSalesDashboard actor="accountant" initialTab="dashboard" /> : null}
       {receiptView ? <FinanceDocumentWorkspace kind="receipt" /> : null}
