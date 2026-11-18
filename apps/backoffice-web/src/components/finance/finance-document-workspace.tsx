@@ -96,20 +96,20 @@ export function FinanceDocumentWorkspace({ kind }: { kind: Kind }) {
 
   const loadDetail = useCallback(async (orderId: string) => {
     setError("");
-    const res = await fetch("/api/finance/documents?mode=detail&orderId=" + encodeURIComponent(orderId), { cache: "no-store" });
+    const res = await fetch("/api/finance/documents?mode=detail&kind=" + kind + "&orderId=" + encodeURIComponent(orderId), { cache: "no-store" });
     const json = await res.json().catch(() => null) as Api<FinanceDocumentDetail> | null;
     if (!res.ok || !json?.data) throw new Error(json?.error?.code ?? "finance_receipt_detail_unavailable");
     setSelected(json.data);
     setEdit(null);
     setReason("");
     return json.data;
-  }, []);
+  }, [kind]);
 
   useEffect(() => {
     let alive = true;
     async function fetchList() {
       setLoading(true); setError(""); setNotice("");
-      const params = new URLSearchParams({ mode: "list", from, to, page: String(page), billNo });
+      const params = new URLSearchParams({ mode: "list", kind, from, to, page: String(page), billNo });
       if (branchId) params.set("branchId", branchId);
       try {
         const response = await fetch("/api/finance/documents?" + params.toString(), { cache: "no-store" });
@@ -121,7 +121,7 @@ export function FinanceDocumentWorkspace({ kind }: { kind: Kind }) {
     }
     void fetchList();
     return () => { alive = false; };
-  }, [from, to, branchId, billNo, page, query]);
+  }, [kind, from, to, branchId, billNo, page, query]);
 
   useEffect(() => {
     if (kind !== "tax" || !selected) { setBuyers([]); setBuyerId(""); return; }
