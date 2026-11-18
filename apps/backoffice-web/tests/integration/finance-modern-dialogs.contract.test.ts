@@ -5,7 +5,7 @@ import { resolve } from "node:path";
 const read = (file: string) => readFileSync(resolve(process.cwd(), file), "utf8");
 const dialog = read("src/components/finance/finance-dialog.tsx");
 const document = read("src/components/finance/finance-document-workspace.tsx");
-const menu = read("src/app/finance/[group]/[slug]/page.tsx");
+const menu = read("src/app/finance/[module]/page.tsx");
 
 describe("Finance standardized form and confirmation dialogs", () => {
   it("uses accessible native modal semantics and supports backdrop, Escape and explicit Close", () => {

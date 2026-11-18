@@ -1,48 +1,49 @@
 /** Finance-only navigation contract. This is not a grant to POS cashier APIs.
  * Key names intentionally match tenant_pos_menu_policies in CpIPOS and CpIPOS-IT.
  */
-export type AccountantNavItem = { key: string; label: string; slug: string; group: "more" | "settings" };
-export const ACCOUNTANT_MORE_MENU: readonly AccountantNavItem[] = [
-  { key: "more.sales_summary", label: "สรุปยอดขาย", slug: "sales-summary", group: "more" },
-  { key: "more.receipts", label: "ใบเสร็จย้อนหลัง", slug: "receipts", group: "more" },
-  { key: "more.tax_invoices", label: "ออกใบกำกับภาษี", slug: "tax-invoices", group: "more" },
-  { key: "more.stock", label: "จัดการสินค้า", slug: "stock", group: "more" },
-  { key: "more.product_sales", label: "รายการขายสินค้า", slug: "product-sales", group: "more" }
+export type AccountantNavItem = { key: string; label: string; slug: string; group: "settings" };
+export type AccountantFinanceItem = { key: string; label: string; slug: string };
+/** Navigation-only permissions; no automatic right to post journal entries or issue tax documents. */
+export const ACCOUNTANT_FINANCE_MENU: readonly AccountantFinanceItem[] = [
+  { key: "finance.income", label: "รายรับ", slug: "income" },
+  { key: "finance.expenses", label: "รายจ่าย", slug: "expenses" },
+  { key: "finance.sales_receivables", label: "งานขายและลูกหนี้", slug: "sales-receivables" },
+  { key: "finance.purchases_payables", label: "งานซื้อและเจ้าหนี้", slug: "purchases-payables" },
+  { key: "finance.banking", label: "การเงินและธนาคาร", slug: "banking" },
+  { key: "finance.ledger", label: "บัญชีแยกประเภท", slug: "ledger" },
+  { key: "finance.tax_reports", label: "ภาษีและรายงาน", slug: "tax-reports" }
 ] as const;
 
+export function accountantFinanceModule(slug: string): AccountantFinanceItem | null {
+  return ACCOUNTANT_FINANCE_MENU.find(item => item.slug === slug) ?? null;
+}
+
+// Legacy POS More menu is not part of the Accountant permission model.
+// Keep operational POS settings out of the Accountant workspace; removing a key
+// also disables direct /finance/settings/[slug] access via accountantMenuItem.
 export const ACCOUNTANT_SETTINGS_MENU: readonly AccountantNavItem[] = [
   { key: "settings.branding", label: "ธีมสี / โลโก้ / ชื่อระบบ (CUSTOM)", slug: "branding", group: "settings" },
   { key: "settings.store", label: "ข้อมูลร้านค้า/บริษัท", slug: "store", group: "settings" },
-  { key: "settings.branches", label: "เพิ่มสาขา", slug: "branches", group: "settings" },
-  { key: "settings.devices", label: "เพิ่มเครื่องแคชเชียร์", slug: "devices", group: "settings" },
   { key: "settings.printers", label: "ตั้งค่าเครื่องพิมพ์", slug: "printers", group: "settings" },
-  { key: "settings.activity", label: "ตรวจสอบพฤติกรรมการใช้งาน", slug: "activity", group: "settings" },
   { key: "settings.payments", label: "ตั้งค่าชำระเงิน", slug: "payments", group: "settings" },
-  { key: "settings.inet_nops", label: "INET QR", slug: "inet-nops", group: "settings" },
   { key: "settings.taxes", label: "ตั้งค่าภาษี", slug: "taxes", group: "settings" },
-  { key: "settings.notifications", label: "ตั้งค่าการแจ้งเตือน", slug: "notifications", group: "settings" },
   { key: "settings.support", label: "ศูนย์ช่วยเหลือ", slug: "support", group: "settings" },
   { key: "settings.push_notifications", label: "การแจ้งเตือนอุปกรณ์", slug: "push-notifications", group: "settings" },
   { key: "settings.language", label: "เปลี่ยนภาษา", slug: "language", group: "settings" },
   { key: "settings.currency", label: "ตั้งค่าสกุลเงิน (CUSTOM)", slug: "currency", group: "settings" },
   { key: "settings.placement", label: "สลับแถบเมนูหลัก", slug: "placement", group: "settings" },
-  { key: "settings.display", label: "จอลูกค้า", slug: "display", group: "settings" },
-  { key: "settings.order_kitchen", label: "การแจ้งเตือนออเดอร์และครัว", slug: "order-kitchen", group: "settings" },
-  { key: "settings.table_qr", label: "ตั้งค่า QR โต๊ะ", slug: "table-qr", group: "settings" }
 ] as const;
 
-export const ACCOUNTANT_MAIN_MENU_KEYS = ["main.finance", "main.more", "main.settings", "main.package_payment"] as const;
+export const ACCOUNTANT_MAIN_MENU_KEYS = ["main.finance", "main.settings", "main.package_payment"] as const;
 export const ACCOUNTANT_ALLOWED_MENU_KEYS: readonly string[] = [
   ...ACCOUNTANT_MAIN_MENU_KEYS,
-  ...ACCOUNTANT_MORE_MENU.map(item => item.key),
+  ...ACCOUNTANT_FINANCE_MENU.map(item => item.key),
   ...ACCOUNTANT_SETTINGS_MENU.map(item => item.key)
 ];
 
 export function accountantMenuItem(group: string, slug: string): AccountantNavItem | null {
-  if (group !== "more" && group !== "settings") return null;
-  return [...ACCOUNTANT_MORE_MENU, ...ACCOUNTANT_SETTINGS_MENU].find(
-    item => item.group === group && item.slug === slug
-  ) ?? null;
+  if (group !== "settings") return null;
+  return ACCOUNTANT_SETTINGS_MENU.find(item => item.slug === slug) ?? null;
 }
 
 /** Enforce IT navigation denials, including a disabled parent.
@@ -50,7 +51,7 @@ export function accountantMenuItem(group: string, slug: string): AccountantNavIt
  */
 export function isAccountantMenuVisible(menuKey: string, overrides: Record<string, boolean>): boolean {
   if (!ACCOUNTANT_ALLOWED_MENU_KEYS.includes(menuKey)) return false;
-  const parent = menuKey.startsWith("more.") ? "main.more" :
+  const parent = menuKey.startsWith("finance.") ? "main.finance" :
     menuKey.startsWith("settings.") ? "main.settings" : null;
   return overrides["main.finance"] !== false &&
     overrides[menuKey] !== false &&

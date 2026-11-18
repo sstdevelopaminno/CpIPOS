@@ -31,16 +31,17 @@ describe("CpiPOS Accountant desktop Finance shell", () => {
 
   it("keeps IT policy filtering for every accounting menu and does not add a user-settings menu", () => {
     expect(layout).toContain('isAccountantMenuVisible(key, overrides)');
-    expect(layout).toContain('ACCOUNTANT_MORE_MENU.filter(item => visible(item.key))');
+    expect(layout).toContain('ACCOUNTANT_FINANCE_MENU.filter(item => visible(item.key))');
     expect(layout).toContain('ACCOUNTANT_SETTINGS_MENU.filter(item => visible(item.key))');
-    for (const key of ['main.finance', 'main.more', 'main.settings', 'main.package_payment']) {
+    for (const key of ['main.finance', 'main.settings', 'main.package_payment']) {
       expect(layout).toContain('visible("' + key + '")');
     }
     expect(sidebar).toContain('aria-label="เมนูฝ่ายบัญชี"');
     expect(sidebar).toContain('usePathname()');
     expect(sidebar).toContain('aria-current={pathname === "/finance" ? "page" : undefined}');
     expect(sidebar).toContain('aria-expanded={!collapsed && settingsOpen}');
-    expect(sidebar).toContain('aria-expanded={!collapsed && moreOpen}');
+    expect(sidebar).toContain('aria-expanded={financeOpen}');
+    expect(sidebar).not.toContain('finance-more-menu');
     expect(sidebar).not.toContain("settings.users");
     expect(navIcon).toContain('stroke="currentColor"');
   });

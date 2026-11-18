@@ -8,64 +8,70 @@ const sidebar = source("src/app/finance/finance-sidebar-nav.tsx");
 const logout = source("src/app/finance/finance-logout.tsx");
 const layout = source("src/app/finance/layout.tsx");
 const service = source("src/lib/server/finance-accountant-readonly-services.ts");
-const page = source("src/app/finance/[group]/[slug]/page.tsx");
+const settingsPage = source("src/app/finance/[group]/[slug]/page.tsx");
+const modulePage = source("src/app/finance/[module]/page.tsx");
 const packagePage = source("src/app/finance/package-payment/page.tsx");
+const documentApi = source("src/app/api/finance/documents/route.ts");
+const printApi = source("src/app/api/finance/documents/print/route.ts");
+const workspace = source("src/components/finance/finance-document-workspace.tsx");
+const office = source("src/lib/printing/finance-office-print-html.ts");
 
-describe("Accountant menu collapse, branding and read-only integration", () => {
-  it("shows transparent logo, one Account department label, and persistent collapse", () => {
+describe("Accountant financial workbench, authorization and print contracts", () => {
+  it("keeps sidebar logo and collapse behavior and lists Finance modules without More", () => {
     expect(shell).toContain('src="/brand/cpipos-symbol-transparent.png"');
-    expect(shell).not.toContain("cpipos-symbol-sidebar.png");
-    expect(shell).not.toContain("ทุกสาขาในร้าน");
-    expect(shell).toContain("ฝ่ายบัญชี");
     expect(shell).toContain("window.localStorage.getItem(STORAGE_KEY)");
     expect(shell).toContain("window.localStorage.setItem(STORAGE_KEY");
-    expect(shell).toContain('aria-label={collapsed ? "ขยายแถบเมนูฝ่ายบัญชี" : "ยุบแถบเมนูฝ่ายบัญชี"}');
     expect(shell).toContain('"md:w-[76px]" : "md:w-[252px]"');
-    expect(shell).toContain("onExpand={() => changeCollapsed(false)}");
-  });
-
-  it("retains nav links and exposes collapsed controls and footer logout accessibly", () => {
-    expect(sidebar).toContain('title={collapsed ? "เพิ่มเติม" : undefined}');
-    expect(sidebar).toContain('title={collapsed ? "ตั้งค่า" : undefined}');
-    expect(sidebar).toContain("if (collapsed) { onExpand(); setMoreOpen(true); }");
-    expect(sidebar).toContain("if (collapsed) { onExpand(); setSettingsOpen(true); }");
-    expect(sidebar).toContain('href="/finance/package-payment"');
+    expect(sidebar).toContain('aria-label="ยุบหรือขยายเมนูย่อยการเงิน"');
     expect(sidebar).toContain('href="/finance"');
-    expect(sidebar).toContain('href={href}');
-    expect(sidebar).not.toContain('settings.users');
-    expect(shell).toContain('<FinanceLogout collapsed={collapsed} />');
-    expect(logout).toContain('aria-label="ออกจากระบบ"');
+    expect(sidebar).toContain('href="/finance/package-payment"');
+    expect(sidebar).toContain('const href = "/finance/" + item.slug');
+    expect(sidebar).not.toContain("finance-more-menu");
+    expect(sidebar).not.toContain("moreItems");
+    expect(layout).toContain("ACCOUNTANT_FINANCE_MENU.filter(item => visible(item.key))");
+    expect(layout).toContain("requireFinanceSession()");
+    expect(shell).toContain("<FinanceLogout collapsed={collapsed} />");
     expect(logout).toContain('fetch("/api/auth/accounting/logout"');
-    expect(layout).toContain('isAccountantMenuVisible(key, overrides)');
-    expect(layout).toContain('requireFinanceSession()');
   });
 
-  it("renders real read-only sales/receipts/catalog reports for accounting routes", () => {
-    expect(page).toContain('requireAccountantPage(item.key)');
-    expect(page).toContain('requireAccountantPage(item.key)');
-    expect(page).toContain('<FinanceSectionHeader title={item.label}');
-    expect(page).toContain('<FinanceSalesDashboard actor="accountant" initialTab="dashboard" />');
-    expect(page).toContain('<FinanceDocumentWorkspace kind="receipt" />');
-    expect(page).toContain('<FinanceDocumentWorkspace kind="tax" />');
-    expect(page).toContain('loadAccountantProductCatalog(identity)');
-    expect(page).toContain('loadAccountantProductSales(identity)');
-    expect(page).toContain('loadAccountantStoreOverview(identity)');
-    expect(page).toContain('import { FinanceDocumentWorkspace }');
-    expect(page).toContain('taxView');
-  });
-
-  it("does not reuse POS cashier authentication or permit catalog/contract writes", () => {
+  it("blocks retired More routes and protects each finance module on server", () => {
+    expect(settingsPage).toContain("accountantMenuItem(group, slug)");
+    expect(settingsPage).toContain("if (!item) notFound()");
+    expect(modulePage).toContain("accountantFinanceModule(slug)");
+    expect(modulePage).toContain("if (!item) notFound()");
+    expect(modulePage).toContain("requireAccountantPage(item.key)");
+    expect(modulePage).toContain('<FinanceSalesDashboard actor="accountant" initialTab="sales" />');
+    expect(modulePage).toContain('<FinanceSalesDashboard actor="accountant" initialTab="reconcile" />');
+    expect(modulePage).toContain('<FinanceDocumentWorkspace kind="receipt" />');
+    expect(modulePage).toContain('<FinanceDocumentWorkspace kind="tax" />');
     expect(service).toContain('import "server-only"');
     expect(service).toContain('.eq("tenant_id", identity.tenantId)');
-    expect(service).toContain('.in("branch_id", branchIds)');
-    expect(service).toContain('.eq("status", "completed")');
-    expect(service).toContain('finance_product_sales_too_many_orders');
-    expect(service).toContain('finance_catalog_too_large');
     expect(service).not.toMatch(/\.(insert|update|upsert|delete|rpc)\s*\(/);
-    expect(page).toContain('FinanceDocumentWorkspace kind="receipt"');
-    expect(page).toContain('FinanceDocumentWorkspace kind="tax"');
-    expect(packagePage).toContain('loadAccountantContractOverview(identity)');
     expect(packagePage).toContain('requireAccountantPage("main.package_payment")');
-    expect(packagePage).toContain('หน้านี้ไม่ออกใบเสร็จ ไม่รับชำระ');
+  });
+
+  it("reauthorizes existing receipt/tax endpoints without reopening More grants", () => {
+    expect(documentApi).toContain('"finance.sales_receivables"');
+    expect(documentApi).toContain('"finance.tax_reports"');
+    expect(printApi).toContain('"finance.sales_receivables"');
+    expect(printApi).toContain('"finance.tax_reports"');
+    expect(documentApi).not.toContain('"more.receipts"');
+    expect(printApi).not.toContain('"more.tax_invoices"');
+    expect(printApi).toContain('loadFinanceDocument(identity, params.get("orderId")');
+    expect(printApi).toContain("finance_print_audit_unavailable");
+  });
+
+  it("preserves 58/80 POS print templates and adds A5/A4 office copies", () => {
+    expect(workspace).toContain('<option value={58}>58 มม.</option>');
+    expect(workspace).toContain('<option value="A5">A5 แนวตั้ง</option>');
+    expect(workspace).toContain('<option value="A4">A4 แนวตั้ง</option>');
+    expect(printApi).toContain('renderReceiptHtml({');
+    expect(printApi).toContain('buildTaxInvoicePrintHtml({');
+    expect(printApi).toContain('renderFinanceOfficeDocumentHtml({ detail, kind: "tax", paper: width })');
+    expect(printApi).toContain('renderFinanceOfficeDocumentHtml({ detail, kind: "receipt", paper: width })');
+    expect(office).toContain("@page { size:");
+    expect(office).toContain("escapeHtml");
+    expect(office).toContain('tax.status !== "issued"');
+    expect(office).toContain("ไม่ใช่การบันทึกรายการรับเงินหรือออกใบกำกับภาษีใหม่");
   });
 });

@@ -7,7 +7,7 @@ const service = read("src/lib/server/finance-document-service.ts");
 const api = read("src/app/api/finance/documents/route.ts");
 const print = read("src/app/api/finance/documents/print/route.ts");
 const ui = read("src/components/finance/finance-document-workspace.tsx");
-const page = read("src/app/finance/[group]/[slug]/page.tsx");
+const page = read("src/app/finance/[module]/page.tsx");
 const dashboard = read("src/components/finance/finance-sales-dashboard.tsx");
 const migration = read("../../supabase/migrations/20261118070000_finance_receipt_append_only_revisions.sql");
 
@@ -15,8 +15,8 @@ describe("Accountant Finance receipts and tax invoice workflows", () => {
   it("uses only Finance session and IT menu policy on all document endpoints", () => {
     expect(api).toContain("await requireFinanceSession()");
     expect(api).toContain("isAccountantMenuVisible(menuKey, overrides)");
-    expect(api).toContain('authorized("more.receipts")');
-    expect(api).toContain('authorized("more.tax_invoices")');
+    expect(api).toContain('authorized("finance.sales_receivables")');
+    expect(api).toContain('authorized("finance.tax_reports")');
     expect(api).toContain('request.headers.get("origin") !== new URL(request.url).origin');
     expect(print).toContain("requireFinanceSession()");
     expect(print).toContain('isAccountantMenuVisible(kind === "tax"');

@@ -37,7 +37,7 @@ export async function GET(request: Request) {
   const mode = url.searchParams.get("mode") ?? "list";
   try {
     const kind = url.searchParams.get("kind");
-    const identity = await authorized(mode === "buyers" || kind === "tax" ? "more.tax_invoices" : "more.receipts");
+    const identity = await authorized(mode === "buyers" || kind === "tax" ? "finance.tax_reports" : "finance.sales_receivables");
     if (mode === "detail") {
       const orderId = url.searchParams.get("orderId") ?? "";
       return ok(await loadFinanceDocument(identity, orderId));
@@ -71,7 +71,7 @@ export async function POST(request: Request) {
     const body = await request.json().catch(() => null) as Record<string, unknown> | null;
     const action = body?.action;
     if (action === "correct" || action === "void") {
-      const identity = await authorized("more.receipts");
+      const identity = await authorized("finance.sales_receivables");
       const data = await appendFinanceReceiptCorrection(identity, {
         orderId: String(body?.orderId ?? ""),
         action, reason: String(body?.reason ?? ""),
@@ -87,7 +87,7 @@ export async function POST(request: Request) {
       return ok(data);
     }
     if (action === "create_buyer") {
-      const identity = await authorized("more.tax_invoices");
+      const identity = await authorized("finance.tax_reports");
       const profile = body?.profile as Record<string, unknown> | null | undefined;
       if (!profile) return fail("finance_tax_buyer_invalid", "Buyer details required", 422);
       return ok(await createAccountantTaxBuyer(identity, {
@@ -99,7 +99,7 @@ export async function POST(request: Request) {
       }));
     }
     if (action === "issue_tax") {
-      const identity = await authorized("more.tax_invoices");
+      const identity = await authorized("finance.tax_reports");
       return ok(await issueAccountantTaxInvoice(
         identity, String(body?.orderId ?? ""), String(body?.buyerId ?? "")
       ));

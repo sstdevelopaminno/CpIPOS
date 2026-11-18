@@ -3,25 +3,24 @@
 import type { ReactNode } from "react";
 import Image from "next/image";
 import { useEffect, useState } from "react";
-import type { AccountantNavItem } from "@/lib/accountant-menu-policy";
+import type { AccountantNavItem, AccountantFinanceItem } from "@/lib/accountant-menu-policy";
 import { FinanceSidebarNav } from "./finance-sidebar-nav";
 import { FinanceLogout } from "./finance-logout";
 
 type Props = {
   children: ReactNode;
   showFinance: boolean;
-  showMore: boolean;
   showSettings: boolean;
   showPackagePayment: boolean;
-  moreItems: readonly AccountantNavItem[];
+  financeItems: readonly AccountantFinanceItem[];
   settingsItems: readonly AccountantNavItem[];
 };
 
 const STORAGE_KEY = "cpipos:finance-sidebar-collapsed";
 
 export function FinanceAccountantShell({
-  children, showFinance, showMore, showSettings, showPackagePayment,
-  moreItems, settingsItems
+  children, showFinance, showSettings, showPackagePayment,
+  financeItems, settingsItems
 }: Props) {
   const [collapsed, setCollapsed] = useState(false);
 
@@ -75,10 +74,9 @@ export function FinanceAccountantShell({
             collapsed={collapsed}
             onExpand={() => changeCollapsed(false)}
             showFinance={showFinance}
-            showMore={showMore}
             showSettings={showSettings}
             showPackagePayment={showPackagePayment}
-            moreItems={moreItems}
+            financeItems={financeItems}
             settingsItems={settingsItems}
           />
         </div>
