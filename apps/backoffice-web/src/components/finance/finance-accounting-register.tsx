@@ -37,6 +37,16 @@ const kinds:Record<Exclude<Module,"ledger">,Array<{value:string;label:string}>>=
  ],
  expenses:[{value:"expense_voucher",label:"ค่าใช้จ่าย / ใบสำคัญจ่าย"}]
 };
+const sourceKinds:Record<string,string[]>={
+  sales_order:["sales_quote"],
+  delivery_note:["sales_order"],
+  sales_invoice:["delivery_note","sales_order"],
+  purchase_order:["purchase_request"],
+  goods_receipt:["purchase_order"],
+  supplier_bill:["goods_receipt","purchase_order"],
+  receipt_voucher:["sales_invoice"],
+  payment_voucher:["supplier_bill"]
+};
 const statusThai:Record<string,string>={
  draft:"แบบร่าง",submitted:"รออนุมัติ",approved:"อนุมัติแล้ว",
  issued:"ออกเอกสารแล้ว",rejected:"ส่งกลับแก้ไข",voided:"ยกเลิกแล้ว"
@@ -111,7 +121,9 @@ export function FinanceAccountingRegister({module}:{module:Module}) {
  const options=module==="ledger"?[]:kinds[module];
  const side=module==="sales-receivables"?"AR":module==="purchases-payables"?"AP":null;
  const settlement=kind==="receipt_voucher"||kind==="payment_voucher";
- const sourceKind=kind==="receipt_voucher"?"sales_invoice":"supplier_bill";
+ const availableSourceKinds=sourceKinds[kind]??[];
+ const canLinkSource=availableSourceKinds.length>0;
+ const evidenceNeeded=settlement||kind==="expense_voucher";
 
  const refresh=useCallback(async()=>{
   setLoading(true);setError(null);
@@ -171,6 +183,12 @@ export function FinanceAccountingRegister({module}:{module:Module}) {
  }
  async function createDocument(){
   if(!branch||!Number.isSafeInteger(sum)||sum<=0){setError("กรุณาตรวจสอบสาขา รายการ และจำนวนเงิน");return;}
+  if(["sales_invoice","supplier_bill"].includes(kind)&&!due){
+    setError("ใบแจ้งหนี้ต้องระบุวันครบกำหนดชำระ");return;
+  }
+  if(evidenceNeeded&&evidenceRef.trim().length<8){
+    setError("กรุณาระบุเลขอ้างอิงหลักฐานการรับหรือจ่ายเงินอย่างน้อย 8 ตัวอักษร");return;
+  }
   const mapped=lines.map(row=>{
    const quantity=Number(row.quantity),unitMinor=currencyToMinor(Number(row.unit),currency);
    return {description:row.description.trim(),quantity,unitMinor,
@@ -179,8 +197,8 @@ export function FinanceAccountingRegister({module}:{module:Module}) {
   await submit({
    action:"create_document",branchId:branch,kind,documentNo:number,counterparty:party,
    documentDate:date,dueDate:due,currency,lines:mapped,requestKey,
-   sourceDocumentId:settlement?sourceDocumentId:null,
-   evidenceRef:settlement?evidenceRef:null,evidenceType:settlement?evidenceType:null
+   sourceDocumentId:canLinkSource&&sourceDocumentId?sourceDocumentId:null,
+   evidenceRef:evidenceNeeded?evidenceRef:null,evidenceType:evidenceNeeded?evidenceType:null
   });
  }
  async function transition(action:string){
@@ -197,14 +215,19 @@ export function FinanceAccountingRegister({module}:{module:Module}) {
   catch(e){setError(e instanceof Error?e.message:"ไม่สามารถโหลดผังบัญชี");}
  }
  useEffect(()=>{
-  if(!settlement||!createOpen||!branch)return;
+  if(!sourceKinds[kind]||!createOpen||!branch)return;
   let ignore=false;
-  void api<{documents:Document[]}>(path+"?view=documents&kind="+sourceKind+
-    "&branchId="+encodeURIComponent(branch)).then(x=>{if(!ignore)setSources(x.documents.filter(d=>
-      d.status==="issued"&&Boolean(d.postedJournalId)&&d.currency===currency));})
-    .catch(()=>{if(!ignore)setSources([]);});
+  void Promise.all(sourceKinds[kind].map(source=>
+    api<{documents:Document[]}>(path+"?view=documents&kind="+source+
+      "&branchId="+encodeURIComponent(branch))
+  )).then(groups=>{
+    if(ignore)return;
+    setSources(groups.flatMap(result=>result.documents).filter(d=>
+      d.status==="issued" && d.currency===currency &&
+      (!settlement || Boolean(d.postedJournalId))));
+  }).catch(()=>{if(!ignore)setSources([]);});
   return()=>{ignore=true};
- },[settlement,createOpen,branch,sourceKind,currency]);
+ },[kind,createOpen,branch,currency,settlement]);
  const monthNote=module==="ledger"?"ลงบัญชีได้เฉพาะเอกสารที่ออกแล้วและผ่านอนุมัติ โดยมีการตรวจงวดบัญชีและรหัสรายการซ้ำ":"การออกเอกสารและรายการชำระไม่ใช่การออกใบกำกับภาษีใหม่";
  const canPost=selected?.status==="issued"&&!selected.postedJournalId&&
   ["sales_invoice","supplier_bill","expense_voucher","receipt_voucher","payment_voucher"].includes(selected.kind);
@@ -234,7 +257,7 @@ export function FinanceAccountingRegister({module}:{module:Module}) {
     </div>
     {module!=="ledger"&&<div className="min-w-[190px] flex-1">
      <label className={label} htmlFor="finance-register-kind">ประเภทเอกสาร</label>
-     <select id="finance-register-kind" className={field} value={kind} onChange={e=>setKind(e.target.value)}>
+     <select id="finance-register-kind" className={field} value={kind} onChange={e=>{setKind(e.target.value);setSourceDocumentId("");}}>
       {options.map(x=><option key={x.value} value={x.value}>{x.label}</option>)}
      </select>
     </div>}
@@ -315,7 +338,7 @@ export function FinanceAccountingRegister({module}:{module:Module}) {
        <div><label className={label}>ครบกำหนดชำระ</label><input className={field} type="date" value={due} onChange={e=>setDue(e.target.value)}/></div>
        <div><label className={label}>สกุลเงิน</label><select className={field} value={currency} onChange={e=>setCurrency(e.target.value as FinanceCurrency)}>
         <option>THB</option><option>LAK</option><option>USD</option></select></div>
-       {settlement&&<div><label className={label}>หลักฐานการรับ/จ่ายเงิน</label>
+       {evidenceNeeded&&<div><label className={label}>หลักฐานการรับ/จ่ายเงิน</label>
         <select className={field} value={evidenceType} onChange={e=>setEvidenceType(e.target.value as typeof evidenceType)}>
          <option value="bank_transfer">โอนเงินพร้อมหลักฐาน</option>
          <option value="cash_count">เงินสด / ใบนับเงิน</option>
@@ -323,14 +346,14 @@ export function FinanceAccountingRegister({module}:{module:Module}) {
          <option value="card">บัตร / หลักฐานผู้ให้บริการ</option>
         </select>
        </div>}
-       {settlement&&<div><label className={label}>เลขอ้างอิงหลักฐาน (8–120 ตัวอักษร)</label>
+       {evidenceNeeded&&<div><label className={label}>เลขอ้างอิงหลักฐาน (8–120 ตัวอักษร)</label>
         <input className={field} value={evidenceRef} maxLength={120}
           onChange={e=>setEvidenceRef(e.target.value)}
           placeholder="เช่น TRANSFER-20261118-001"/>
        </div>}
-       {settlement&&<div><label className={label}>เอกสารลูกหนี้/เจ้าหนี้ต้นทาง (ต้องลงบัญชีแล้ว)</label>
+       {canLinkSource&&<div><label className={label}>{settlement?"เอกสารลูกหนี้/เจ้าหนี้ต้นทาง (ต้องลงบัญชีแล้ว)":"เอกสารต้นทางที่เชื่อมโยง (ถ้ามี)"}</label>
         <select className={field} value={sourceDocumentId} onChange={e=>setSourceDocumentId(e.target.value)}>
-         <option value="">เลือกเอกสาร</option>
+         <option value="">{settlement?"เลือกเอกสาร":"ไม่ผูกเอกสารต้นทาง"}</option>
          {sources.map(x=><option key={x.id} value={x.id}>{x.number} — {money(x.amountMinor,x.currency)} {x.currency}</option>)}
         </select></div>}
       </div>
@@ -356,7 +379,7 @@ export function FinanceAccountingRegister({module}:{module:Module}) {
      </div>
      <footer className="flex justify-end gap-2 border-t border-slate-200 px-5 py-4">
       <button className={outline} disabled={busy} onClick={()=>setCreateOpen(false)}>ยกเลิก</button>
-      <button className={primary} disabled={busy||!number.trim()||!party.trim()||!Number.isFinite(sum)||sum<=0||settlement&&(!sourceDocumentId||evidenceRef.trim().length<8)}
+      <button className={primary} disabled={busy||!number.trim()||!party.trim()||!Number.isFinite(sum)||sum<=0||settlement&&!sourceDocumentId||evidenceNeeded&&evidenceRef.trim().length<8}
        onClick={()=>void createDocument()}>{busy?"กำลังบันทึก...":"บันทึกแบบร่าง"}</button>
      </footer>
     </section>

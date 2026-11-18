@@ -244,8 +244,9 @@ BEGIN
 
   IF p_kind IN ('sales_invoice','supplier_bill') AND (p_due IS NULL OR p_due<p_date)
     THEN RAISE EXCEPTION 'finance_accounting_due_date_required'; END IF;
-  IF p_kind IN ('receipt_voucher','payment_voucher') THEN
-    IF p_source IS NULL THEN RAISE EXCEPTION 'finance_accounting_settlement_source_required'; END IF;
+  IF p_kind IN ('receipt_voucher','payment_voucher') AND p_source IS NULL
+    THEN RAISE EXCEPTION 'finance_accounting_settlement_source_required'; END IF;
+  IF p_kind IN ('expense_voucher','receipt_voucher','payment_voucher') THEN
     IF length(btrim(p_evidence_ref)) NOT BETWEEN 8 AND 120 OR
        p_evidence_type NOT IN ('cash_count','bank_transfer','cheque','card')
     THEN RAISE EXCEPTION 'finance_accounting_payment_evidence_required'; END IF;
@@ -289,8 +290,12 @@ BEGIN
     IF jsonb_typeof(v_row.value) <> 'object' OR
        length(btrim(v_row.value->>'description')) NOT BETWEEN 1 AND 500 OR
        (v_row.value->>'quantity')::numeric <= 0 OR
+       (v_row.value->>'quantity')::numeric > 999999 OR
        (v_row.value->>'lineMinor')::bigint <= 0 OR
-       (v_row.value->>'unitMinor')::bigint < 0
+       (v_row.value->>'unitMinor')::bigint < 0 OR
+       pg_catalog.round(
+         (v_row.value->>'quantity')::numeric * (v_row.value->>'unitMinor')::numeric
+       ) <> (v_row.value->>'lineMinor')::numeric
       THEN RAISE EXCEPTION 'finance_accounting_line_invalid'; END IF;
     v_sum := v_sum+(v_row.value->>'lineMinor')::bigint;
     IF v_sum>99999999999999 THEN RAISE EXCEPTION 'finance_accounting_total_too_large'; END IF;
