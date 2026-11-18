@@ -13,8 +13,8 @@ import { formatSalesMoney } from "@/lib/pos-money";
 
 export const dynamic = "force-dynamic";
 
-const panel = "rounded-lg border border-slate-200 bg-white shadow-sm";
-const cell = "border-b border-slate-100 px-3 py-2.5 text-left text-xs";
+const panel = "min-w-0 bg-white";
+const cell = "border-b border-slate-100 px-4 py-3 text-left text-xs leading-5";
 
 export default async function AccountantFeaturePage({ params }: {
   params: Promise<{ group: string; slug: string }>
@@ -43,22 +43,22 @@ export default async function AccountantFeaturePage({ params }: {
   }
 
   return (
-    <section className="finance-secondary-workbench w-full min-w-0 text-slate-900">
+    <section className="finance-secondary-workbench w-full min-w-0 bg-white text-slate-900">
       {!summaryView ? <FinanceSectionHeader title={item.label} group={group as "more" | "settings"}
         subtitle={`ฝ่ายบัญชี · ${identity.branchIds.length} สาขาที่ได้รับสิทธิ์`} /> : null}
-      <div className="space-y-4 p-3 md:p-4">
+      <div className="w-full min-w-0 divide-y divide-slate-200 bg-white">
       {summaryView ? <FinanceSalesDashboard actor="accountant" initialTab="dashboard" /> : null}
       {receiptView ? <FinanceDocumentWorkspace kind="receipt" /> : null}
       {taxView ? <FinanceDocumentWorkspace kind="tax" /> : null}
 
-      {dataError ? <div role="alert" className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">{dataError}</div> : null}
+      {dataError ? <div role="alert" className="mx-5 my-4 rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-900">{dataError}</div> : null}
 
       {productSales ? (
-        <section className={panel + " overflow-hidden"}>
-          <div className="border-b bg-slate-50 px-4 py-3 text-sm font-bold">
+        <section className={panel + " overflow-hidden border-b border-slate-200"}>
+          <div className="border-b border-slate-200 bg-[#f3f6fa] px-5 py-3 text-sm font-bold leading-6">
             สรุปรายการขายสินค้า 7 วัน ({productSales.from} ถึง {productSales.to}) · {productSales.orders} บิลสำเร็จ
           </div>
-          <p className="px-4 py-2 text-xs text-slate-500">
+          <p className="px-5 py-3 text-xs leading-5 text-slate-500">
             ยอดตามบรรทัดสินค้า ยังไม่ใช่ยอดสุทธิหลังส่วนลดทั้งบิลหรือภาษี และแยกสกุลเงินเสมอ
           </p>
           <div className="max-h-[60vh] overflow-auto">
@@ -87,11 +87,11 @@ export default async function AccountantFeaturePage({ params }: {
       ) : null}
 
       {products ? (
-        <section className={panel + " overflow-hidden"}>
-          <div className="border-b bg-slate-50 px-4 py-3 text-sm font-bold">
+        <section className={panel + " overflow-hidden border-b border-slate-200"}>
+          <div className="border-b border-slate-200 bg-[#f3f6fa] px-5 py-3 text-sm font-bold leading-6">
             สินค้าที่เปิดใช้งาน ({products.length} รายการ) · แสดงเพื่อการตรวจสอบ
           </div>
-          <p className="px-4 py-2 text-xs text-slate-500">
+          <p className="px-5 py-3 text-xs leading-5 text-slate-500">
             หน้านี้เป็นทะเบียนสินค้าแบบอ่านอย่างเดียว ไม่แสดงยอดคงเหลือ และยังไม่อนุญาตเพิ่ม ลบ หรือแก้สินค้าใน Session บัญชี
           </p>
           <div className="max-h-[60vh] overflow-auto">
@@ -118,10 +118,10 @@ export default async function AccountantFeaturePage({ params }: {
       ) : null}
 
       {store ? (
-        <section className={panel + " p-4"}>
+        <section className={panel + " border-b border-slate-200 px-5 py-5"}>
           <h2 className="text-sm font-bold">ข้อมูลร้านค้า (อ่านอย่างเดียว)</h2>
           <p className="mt-2 text-base font-bold">{store.name}</p>
-          <p className="mt-1 text-xs text-slate-600">สถานะร้าน: {store.active ? "เปิดใช้งาน" : "ปิดใช้งาน"}</p>
+          <p className="mt-1 text-xs leading-5 text-slate-600">สถานะร้าน: {store.active ? "เปิดใช้งาน" : "ปิดใช้งาน"}</p>
           <div className="mt-4 overflow-x-auto">
             <table className="w-full min-w-[480px] text-xs">
               <thead className="bg-[#e8f0fa]"><tr><th className={cell}>รหัสสาขา</th>
@@ -133,18 +133,18 @@ export default async function AccountantFeaturePage({ params }: {
               ))}</tbody>
             </table>
           </div>
-          <p className="mt-3 text-xs text-slate-500">การแก้ไขที่อยู่บริษัท การเพิ่มสาขา และการกำหนดเครื่องยังต้องผ่านขั้นตอนอนุมัติและสิทธิ์ที่เหมาะสม</p>
+          <p className="mt-3 text-xs leading-5 text-slate-500">การแก้ไขที่อยู่บริษัท การเพิ่มสาขา และการกำหนดเครื่องยังต้องผ่านขั้นตอนอนุมัติและสิทธิ์ที่เหมาะสม</p>
         </section>
       ) : null}
 
       {group === "settings" && !storeView ? (
-        <section className={panel + " p-4"}>
+        <section className={panel + " border-b border-slate-200 px-5 py-5"}>
           <h2 className="text-sm font-bold">การตั้งค่า {item.label}</h2>
           <p className="mt-2 text-sm text-slate-600">
             เปิดหน้าเมนูและสิทธิ์เรียบร้อยแล้ว แต่ยังไม่อนุญาตให้ Session บัญชีเปลี่ยนการตั้งค่าจริง
             เพื่อป้องกันการแก้ไขสิทธิ์สาขา เครื่องรับชำระ และข้อมูลภาษีโดยไม่มีขั้นตอนยืนยัน
           </p>
-          <p className="mt-3 text-xs text-slate-500">เลือกหมวดที่เกี่ยวข้องด้านล่างได้ โดยแต่ละหน้าตรวจสอบสิทธิ์กับนโยบาย IT แยกกัน</p>
+          <p className="mt-3 text-xs leading-5 text-slate-500">เลือกหมวดที่เกี่ยวข้องด้านล่างได้ โดยแต่ละหน้าตรวจสอบสิทธิ์กับนโยบาย IT แยกกัน</p>
         </section>
       ) : null}
 

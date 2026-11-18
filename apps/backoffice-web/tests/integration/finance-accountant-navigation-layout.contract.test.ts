@@ -12,11 +12,11 @@ const logout = source("src/app/finance/finance-logout.tsx");
 const dashboard = source("src/components/finance/finance-sales-dashboard.tsx");
 
 describe("CpiPOS Accountant desktop Finance shell", () => {
-  it("fills the top edge of the Finance-only workbench without changing the other subpages", () => {
+  it("fills the top edge with one Finance workbench surface across menu pages", () => {
     expect(accountantPage).toContain('className="finance-office-workbench w-full min-w-0 text-slate-900"');
     expect(shell).toContain("has-[.finance-office-workbench]:p-0");
     expect(shell).toContain('min-w-0 flex-1 overflow-y-auto p-2 sm:p-3 lg:p-4');
-    expect(dashboard).toContain('actor === "accountant" ? "rounded-none border-x-0 border-t-0" : "rounded-lg"');
+    expect(dashboard).toContain('className="w-full min-w-0 border-b border-slate-200 bg-white"');
     expect(accountantPage).toContain('await requireAccountantPage("main.finance")');
     expect(accountantPage).toContain('<FinanceSalesDashboard actor="accountant" />');
   });

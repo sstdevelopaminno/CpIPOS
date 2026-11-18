@@ -157,8 +157,8 @@ export function FinanceSalesDashboard({
   const totals = report ? currencyTotals(report) : [];
   const showGrid = tab === "dashboard" || tab === "sales" || tab === "reconcile";
   return (
-    <div className="w-full min-w-0 space-y-3 text-slate-900">
-      <div className={"overflow-hidden border border-[#c5d4e7] bg-white shadow-sm " + (actor === "accountant" ? "rounded-none border-x-0 border-t-0" : "rounded-lg")}>
+    <div className="finance-program-workbench w-full min-w-0 bg-white text-slate-900">
+      <div className="w-full min-w-0 border-b border-slate-200 bg-white">
         <nav aria-label="หมวดการเงิน" className="flex min-h-[52px] flex-wrap items-end gap-1 overflow-x-auto bg-[#155c94] px-4 pt-2 sm:px-5">
           <div className="flex min-h-10 shrink-0 items-center gap-2.5 px-4 text-xs font-black text-white">
             <span>CpiPOS FINANCE</span>
@@ -257,19 +257,19 @@ export function FinanceSalesDashboard({
         </form>
       </div>
 
-      <div data-finance-report-inset className="space-y-4 px-4 pb-5 sm:px-5">
+      <div data-finance-report-inset className="w-full min-w-0 divide-y divide-slate-200 bg-white">
       {error ? <div role="alert" className="rounded border border-rose-300 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-800">{error}</div> : null}
       {loading && !report ? <p role="status" className="rounded border border-slate-200 bg-white p-5 text-sm">กำลังตรวจสิทธิ์และอ่านยอดขายจาก POS…</p> : null}
       {report ? (
         <>
-          <div className="flex flex-wrap items-center justify-between gap-3 py-1 text-xs leading-5 text-slate-600">
+          <div className="flex flex-wrap items-center justify-between gap-3 bg-[#f3f6fa] px-5 py-3 text-xs leading-5 text-slate-600">
             <span>วันที่ {report.range.from} – {report.range.to} · อ่านบิลสำเร็จ {report.scannedCompletedOrders.toLocaleString("th-TH")} บิล · สาขาที่ได้รับสิทธิ์ {report.branches.length}</span>
             <span>{loading ? "กำลังรีเฟรช…" : "ข้อมูลล่าสุดจากเซิร์ฟเวอร์ · ไม่แก้ไขรายการ"}</span>
           </div>
           {tab === "dashboard" || tab === "reconcile" ? (
-            <div className={totals.length === 1 ? "grid grid-cols-1 gap-3" : totals.length === 2 ? "grid grid-cols-1 gap-3 lg:grid-cols-2" : "grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3"}>
+            <div className={totals.length === 1 ? "grid grid-cols-1" : totals.length === 2 ? "grid grid-cols-1 lg:grid-cols-2" : "grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3"}>
               {totals.map(total => (
-                <section key={total.currency} className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+                <section key={total.currency} className="min-w-0 border-b border-r border-slate-200 bg-white">
                   <div className="flex items-center justify-between border-b border-slate-200 bg-[#f1f5fb] px-5 py-3">
                     <h3 className="text-xs font-black text-[#204a78]">สรุปยอด {total.currency}</h3>
                     <span className="text-[11px] text-slate-500">{total.bills.toLocaleString("th-TH")} บิล</span>
@@ -287,7 +287,7 @@ export function FinanceSalesDashboard({
                 </section>
               ))}
               {totals.length === 0 ? (
-                <div className="rounded border border-slate-200 bg-white p-5 text-sm text-slate-500">
+                <div className="px-5 py-6 text-sm text-slate-500">
                   ไม่มีบิลขายสำเร็จในช่วงเวลาที่เลือก ยอดสรุปจะแสดงเมื่อมีข้อมูลจริง
                 </div>
               ) : null}
@@ -295,8 +295,8 @@ export function FinanceSalesDashboard({
           ) : null}
 
           {tab === "dashboard" ? (
-            <div className="grid min-w-0 gap-3 lg:grid-cols-2">
-              <section className="rounded-lg border border-slate-200 bg-white p-5">
+            <div className="grid min-w-0 divide-y divide-slate-200 lg:grid-cols-2 lg:divide-x lg:divide-y-0">
+              <section className="min-w-0 bg-white px-5 py-5">
                 <h3 className="mb-3 text-sm font-bold">ยอดรับชำระรายวัน</h3>
                 {totals.map(total => {
                   const entries = report.daily.filter(day => day.currency === total.currency);
@@ -318,7 +318,7 @@ export function FinanceSalesDashboard({
                 })}
                 {report.daily.length === 0 ? <p className="text-xs text-slate-500">ไม่มีข้อมูลรายวัน</p> : null}
               </section>
-              <section className="rounded-lg border border-slate-200 bg-white p-5">
+              <section className="min-w-0 bg-white px-5 py-5">
                 <h3 className="mb-3 text-sm font-bold">สรุปช่องทางชำระ</h3>
                 <div className="space-y-2">
                   {report.methods.map(method => (
@@ -338,8 +338,8 @@ export function FinanceSalesDashboard({
           ) : null}
 
           {tab === "branches" ? (
-            <section className="overflow-hidden rounded-lg border border-slate-200 bg-white">
-              <h3 className="border-b bg-slate-50 px-4 py-3 text-sm font-bold">รายงานยอดขายแยกสาขา</h3>
+            <section className="min-w-0 bg-white">
+              <h3 className="border-b border-slate-200 bg-[#f3f6fa] px-5 py-3 text-sm font-bold leading-6">รายงานยอดขายแยกสาขา</h3>
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[670px] text-xs">
                   <thead className="bg-[#eaf1fb] text-[#19385c]"><tr>
@@ -361,8 +361,8 @@ export function FinanceSalesDashboard({
             </section>
           ) : null}
           {tab === "methods" ? (
-            <section className="overflow-hidden rounded-lg border border-slate-200 bg-white">
-              <h3 className="border-b bg-slate-50 px-4 py-3 text-sm font-bold">รายงานรายการชำระตามช่องทาง</h3>
+            <section className="min-w-0 bg-white">
+              <h3 className="border-b border-slate-200 bg-[#f3f6fa] px-5 py-3 text-sm font-bold leading-6">รายงานรายการชำระตามช่องทาง</h3>
               <div className="overflow-x-auto"><table className="w-full min-w-[560px] text-xs">
                 <thead className="bg-[#eaf1fb] text-[#19385c]"><tr>
                   <th className="px-4 py-3 text-left">ช่องทาง</th><th className="px-4 py-3 text-center">สกุลเงิน</th>
@@ -379,7 +379,7 @@ export function FinanceSalesDashboard({
             </section>
           ) : null}
 
-          <section className="rounded-lg border border-slate-200 bg-[#f7faff] px-5 py-4 text-xs leading-5 text-slate-600">
+          <section className="bg-[#f3f6fa] px-5 py-4 text-xs leading-5 text-slate-600">
             <p className="font-bold text-[#204a78]">หมายเหตุทางบัญชี</p>
             <ul className="mt-2 list-disc space-y-1.5 pl-5">
               {report.notes.map(note => <li key={note}>{note}</li>)}

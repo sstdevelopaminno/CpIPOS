@@ -41,8 +41,8 @@ export function FinanceSalesRecordsTable({
   onPageChange: (page: number) => void;
 }) {
   return (
-    <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm" aria-label="ตารางรายรับจากการขาย">
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 bg-slate-50 px-5 py-4">
+    <section className="w-full min-w-0 bg-white" aria-label="ตารางรายรับจากการขาย">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-[#f3f6fa] px-5 py-4">
         <div>
           <h3 className="text-sm font-bold text-slate-900">รายการขายสินค้า · ข้อมูลจาก POS</h3>
           <p className="mt-0.5 text-xs text-slate-500">ค้นหาจากรายการทั้งหมดภายในช่วงวันที่และสาขาที่เลือก ไม่ใช่เฉพาะ 50 รายการล่าสุด</p>

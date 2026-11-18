@@ -14,7 +14,7 @@ export default async function OwnerFinancePage() {
   if (overrides["main.finance"] === false) notFound();
 
   return (
-    <section className="h-full w-full min-w-0 overflow-y-auto bg-slate-50 p-2 text-slate-900 sm:p-3 lg:p-4">
+    <section className="h-full w-full min-w-0 overflow-y-auto bg-white text-slate-900">
       <FinanceSalesDashboard actor="owner" />
     </section>
   );
