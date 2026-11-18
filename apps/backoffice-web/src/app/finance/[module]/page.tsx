@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { FinanceSalesDashboard } from "@/components/finance/finance-sales-dashboard";
+import { FinanceAccountingRegister } from "@/components/finance/finance-accounting-register";
 import { FinanceDocumentWorkspace } from "@/components/finance/finance-document-workspace";
 import { FinanceSectionHeader } from "@/app/finance/finance-section-header";
 import { accountantFinanceModule } from "@/lib/accountant-menu-policy";
@@ -99,6 +100,9 @@ export default async function FinanceModulePage({ params }: {
         </div>
       )}
       {stages[slug] && <WorkflowPanel entries={stages[slug]} />}
+      {(slug === "expenses" || slug === "sales-receivables" || slug === "purchases-payables" || slug === "ledger") && (
+        <FinanceAccountingRegister module={slug} />
+      )}
       {slug === "sales-receivables" && (
         <div>
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-blue-50 px-5 py-3 text-xs leading-6">
@@ -126,8 +130,7 @@ export default async function FinanceModulePage({ params }: {
       )}
       {(slug === "expenses" || slug === "purchases-payables" || slug === "ledger") && (
         <div className="border-b border-slate-200 bg-white px-5 py-6 text-sm leading-7 text-slate-600">
-          หมวดนี้จัดโครงสร้างหน้าจอและลำดับงานไว้แล้ว แต่ยังไม่มีทะเบียนเอกสารและสมุดรายวันที่ตรวจสอบสิทธิ์ครบ
-          จึงยังไม่เปิดให้บันทึกยอดจริงหรือแสดงยอดคงเหลือที่สร้างขึ้นเอง
+          ทะเบียนเอกสารและบัญชีจะเปิดบันทึกจริงได้หลังผ่านการตรวจสอบฐานข้อมูล สิทธิ์อนุมัติ และเปิดใช้ฟีเจอร์ฝั่งเซิร์ฟเวอร์แล้วเท่านั้น
         </div>
       )}
     </section>

@@ -583,7 +583,9 @@ export function PosReceiptsWorkspace({ lang, opticalMode = false }: { lang: Lang
     setLoading(true);
     setError(null);
     try {
-      const query = buildQuery({ mode, date, month, year, from, to, q, status, page: nextPage });
+      const officeBillNo = new URLSearchParams(window.location.search).get("officeBillNo");
+      const query = buildQuery({ mode, date, month, year, from, to,
+        q: q || officeBillNo || "", status, page: nextPage });
       const response = await fetch(`/api/pos/receipts?${query}`, { cache: "no-store" });
       const body = (await response.json()) as { data?: ReceiptPayload | null; error?: { message?: string } | null };
       if (!response.ok || !body.data) {
@@ -591,10 +593,24 @@ export function PosReceiptsWorkspace({ lang, opticalMode = false }: { lang: Lang
       }
       const nextData = body.data;
       setPayload(nextData);
+      const directBill = new URLSearchParams(window.location.search).get("officeBillNo");
+      const exactMatch = directBill
+        ? nextData.records.find(record => record.orderNo === directBill && record.status === "completed")
+        : null;
+      if (exactMatch) {
+        setSelected(exactMatch);
+        setDetailOpen(true);
+        setReprint({ order: exactMatch, pin: "", note: "", paper: "A4",
+          status: "idle", message: null });
+        const currentUrl = new URL(window.location.href);
+        currentUrl.searchParams.delete("officeBillNo");
+        window.history.replaceState(null, "", currentUrl.pathname + currentUrl.search);
+      } else {
       setSelected((current) => {
         if (!current) return nextData.records[0] ?? null;
         return nextData.records.find((record) => record.id === current.id) ?? nextData.records[0] ?? null;
       });
+      }
       setPage(nextPage);
       window.requestAnimationFrame(() => {
         tableScrollRef.current?.scrollTo({ top: 0, behavior: "smooth" });

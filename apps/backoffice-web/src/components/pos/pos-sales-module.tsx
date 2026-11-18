@@ -10267,6 +10267,15 @@ export function PosSalesModule({
           paymentNoticeSubmitting={paymentNoticeSubmitting}
           paymentNoticeError={paymentNoticeError}
           onCloseReceipt={closeReceiptPopup}
+          onOpenOfficeReceipt={() => {
+            // Cashier quick action only opens the existing manager-PIN-audited
+            // historical reprint. Never dispatch a second automatic receipt.
+            if (!receiptSession || !receiptSaved) return;
+            const url = "/preview/pos/more/receipts?officeBillNo=" +
+              encodeURIComponent(receiptSession.order_no);
+            const opened = window.open(url, "_blank", "noopener,noreferrer");
+            if (!opened) pushSubmitMessage("โปรดอนุญาต Pop-up เพื่อเปิดสำเนา A5/A4");
+          }}
       />
 
       {ingredientAdjustDialog ? (

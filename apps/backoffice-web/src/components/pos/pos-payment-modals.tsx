@@ -203,6 +203,7 @@ type Props = {
   paymentNoticeSubmitting?: boolean;
   paymentNoticeError?: string | null;
   onCloseReceipt: () => void;
+  onOpenOfficeReceipt?: () => void;
 };
 
 export function PosPaymentModals({
@@ -265,7 +266,8 @@ export function PosPaymentModals({
   onPrintPaymentNotice,
   paymentNoticeSubmitting = false,
   paymentNoticeError = null,
-  onCloseReceipt
+  onCloseReceipt,
+  onOpenOfficeReceipt
 }: Props) {
   function resolveReceiptDiscountAmount(session: ReceiptSession): number {
     const explicitDiscount = Number(session.discount_amount ?? 0);
@@ -647,9 +649,17 @@ export function PosPaymentModals({
                 <h3>{receiptSession.payment_method === "cash" ? (lang === "th" ? "สรุปชำระเงินสดสำเร็จ" : "Cash payment complete") : text.receiptTitle}</h3>
                 <p className={receiptError ? "posui-payment-modal__subtitle posui-payment-modal__subtitle--error" : "posui-payment-modal__subtitle"} aria-live="polite">{receiptStatusText}</p>
               </div>
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                {receiptSaved && onOpenOfficeReceipt ? (
+                  <button type="button" className="posui-btn posui-btn--ghost"
+                    onClick={onOpenOfficeReceipt}>
+                    {lang === "th" ? "ออกสำเนา A5 / A4" : "A5 / A4 copy"}
+                  </button>
+                ) : null}
               <button type="button" className="posui-btn" onClick={onCloseReceipt}>
                 {text.receiptClose}
               </button>
+              </div>
             </header>
             {receiptError ? <p className="posui-payment-modal__error" role="alert">{receiptError}</p> : null}
             <article className="posui-receipt-card-preview posui-receipt-card-preview--final" aria-label={text.receiptTitle}>
