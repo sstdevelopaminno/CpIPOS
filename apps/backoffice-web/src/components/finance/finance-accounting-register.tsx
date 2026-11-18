@@ -12,6 +12,10 @@ type Document = {
  preparedBy:string; approvedBy:string|null; postedJournalId:string|null;
  sourceDocumentId:string|null;
 };
+type Journal = {
+ id:string;branchId:string;documentId:string;date:string;currency:FinanceCurrency;
+ debitMinor:number;creditMinor:number;postedAt:string;postedBy:string
+};
 type AgingBucket = { currency:FinanceCurrency; currentMinor:number; days1to30Minor:number;
  days31to60Minor:number; days61to90Minor:number; over90Minor:number; totalMinor:number };
 type ApiEnvelope<T> = { data:T|null; error:{code:string;message:string}|null };
@@ -81,6 +85,7 @@ export function FinanceAccountingRegister({module}:{module:Module}) {
  const [kind,setKind]=useState(module==="ledger"?"":kinds[module][0].value);
  const [docs,setDocs]=useState<Document[]>([]);
  const [accounts,setAccounts]=useState<Account[]>([]);
+ const [journals,setJournals]=useState<Journal[]>([]);
  const [aging,setAging]=useState<AgingBucket[]>([]);
  const [selected,setSelected]=useState<Document|null>(null);
  const [createOpen,setCreateOpen]=useState(false);
@@ -94,6 +99,8 @@ export function FinanceAccountingRegister({module}:{module:Module}) {
  const [lines,setLines]=useState<LineInput[]>([inputLine()]);
  const [requestKey,setRequestKey]=useState("");
  const [sourceDocumentId,setSourceDocumentId]=useState("");
+ const [evidenceRef,setEvidenceRef]=useState("");
+ const [evidenceType,setEvidenceType]=useState<"cash_count"|"bank_transfer"|"cheque"|"card">("bank_transfer");
  const [sources,setSources]=useState<Document[]>([]);
  const [reason,setReason]=useState("");
  const [debit,setDebit]=useState("");
@@ -116,6 +123,10 @@ export function FinanceAccountingRegister({module}:{module:Module}) {
    if(module==="ledger"){
     const result=await api<{accounts:Account[]}>(path+"?view=accounts");
     setAccounts(result.accounts);setDocs([]);setAging([]);
+    if(activeBranch){
+      const logs=await api<{journals:Journal[]}>(path+"?view=journals&branchId="+encodeURIComponent(activeBranch));
+      setJournals(logs.journals);
+    }else setJournals([]);
    } else {
     const result=await api<{documents:Document[]}>(path+"?view=documents&kind="+
       encodeURIComponent(kind)+(activeBranch?"&branchId="+encodeURIComponent(activeBranch):""));
@@ -155,6 +166,7 @@ export function FinanceAccountingRegister({module}:{module:Module}) {
  function openCreate(){
   setRequestKey(crypto.randomUUID());setNumber("");setParty("");setDue("");
   setDate(today());setCurrency("THB");setLines([inputLine()]);
+  setEvidenceRef("");setEvidenceType("bank_transfer");
   setSourceDocumentId("");setError(null);setCreateOpen(true);
  }
  async function createDocument(){
@@ -167,7 +179,8 @@ export function FinanceAccountingRegister({module}:{module:Module}) {
   await submit({
    action:"create_document",branchId:branch,kind,documentNo:number,counterparty:party,
    documentDate:date,dueDate:due,currency,lines:mapped,requestKey,
-   sourceDocumentId:settlement?sourceDocumentId:null
+   sourceDocumentId:settlement?sourceDocumentId:null,
+   evidenceRef:settlement?evidenceRef:null,evidenceType:settlement?evidenceType:null
   });
  }
  async function transition(action:string){
@@ -237,6 +250,20 @@ export function FinanceAccountingRegister({module}:{module:Module}) {
        <td className="px-5 py-3">{a.type}</td>
       </tr>)}</tbody></table>
      {accounts.length===0&&<p className="px-5 py-5 text-sm text-slate-500">ยังไม่มีผังบัญชีที่ยืนยันแล้ว</p>}
+     <div className="border-t border-slate-200 bg-slate-50 px-5 py-3 text-sm font-bold text-slate-800">สมุดรายวันที่โพสต์แล้ว (ตรวจจากฐานข้อมูล)</div>
+     <table className="w-full min-w-[600px] text-sm">
+      <thead className="bg-slate-100 text-xs text-slate-600"><tr>
+       <th className="px-5 py-3 text-left">วันที่</th><th className="px-5 py-3 text-left">รหัสเอกสารต้นทาง</th>
+       <th className="px-5 py-3 text-right">เดบิต</th><th className="px-5 py-3 text-right">เครดิต</th>
+       <th className="px-5 py-3 text-left">สกุลเงิน</th>
+      </tr></thead><tbody>{journals.map(j=><tr key={j.id} className="border-t border-slate-100">
+       <td className="px-5 py-3">{j.date}</td>
+       <td className="px-5 py-3 font-mono text-xs">{j.documentId}</td>
+       <td className="px-5 py-3 text-right tabular-nums">{money(j.debitMinor,j.currency)}</td>
+       <td className="px-5 py-3 text-right tabular-nums">{money(j.creditMinor,j.currency)}</td>
+       <td className="px-5 py-3">{j.currency}</td></tr>)}</tbody>
+     </table>
+     {journals.length===0&&<p className="px-5 py-5 text-sm text-slate-500">ยังไม่มีรายการที่ผ่านการลงบัญชีในสาขานี้</p>}
     </div>
     :<>
     {side&&aging.length>0&&<div className="grid gap-px border-y border-slate-200 bg-slate-200 sm:grid-cols-2 lg:grid-cols-5">
@@ -288,6 +315,19 @@ export function FinanceAccountingRegister({module}:{module:Module}) {
        <div><label className={label}>ครบกำหนดชำระ</label><input className={field} type="date" value={due} onChange={e=>setDue(e.target.value)}/></div>
        <div><label className={label}>สกุลเงิน</label><select className={field} value={currency} onChange={e=>setCurrency(e.target.value as FinanceCurrency)}>
         <option>THB</option><option>LAK</option><option>USD</option></select></div>
+       {settlement&&<div><label className={label}>หลักฐานการรับ/จ่ายเงิน</label>
+        <select className={field} value={evidenceType} onChange={e=>setEvidenceType(e.target.value as typeof evidenceType)}>
+         <option value="bank_transfer">โอนเงินพร้อมหลักฐาน</option>
+         <option value="cash_count">เงินสด / ใบนับเงิน</option>
+         <option value="cheque">เช็ค</option>
+         <option value="card">บัตร / หลักฐานผู้ให้บริการ</option>
+        </select>
+       </div>}
+       {settlement&&<div><label className={label}>เลขอ้างอิงหลักฐาน (8–120 ตัวอักษร)</label>
+        <input className={field} value={evidenceRef} maxLength={120}
+          onChange={e=>setEvidenceRef(e.target.value)}
+          placeholder="เช่น TRANSFER-20261118-001"/>
+       </div>}
        {settlement&&<div><label className={label}>เอกสารลูกหนี้/เจ้าหนี้ต้นทาง (ต้องลงบัญชีแล้ว)</label>
         <select className={field} value={sourceDocumentId} onChange={e=>setSourceDocumentId(e.target.value)}>
          <option value="">เลือกเอกสาร</option>
@@ -316,7 +356,7 @@ export function FinanceAccountingRegister({module}:{module:Module}) {
      </div>
      <footer className="flex justify-end gap-2 border-t border-slate-200 px-5 py-4">
       <button className={outline} disabled={busy} onClick={()=>setCreateOpen(false)}>ยกเลิก</button>
-      <button className={primary} disabled={busy||!number.trim()||!party.trim()||!Number.isFinite(sum)||sum<=0||settlement&&!sourceDocumentId}
+      <button className={primary} disabled={busy||!number.trim()||!party.trim()||!Number.isFinite(sum)||sum<=0||settlement&&(!sourceDocumentId||evidenceRef.trim().length<8)}
        onClick={()=>void createDocument()}>{busy?"กำลังบันทึก...":"บันทึกแบบร่าง"}</button>
      </footer>
     </section>

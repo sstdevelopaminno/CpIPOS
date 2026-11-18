@@ -155,10 +155,18 @@ CREATE TABLE IF NOT EXISTS public.finance_accounting_allocations (
     REFERENCES public.finance_accounting_documents(tenant_id,branch_id,id)
 );
 
-ALTER TABLE public.finance_accounting_documents
-  ADD CONSTRAINT finance_accounting_posted_journal_fk
-  FOREIGN KEY(tenant_id,branch_id,posted_journal_id)
-  REFERENCES public.finance_accounting_journals(tenant_id,branch_id,id);
+DO $ddl$
+BEGIN
+  IF NOT EXISTS(SELECT 1 FROM pg_catalog.pg_constraint
+    WHERE conname='finance_accounting_posted_journal_fk'
+      AND conrelid='public.finance_accounting_documents'::pg_catalog.regclass)
+  THEN
+    ALTER TABLE public.finance_accounting_documents
+      ADD CONSTRAINT finance_accounting_posted_journal_fk
+      FOREIGN KEY(tenant_id,branch_id,posted_journal_id)
+      REFERENCES public.finance_accounting_journals(tenant_id,branch_id,id);
+  END IF;
+END $ddl$;
 
 -- Only the RPC owner can mutate. PostgREST service role may SELECT.
 DO $ddl$
@@ -215,11 +223,12 @@ GRANT EXECUTE ON FUNCTION public.finance_accounting_create_account(uuid,uuid,uui
 CREATE OR REPLACE FUNCTION public.finance_accounting_create_document(
  p_tenant uuid,p_branch uuid,p_actor uuid,p_kind text,p_no text,p_counterparty text,
  p_date date,p_due date,p_currency text,p_lines jsonb,p_request uuid,
- p_source uuid DEFAULT NULL
+ p_source uuid DEFAULT NULL,p_evidence_ref text DEFAULT '',p_evidence_type text DEFAULT ''
 ) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = ''
 AS $fn$
 DECLARE v_id uuid; v_row record; v_sum bigint := 0; v_num integer := 0;
   v_signature jsonb; v_old public.finance_accounting_documents%ROWTYPE;
+  v_source public.finance_accounting_documents%ROWTYPE;
 BEGIN
   PERFORM public.finance_accounting_check_actor(p_tenant,p_branch,p_actor);
   IF p_kind NOT IN ('sales_quote','sales_order','delivery_note','sales_invoice',
@@ -235,16 +244,34 @@ BEGIN
 
   IF p_kind IN ('sales_invoice','supplier_bill') AND (p_due IS NULL OR p_due<p_date)
     THEN RAISE EXCEPTION 'finance_accounting_due_date_required'; END IF;
-  IF p_kind IN ('receipt_voucher','payment_voucher') AND p_source IS NULL
-    THEN RAISE EXCEPTION 'finance_accounting_settlement_source_required'; END IF;
-  IF p_source IS NOT NULL AND NOT EXISTS(
-    SELECT 1 FROM public.finance_accounting_documents d
-    WHERE d.tenant_id=p_tenant AND d.branch_id=p_branch AND d.id=p_source
-  ) THEN RAISE EXCEPTION 'finance_accounting_source_not_found'; END IF;
+  IF p_kind IN ('receipt_voucher','payment_voucher') THEN
+    IF p_source IS NULL THEN RAISE EXCEPTION 'finance_accounting_settlement_source_required'; END IF;
+    IF length(btrim(p_evidence_ref)) NOT BETWEEN 8 AND 120 OR
+       p_evidence_type NOT IN ('cash_count','bank_transfer','cheque','card')
+    THEN RAISE EXCEPTION 'finance_accounting_payment_evidence_required'; END IF;
+  END IF;
+  IF p_source IS NOT NULL THEN
+    SELECT * INTO v_source FROM public.finance_accounting_documents
+      WHERE tenant_id=p_tenant AND branch_id=p_branch AND id=p_source;
+    IF NOT FOUND THEN RAISE EXCEPTION 'finance_accounting_source_not_found'; END IF;
+    IF v_source.status<>'issued' OR v_source.currency<>p_currency
+      THEN RAISE EXCEPTION 'finance_accounting_source_not_issued_or_currency'; END IF;
+    IF NOT (
+      (p_kind='sales_order' AND v_source.document_kind='sales_quote') OR
+      (p_kind='delivery_note' AND v_source.document_kind='sales_order') OR
+      (p_kind='sales_invoice' AND v_source.document_kind IN ('sales_order','delivery_note')) OR
+      (p_kind='purchase_order' AND v_source.document_kind='purchase_request') OR
+      (p_kind='goods_receipt' AND v_source.document_kind='purchase_order') OR
+      (p_kind='supplier_bill' AND v_source.document_kind IN ('purchase_order','goods_receipt')) OR
+      (p_kind='receipt_voucher' AND v_source.document_kind='sales_invoice') OR
+      (p_kind='payment_voucher' AND v_source.document_kind='supplier_bill')
+    ) THEN RAISE EXCEPTION 'finance_accounting_source_flow_invalid'; END IF;
+  END IF;
 
   v_signature := jsonb_build_object('kind',p_kind,'number',btrim(p_no),
     'counterparty',btrim(p_counterparty),'date',p_date,'due',p_due,
-    'currency',p_currency,'lines',p_lines,'source',p_source);
+    'currency',p_currency,'lines',p_lines,'source',p_source,
+    'evidenceRef',p_evidence_ref,'evidenceType',p_evidence_type);
   -- Hold an advisory transaction lock on a stable request key before lookup/insert.
   PERFORM pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended(
     p_tenant::text||'/'||p_branch::text||'/'||p_request::text,0));
@@ -287,8 +314,8 @@ BEGIN
   RETURN jsonb_build_object('id',v_id,'status','draft','created',true);
 END;
 $fn$;
-REVOKE ALL ON FUNCTION public.finance_accounting_create_document(uuid,uuid,uuid,text,text,text,date,date,text,jsonb,uuid,uuid) FROM PUBLIC,anon,authenticated;
-GRANT EXECUTE ON FUNCTION public.finance_accounting_create_document(uuid,uuid,uuid,text,text,text,date,date,text,jsonb,uuid,uuid) TO service_role;
+REVOKE ALL ON FUNCTION public.finance_accounting_create_document(uuid,uuid,uuid,text,text,text,date,date,text,jsonb,uuid,uuid,text,text) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION public.finance_accounting_create_document(uuid,uuid,uuid,text,text,text,date,date,text,jsonb,uuid,uuid,text,text) TO service_role;
 
 CREATE OR REPLACE FUNCTION public.finance_accounting_transition_document(
  p_tenant uuid,p_branch uuid,p_actor uuid,p_document uuid,p_action text,

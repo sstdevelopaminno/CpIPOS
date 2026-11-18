@@ -2,7 +2,7 @@ import { fail, ok } from "@/lib/http";
 import {
   accountingIdentity, accountingBranches, accountingDocuments, accountingAging,
   accountingAccounts, accountingCreate, accountingTransition, accountingPost,
-  accountingCreateAccount, FinanceAccountingError
+  accountingCreateAccount, accountingJournals, FinanceAccountingError
 } from "@/lib/server/finance-accounting-workflow";
 import { todayBangkok } from "@/lib/finance-sales-analytics";
 import { FinanceCoreError } from "@/lib/finance-accounting-core";
@@ -32,6 +32,8 @@ export async function GET(request:Request) {
       return nonCache(ok({branches:await accountingBranches(identity)}));
     if(view==="accounts")
       return nonCache(ok(await accountingAccounts(identity)));
+    if(view==="journals")
+      return nonCache(ok(await accountingJournals(identity,branch)));
     if(view==="aging") {
       const side=url.searchParams.get("side");
       if(side!=="AR" && side!=="AP")

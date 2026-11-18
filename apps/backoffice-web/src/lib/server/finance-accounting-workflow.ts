@@ -4,7 +4,7 @@ import { getPrimarySupabaseServiceClient } from "@/lib/supabase-admin";
 import { requireFinanceSession, type FinanceIdentity } from "@/lib/server/finance-session";
 import { getTenantPosMenuOverrides } from "@/lib/server/pos-menu-policy-service";
 import { isAccountantMenuVisible } from "@/lib/accountant-menu-policy";
-import { currencyToMinor, financeAgingAsOf, type FinanceAgingRecord,
+import { financeAgingAsOf, type FinanceAgingRecord,
   type FinanceCurrency, type FinanceDocumentKind } from "@/lib/finance-accounting-core";
 
 export class FinanceAccountingError extends Error {
@@ -122,18 +122,35 @@ export async function accountingAccounts(identity: FinanceIdentity) {
   if ((r.count??0)>500) throw new FinanceAccountingError("finance_accounting_account_limit",422);
   return { accounts:(r.data??[]).map(v=>({id:v.id,code:v.account_code,name:v.account_name,type:v.account_type})) };
 }
+export async function accountingJournals(identity:FinanceIdentity, branchId:string|null) {
+  await authorize(identity,"finance.ledger");
+  if(branchId) validBranch(identity,branchId);
+  const result=await getPrimarySupabaseServiceClient().from("finance_accounting_journals")
+    .select("id,branch_id,document_id,accounting_date,currency,debit_total_minor,credit_total_minor,posted_at,posted_by",{count:"exact"})
+    .eq("tenant_id",identity.tenantId).in("branch_id",branchId?[branchId]:identity.branchIds)
+    .order("posted_at",{ascending:false}).limit(101);
+  failClosedDb(result.error);
+  if((result.count??0)>100) throw new FinanceAccountingError("finance_accounting_journals_too_many_filter_required",422);
+  return {journals:(result.data??[]).map(j=>({
+    id:String(j.id),branchId:String(j.branch_id),documentId:String(j.document_id),
+    date:String(j.accounting_date),currency:j.currency as FinanceCurrency,
+    debitMinor:Number(j.debit_total_minor),creditMinor:Number(j.credit_total_minor),
+    postedAt:String(j.posted_at),postedBy:String(j.posted_by)
+  }))};
+}
 export async function accountingAging(identity: FinanceIdentity,side:"AR"|"AP",branchId:string|null,asOf:string) {
   await authorize(identity,side==="AR"?"finance.sales_receivables":"finance.purchases_payables");
   if (branchId) validBranch(identity,branchId);
   const cutoff=day(asOf)!;
+  const endBangkokIso=new Date(Date.parse(cutoff+"T00:00:00.000Z")+17*60*60*1000-1).toISOString();
   const db=getPrimarySupabaseServiceClient();
   const doc=await db.from("finance_accounting_documents")
-    .select("id,branch_id,currency,due_date,amount_minor,status,posted_journal_id",{count:"exact"})
+    .select("id,branch_id,currency,due_date,amount_minor,status,posted_journal_id,issued_at",{count:"exact"})
     .eq("tenant_id",identity.tenantId)
     .in("branch_id",branchId?[branchId]:identity.branchIds)
     .eq("document_kind",side==="AR"?"sales_invoice":"supplier_bill")
     .eq("status","issued").not("posted_journal_id","is",null)
-    .lte("document_date",cutoff).limit(501);
+    .lte("document_date",cutoff).lte("issued_at",endBangkokIso).limit(501);
   failClosedDb(doc.error);
   if ((doc.count??0)>500) throw new FinanceAccountingError("finance_accounting_aging_too_many",422);
   const docs=doc.data??[];
@@ -142,14 +159,15 @@ export async function accountingAging(identity: FinanceIdentity,side:"AR"|"AP",b
   const allocations=await db.from("finance_accounting_allocations")
     .select("source_document_id,amount_minor,created_at")
     .eq("tenant_id",identity.tenantId).in("branch_id",branchId?[branchId]:identity.branchIds)
-    .in("source_document_id",ids).lte("created_at",cutoff+"T16:59:59.999Z").limit(1000);
+    .in("source_document_id",ids).lte("created_at",endBangkokIso).limit(1000);
   failClosedDb(allocations.error);
   if ((allocations.data??[]).length>=1000) throw new FinanceAccountingError("finance_accounting_aging_allocations_too_many",422);
   const applied=new Map<string,number>();
   for(const a of allocations.data??[])
     applied.set(a.source_document_id,(applied.get(a.source_document_id)??0)+Number(a.amount_minor));
+  if(docs.some(d=>!d.due_date)) throw new FinanceAccountingError("finance_accounting_due_date_missing",503);
   const records:FinanceAgingRecord[]=docs.map(d=>({
-    id:d.id,currency:d.currency as FinanceCurrency,dueDate:d.due_date??cutoff,
+    id:d.id,currency:d.currency as FinanceCurrency,dueDate:d.due_date!,
     originalMinor:Number(d.amount_minor),appliedMinor:applied.get(d.id)??0
   }));
   const buckets=financeAgingAsOf(records,cutoff);
@@ -178,12 +196,18 @@ export async function accountingCreate(identity: FinanceIdentity,body:Record<str
   const total=sanitized.reduce((sum,line)=>sum+line.lineMinor,0);
   validMinor(total);
   const request=uuid(body.requestKey);
+  const evidenceRef=body.evidenceRef==null?"":clean(body.evidenceRef,120);
+  const evidenceType=body.evidenceType==null?"":clean(body.evidenceType,40);
+  if((kind==="receipt_voucher"||kind==="payment_voucher") &&
+    (!["cash_count","bank_transfer","cheque","card"].includes(evidenceType) || !evidenceRef))
+    throw new FinanceAccountingError("finance_accounting_payment_evidence_required");
   const params={
     p_tenant:identity.tenantId,p_branch:branch,p_actor:identity.userId,
     p_kind:kind,p_no:clean(body.documentNo,64),p_counterparty:clean(body.counterparty,240),
     p_date:day(body.documentDate),p_due:day(body.dueDate,true),p_currency:c,
     p_lines:sanitized,p_request:request,
-    p_source:body.sourceDocumentId?uuid(body.sourceDocumentId):null
+    p_source:body.sourceDocumentId?uuid(body.sourceDocumentId):null,
+    p_evidence_ref:evidenceRef,p_evidence_type:evidenceType
   };
   const r=await getPrimarySupabaseServiceClient().rpc("finance_accounting_create_document",params);
   failClosedDb(r.error);
