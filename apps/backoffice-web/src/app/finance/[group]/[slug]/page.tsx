@@ -51,7 +51,7 @@ export default async function AccountantFeaturePage({ params }: {
       {receiptView ? <FinanceDocumentWorkspace kind="receipt" /> : null}
       {taxView ? <FinanceDocumentWorkspace kind="tax" /> : null}
 
-      {dataError ? <div role="alert" className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">{dataError}</div> : null}
+      {dataError ? <div role="alert" className="mx-5 my-4 rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-900">{dataError}</div> : null}
 
       {productSales ? (
         <section className={panel + " overflow-hidden border-b border-slate-200"}>
