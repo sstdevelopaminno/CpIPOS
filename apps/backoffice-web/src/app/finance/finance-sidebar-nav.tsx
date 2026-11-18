@@ -20,9 +20,11 @@ const financeIcons: Record<string, FinanceNavIconName> = {
   income: "income",
   expenses: "expense",
   "sales-receivables": "receivables",
+  "pos-receipts": "receipt",
   "purchases-payables": "payables",
   banking: "bank",
   ledger: "ledger",
+  "posted-journals": "list",
   "tax-reports": "reports"
 };
 

@@ -1,9 +1,9 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { FinanceAccountingRegister } from "@/components/finance/finance-accounting-register";
 import { FinanceIncomeWorkspace } from "@/components/finance/finance-income-workspace";
 import { FinanceBankingWorkspace } from "@/components/finance/finance-banking-workspace";
 import { FinanceDocumentWorkspace } from "@/components/finance/finance-document-workspace";
+import { FinancePostedJournals } from "@/components/finance/finance-posted-journals";
 import { FinanceSectionHeader } from "@/app/finance/finance-section-header";
 import { accountantFinanceModule } from "@/lib/accountant-menu-policy";
 import { requireAccountantPage } from "@/lib/server/accountant-page-guard";
@@ -13,10 +13,12 @@ export const dynamic = "force-dynamic";
 const subtitles: Record<string, string> = {
   income: "รายรับจาก POS และทะเบียนรายรับอื่น ๆ พร้อมเลขเอกสารแยกกัน",
   expenses: "ทะเบียนรายจ่าย ค่าใช้จ่าย และเอกสารประกอบการขออนุมัติ",
-  "sales-receivables": "ทะเบียนเอกสารขาย ใบแจ้งหนี้ ติดตามลูกหนี้ และสำเนาใบเสร็จจาก POS",
+  "sales-receivables": "ทะเบียนเอกสารขาย ใบแจ้งหนี้ และติดตามลูกหนี้",
+  "pos-receipts": "ค้นหาบิลที่ชำระสำเร็จจาก POS และเรียกดูรายละเอียดเอกสารย้อนหลัง",
   "purchases-payables": "ทะเบียนจัดซื้อ รับสินค้า ใบแจ้งหนี้ผู้ขาย และติดตามเจ้าหนี้",
   banking: "บันทึกการโอนพร้อมหลักฐาน และตรวจสอบยอดรับที่ POS บันทึก",
-  ledger: "ผังบัญชี สมุดรายวัน และรายการเดบิต–เครดิตจากเอกสารที่ผ่านอนุมัติ",
+  ledger: "ผังบัญชีและการจัดหมวดบัญชีที่ใช้ลงรายการจากเอกสารที่ผ่านอนุมัติ",
+  "posted-journals": "ตรวจรายการเดบิต–เครดิตที่โพสต์แล้วจากฐานข้อมูล แยกตามสาขา",
   "tax-reports": "ตรวจสอบใบกำกับภาษีที่ออกจริงจาก POS และข้อมูลภาษีต้นทาง"
 };
 
@@ -35,27 +37,13 @@ export default async function FinanceModulePage({ params }: {
       {slug === "income" && <FinanceIncomeWorkspace />}
       {slug === "expenses" && <FinanceAccountingRegister module="expenses" />}
 
-      {slug === "sales-receivables" && (
-        <>
-          <FinanceAccountingRegister module="sales-receivables" />
-          <section className="border-t border-slate-200">
-            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#c9d9ec] bg-[#eaf2fc] px-5 py-3">
-              <div>
-                <h2 className="text-sm font-extrabold text-[#1c4b79]">ใบเสร็จย้อนหลังจาก POS</h2>
-                <p className="mt-1 text-xs text-slate-600">รายการชำระเงินจาก POS แยกจากทะเบียนลูกหนี้ข้างต้น</p>
-              </div>
-              <Link href="/finance/tax-reports" className="rounded-md border border-[#b6cde6] bg-white px-3 py-2 text-xs font-bold text-[#22578b] hover:bg-blue-50">
-                ดูใบกำกับภาษี
-              </Link>
-            </div>
-            <FinanceDocumentWorkspace kind="receipt" />
-          </section>
-        </>
-      )}
+      {slug === "sales-receivables" && <FinanceAccountingRegister module="sales-receivables" />}
+      {slug === "pos-receipts" && <FinanceDocumentWorkspace kind="receipt" />}
 
       {slug === "purchases-payables" && <FinanceAccountingRegister module="purchases-payables" />}
       {slug === "banking" && <FinanceBankingWorkspace />}
       {slug === "ledger" && <FinanceAccountingRegister module="ledger" />}
+      {slug === "posted-journals" && <FinancePostedJournals />}
 
       {slug === "tax-reports" && (
         <>
