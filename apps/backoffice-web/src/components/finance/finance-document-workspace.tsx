@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { FinanceSalesBranch, FinanceSalesRecordsPage } from "@/lib/finance-sales-analytics";
 import type { FinanceDocumentDetail, FinanceReceiptLine, FinanceReceiptSnapshot } from "@/lib/server/finance-document-service";
 import { formatSalesMoney } from "@/lib/pos-money";
+import { FinanceDialog, FinanceConfirmDialog } from "./finance-dialog";
 
 type Kind = "receipt" | "tax";
 type ListPayload = { table: FinanceSalesRecordsPage; branches: FinanceSalesBranch[] };
@@ -88,6 +89,10 @@ export function FinanceDocumentWorkspace({ kind }: { kind: Kind }) {
   const [buyers, setBuyers] = useState<Buyer[]>([]);
   const [buyerId, setBuyerId] = useState("");
   const [buyerForm, setBuyerForm] = useState<BuyerForm>(newBuyer);
+  const [buyerModalOpen, setBuyerModalOpen] = useState(false);
+  const [issueDialogOpen, setIssueDialogOpen] = useState(false);
+  const [voidDialogOpen, setVoidDialogOpen] = useState(false);
+  const [buyerRefresh, setBuyerRefresh] = useState(0);
   const [paper, setPaper] = useState<58 | 80>(80);
   const [loading, setLoading] = useState(false);
   const [working, setWorking] = useState(false);
@@ -108,7 +113,7 @@ export function FinanceDocumentWorkspace({ kind }: { kind: Kind }) {
   useEffect(() => {
     let alive = true;
     async function fetchList() {
-      setLoading(true); setError(""); setNotice("");
+      setLoading(true); setError("");
       const params = new URLSearchParams({ mode: "list", kind, from, to, page: String(page), billNo });
       if (branchId) params.set("branchId", branchId);
       try {
@@ -135,32 +140,56 @@ export function FinanceDocumentWorkspace({ kind }: { kind: Kind }) {
       } catch { if (alive) setBuyers([]); }
     })();
     return () => { alive = false; };
-  }, [kind, selected]);
+  }, [kind, selected?.receipt.branchId, buyerRefresh]);
 
-  async function post(payload: Record<string, unknown>) {
-    setWorking(true); setError(""); setNotice("");
+  async function post(payload: Record<string, unknown>): Promise<boolean> {
+    if (working) return false;
+    setWorking(true);
+    setError("");
+    setNotice("");
     try {
       const response = await fetch("/api/finance/documents", {
-        method: "POST", headers: { "Content-Type": "application/json" },
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload)
       });
       const json = await response.json().catch(() => null) as Api<unknown> | null;
       if (!response.ok) throw new Error(json?.error?.code ?? "finance_document_action_failed");
-      if (payload.action === "create_buyer" && json?.data &&
-          typeof (json.data as { id?: unknown }).id === "string") {
-        setBuyerId((json.data as { id: string }).id);
+
+      // Close only after a confirmed server success. Failed saves leave the form
+      // and all entered values intact so the user can correct them and retry.
+      if (payload.action === "create_buyer") {
+        const id = (json?.data as { id?: unknown } | null)?.id;
+        if (typeof id === "string") setBuyerId(id);
         setBuyerForm(newBuyer());
+        setBuyerModalOpen(false);
+        setBuyerRefresh(n => n + 1);
+      } else {
+        if (payload.action === "issue_tax") setIssueDialogOpen(false);
+        if (payload.action === "void") setVoidDialogOpen(false);
+        if (payload.action === "correct") setEdit(null);
       }
-      if (selected) await loadDetail(selected.receipt.orderId);
-      setQuery(x => x + 1);
-      setNotice(payload.action === "issue_tax" ? "ออกใบกำกับภาษีสำเร็จ เลือกพิมพ์สำเนาได้" :
-        payload.action === "create_buyer" ? "บันทึกทะเบียนผู้ซื้อแล้ว เลือกผู้ซื้อก่อนออกใบกำกับภาษี" :
-        payload.action === "void" ? "บันทึกการยกเลิกเอกสารแล้ว (ยังคงข้อมูลการขายต้นฉบับ)" :
-        "บันทึกใบเสร็จฉบับแก้ไขพร้อมประวัติ Audit แล้ว");
+      const successText = payload.action === "issue_tax" ? "ออกใบกำกับภาษีสำเร็จ เลือกพิมพ์สำเนาได้" :
+        payload.action === "create_buyer" ? "บันทึกทะเบียนผู้ซื้อสำเร็จ และปิดหน้าต่างแล้ว" :
+        payload.action === "void" ? "บันทึกการยกเลิกเอกสารแล้ว โดยเก็บบิล POS ต้นฉบับไว้" :
+        "บันทึกใบเสร็จฉบับแก้ไขพร้อมประวัติการตรวจสอบแล้ว";
+      setNotice(successText);
+      setQuery(n => n + 1);
+      if (payload.action !== "create_buyer" && selected) {
+        try {
+          await loadDetail(selected.receipt.orderId);
+        } catch {
+          setNotice(successText + " · กรุณาเปิดบิลอีกครั้งเพื่อโหลดข้อมูลล่าสุด");
+        }
+      }
+      return true;
     } catch (cause) {
-      const msg = cause instanceof Error ? cause.message : "";
-      setError(errorMessages[msg] ?? msg ?? "ทำรายการไม่สำเร็จ");
-    } finally { setWorking(false); }
+      const code = cause instanceof Error ? cause.message : "";
+      setError(errorMessages[code] ?? code ?? "ทำรายการไม่สำเร็จ");
+      return false;
+    } finally {
+      setWorking(false);
+    }
   }
 
   const receipt = selected?.receipt;
@@ -268,7 +297,7 @@ export function FinanceDocumentWorkspace({ kind }: { kind: Kind }) {
                       </select>
                     </label>
                     <button type="button" className={primary} disabled={!buyerId || working || receipt.revision !== 0}
-                      onClick={() => { if (window.confirm("ยืนยันออกใบกำกับภาษีจากข้อมูล POS ต้นฉบับและผู้ซื้อที่เลือก? ไม่สามารถแก้เนื้อหาฉบับที่ออกแล้วโดยตรง")) void post({ action: "issue_tax", orderId: receipt.orderId, buyerId }); }}>
+                      onClick={() => { setError(""); setIssueDialogOpen(true); }}>
                       ตรวจสอบ VAT และออกใบกำกับภาษี
                     </button>
                   </>
@@ -276,16 +305,54 @@ export function FinanceDocumentWorkspace({ kind }: { kind: Kind }) {
               </>}
             </div>
             {kind === "tax" && !invoice ? (
-              <details className="rounded border border-slate-200 bg-slate-50 px-3 py-2">
-                <summary className="cursor-pointer text-xs font-bold text-[#155c94]">
-                  เพิ่มผู้ซื้อสำหรับออกใบกำกับภาษี (ใช้ทะเบียนของสาขานี้)
-                </summary>
-                <form className="mt-3 space-y-3" onSubmit={event => {
+              <button type="button" className={btn} disabled={working}
+                onClick={() => { setError(""); setBuyerForm(newBuyer()); setBuyerModalOpen(true); }}>
+                + เพิ่มผู้ซื้อสำหรับออกใบกำกับภาษี
+              </button>
+            ) : null}
+            {kind === "receipt" && !edit ? (
+              <div className="grid gap-3 text-sm sm:grid-cols-2 xl:grid-cols-4">
+                <div><p className="text-xs text-slate-500">วันที่ในเอกสาร</p><b>{receipt.documentDate}</b></div>
+                <div><p className="text-xs text-slate-500">ชื่อผู้ซื้อ</p><b>{receipt.customerName || "—"}</b></div>
+                <div><p className="text-xs text-slate-500">ยอดเอกสาร</p><b>{money(receipt.totalAmount, receipt.currency)}</b></div>
+                <div><p className="text-xs text-slate-500">ยอดตามบิล POS ต้นฉบับ</p><b>{money(receipt.originalTotal, receipt.currency)}</b></div>
+              </div>
+            ) : null}
+            {kind === "tax" ? (
+              <p className="rounded border border-sky-200 bg-sky-50 p-3 text-xs text-sky-900">
+                ใช้ทะเบียนผู้ซื้อและข้อมูลภาษีจาก POS ของสาขานี้เท่านั้น ต้องเปิด VAT และมีเลขผู้เสียภาษีที่ถูกต้อง
+                ใบกำกับภาษีที่ออกแล้วเก็บ Snapshot เดิม ไม่สามารถลบหรือแก้ยอดโดยตรง ต้องใช้กระบวนการใบลดหนี้/ยกเลิกเอกสารตามกฎหมาย
+              </p>
+            ) : null}
+            {kind === "receipt" && !receipt.voided && invoice?.status !== "issued" ? (
+              <button type="button" className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700 transition hover:bg-rose-100"
+                onClick={() => { setError(""); setReason(""); setVoidDialogOpen(true); }}>
+                ยกเลิกเอกสารใบเสร็จ
+              </button>
+            ) : null}
+            {selected.revisions.length ? (
+              <div className="text-xs text-slate-600">
+                <b>ประวัติการแก้ไข/ยกเลิก</b>
+                <ul className="mt-1 space-y-1">{selected.revisions.map(r =>
+                  <li key={r.id}>{new Date(r.createdAt).toLocaleString("th-TH", { timeZone: "Asia/Bangkok" })} · {r.action} · {r.reason}</li>
+                )}</ul>
+              </div>
+            ) : null}
+          </div>
+        </section>
+      ) : null}
+      {selected && receipt && kind === "tax" ? (
+        <>
+          <FinanceDialog open={buyerModalOpen} onClose={() => setBuyerModalOpen(false)}
+            busy={working} title="เพิ่มผู้ซื้อสำหรับออกใบกำกับภาษี"
+            description="บันทึกข้อมูลผู้ซื้อในทะเบียนภาษีของสาขาที่เลือก" size="xl">
+            {error ? <p role="alert" className="mb-4 rounded-lg border border-rose-300 bg-rose-50 px-3 py-2 text-xs text-rose-800">{error}</p> : null}
+            <form className="space-y-4" onSubmit={event => {
                   event.preventDefault();
                   void post({ action: "create_buyer",
                     profile: { ...buyerForm, branchId: receipt.branchId } });
                 }}>
-                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
                     <label className="text-xs">ประเภทผู้ซื้อ
                       <select className={field + " mt-1"} value={buyerForm.entityType}
                         onChange={e => setBuyerForm(b => ({ ...b, entityType: e.target.value }))}>
@@ -307,31 +374,43 @@ export function FinanceDocumentWorkspace({ kind }: { kind: Kind }) {
                     ))}
                   </div>
                   <p className="text-xs text-slate-500">ระบบตรวจสอบเลขผู้เสียภาษีและที่อยู่ให้ตรงกับรหัสไปรษณีย์ก่อนบันทึก</p>
-                  <button className={primary} type="submit" disabled={working}>บันทึกผู้ซื้อ</button>
+                  <div className="flex flex-wrap justify-end gap-2 border-t border-slate-200 pt-4">
+                    <button type="button" className={btn} disabled={working}
+                      onClick={() => setBuyerModalOpen(false)}>ยกเลิก</button>
+                    <button className={primary} type="submit" disabled={working}>
+                      {working ? "กำลังบันทึก..." : "บันทึกผู้ซื้อ"}
+                    </button>
+                  </div>
                 </form>
-              </details>
-            ) : null}
-            {kind === "receipt" && !edit ? (
-              <div className="grid gap-3 text-sm sm:grid-cols-2 xl:grid-cols-4">
-                <div><p className="text-xs text-slate-500">วันที่ในเอกสาร</p><b>{receipt.documentDate}</b></div>
-                <div><p className="text-xs text-slate-500">ชื่อผู้ซื้อ</p><b>{receipt.customerName || "—"}</b></div>
-                <div><p className="text-xs text-slate-500">ยอดเอกสาร</p><b>{money(receipt.totalAmount, receipt.currency)}</b></div>
-                <div><p className="text-xs text-slate-500">ยอดตามบิล POS ต้นฉบับ</p><b>{money(receipt.originalTotal, receipt.currency)}</b></div>
-              </div>
-            ) : null}
-            {kind === "tax" ? (
-              <p className="rounded border border-sky-200 bg-sky-50 p-3 text-xs text-sky-900">
-                ใช้ทะเบียนผู้ซื้อและข้อมูลภาษีจาก POS ของสาขานี้เท่านั้น ต้องเปิด VAT และมีเลขผู้เสียภาษีที่ถูกต้อง
-                ใบกำกับภาษีที่ออกแล้วเก็บ Snapshot เดิม ไม่สามารถลบหรือแก้ยอดโดยตรง ต้องใช้กระบวนการใบลดหนี้/ยกเลิกเอกสารตามกฎหมาย
-              </p>
-            ) : null}
-            {edit ? (
-              <form onSubmit={event => {
+          </FinanceDialog>
+          <FinanceConfirmDialog open={issueDialogOpen} onClose={() => setIssueDialogOpen(false)}
+            onConfirm={() => { if (buyerId) void post({ action: "issue_tax", orderId: receipt.orderId, buyerId }); }}
+            title="ยืนยันออกใบกำกับภาษี"
+            description="ออกเอกสารจากข้อมูล POS ต้นฉบับและทะเบียนผู้ซื้อที่เลือก โดยไม่สามารถแก้ไขใบกำกับภาษีที่ออกแล้วโดยตรง"
+            confirmLabel="ตรวจสอบ VAT และยืนยันออกเอกสาร"
+            busy={working} confirmDisabled={!buyerId || receipt.revision !== 0}>
+            {error ? <p role="alert" className="mb-4 rounded-lg border border-rose-300 bg-rose-50 px-3 py-2 text-xs text-rose-800">{error}</p> : null}
+            <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs leading-6 text-blue-900">
+              <p><b>เลขบิล:</b> {receipt.orderNo}</p>
+              <p><b>สาขา:</b> {receipt.branchName}</p>
+              <p><b>ผู้ซื้อ:</b> {buyers.find(b => b.id === buyerId)?.display_name ?? "ไม่พบผู้ซื้อ"}</p>
+              <p><b>ยอดตามบิล:</b> {money(receipt.originalTotal, receipt.currency)}</p>
+            </div>
+          </FinanceConfirmDialog>
+        </>
+      ) : null}
+      {selected && receipt && kind === "receipt" ? (
+        <>
+          <FinanceDialog open={Boolean(edit)} onClose={() => setEdit(null)}
+            busy={working} title="แก้ไขใบเสร็จย้อนหลัง"
+            description={`เลขบิล ${receipt.orderNo} · เอกสารฉบับแก้ไข ไม่เปลี่ยนรายการขาย POS ต้นฉบับ`} size="xl">
+            {error ? <p role="alert" className="mb-4 rounded-lg border border-rose-300 bg-rose-50 px-3 py-2 text-xs text-rose-800">{error}</p> : null}
+            {edit ? <form onSubmit={event => {
                 event.preventDefault();
                 void post({ action: "correct", orderId: receipt.orderId,
                   expectedRevision: receipt.revision, ...edit, reason });
-              }} className="space-y-3 rounded-lg border border-blue-200 bg-blue-50/40 p-3">
-                <h3 className="text-sm font-bold">แก้ไขสำเนาใบเสร็จ (บันทึกเป็นฉบับแก้ไข ไม่เปลี่ยนบิล POS)</h3>
+              }} className="space-y-4">
+                <p className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs text-blue-900">บันทึกเป็นเอกสารฉบับแก้ไขที่ตรวจสอบย้อนหลังได้ ไม่เขียนทับยอดขายใน POS ต้นฉบับ</p>
                 <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
                   <label className="text-xs">วันที่บนเอกสาร
                     <input type="date" required className={field + " mt-1"} value={edit.documentDate}
@@ -388,36 +467,24 @@ export function FinanceDocumentWorkspace({ kind }: { kind: Kind }) {
                 <label className="block text-xs font-semibold">เหตุผลการแก้ไข (บันทึก Audit Log)
                   <textarea className={field + " mt-1"} rows={2} minLength={10} maxLength={500} required value={reason}
                     onChange={e => setReason(e.target.value)} placeholder="ระบุสาเหตุและหลักฐานประกอบ" /></label>
-                <div className="flex flex-wrap gap-2">
-                  <button type="submit" disabled={working || reason.trim().length < 10} className={primary}>บันทึกฉบับแก้ไข</button>
-                  <button type="button" className={btn} onClick={() => setEdit(null)}>ยกเลิกการแก้ไข</button>
+                <div className="flex flex-wrap justify-end gap-2 border-t border-slate-200 pt-4">
+                  <button type="submit" disabled={working || reason.trim().length < 10} className={primary}>{working ? "กำลังบันทึก..." : "บันทึกฉบับแก้ไข"}</button>
+                  <button type="button" className={btn} disabled={working} onClick={() => setEdit(null)}>ยกเลิกการแก้ไข</button>
                 </div>
-              </form>
-            ) : null}
-            {kind === "receipt" && !receipt.voided && invoice?.status !== "issued" ? (
-              <details className="rounded border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-900">
-                <summary className="cursor-pointer font-semibold">ยกเลิกเอกสารใบเสร็จ (เก็บประวัติ ไม่ลบบิลต้นฉบับ)</summary>
-                <label className="mt-3 block">เหตุผลการยกเลิก
-                  <textarea className={field + " mt-1"} rows={2} maxLength={500} minLength={10}
-                    value={reason} onChange={e => setReason(e.target.value)} /></label>
-                <button type="button" className="mt-2 rounded bg-rose-700 px-3 py-2 font-bold text-white disabled:opacity-50"
-                  disabled={reason.trim().length < 10 || working}
-                  onClick={() => { if (window.confirm("ยืนยันยกเลิกเอกสารฉบับนี้ โดยเก็บยอดขาย POS ต้นฉบับไว้?"))
-                    void post({ action: "void", orderId: receipt.orderId, expectedRevision: receipt.revision, reason }); }}>
-                  ยืนยันยกเลิกเอกสาร
-                </button>
-              </details>
-            ) : null}
-            {selected.revisions.length ? (
-              <div className="text-xs text-slate-600">
-                <b>ประวัติการแก้ไข/ยกเลิก</b>
-                <ul className="mt-1 space-y-1">{selected.revisions.map(r =>
-                  <li key={r.id}>{new Date(r.createdAt).toLocaleString("th-TH", { timeZone: "Asia/Bangkok" })} · {r.action} · {r.reason}</li>
-                )}</ul>
-              </div>
-            ) : null}
-          </div>
-        </section>
+              </form> : null}
+          </FinanceDialog>
+          <FinanceConfirmDialog open={voidDialogOpen} onClose={() => setVoidDialogOpen(false)}
+            onConfirm={() => { if (reason.trim().length >= 10) void post({ action: "void", orderId: receipt.orderId, expectedRevision: receipt.revision, reason }); }}
+            title="ยืนยันยกเลิกใบเสร็จ" description="ยกเลิกเฉพาะเอกสารและบันทึกประวัติการดำเนินการ โดยไม่ลบยอดขายหรือรับชำระต้นฉบับ"
+            confirmLabel="ยืนยันยกเลิกเอกสาร" danger busy={working}
+            confirmDisabled={reason.trim().length < 10}>
+            {error ? <p role="alert" className="mb-4 rounded-lg border border-rose-300 bg-rose-50 px-3 py-2 text-xs text-rose-800">{error}</p> : null}
+            <label className="block text-xs font-semibold text-slate-700">เหตุผลการยกเลิก (อย่างน้อย 10 ตัวอักษร)
+              <textarea className={field + " mt-2"} rows={3} minLength={10} maxLength={500}
+                value={reason} onChange={e => setReason(e.target.value)} placeholder="ระบุเหตุผลและหลักฐานประกอบ" />
+            </label>
+          </FinanceConfirmDialog>
+        </>
       ) : null}
     </div>
   );
