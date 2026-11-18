@@ -1,0 +1,54 @@
+name: Finance accounting SQL staging (disposable PostgreSQL 17)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'supabase/migrations/20261118133000_finance_accounting_v2_documents_journal.sql'
+      - 'scripts/tests/finance-accounting-staging-*.sql'
+      - '.github/workflows/finance-accounting-staging.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: finance-postgres17-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  isolated-db:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: synthetic-ci-only
+          POSTGRES_DB: finance_staging
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d finance_staging"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - name: Checkout branch under test
+        uses: actions/checkout@v4
+      - name: Assert no connection to any actual CpiPOS Supabase project
+        run: |
+          test -z "${SUPABASE_URL:-}"
+          test -z "${DATABASE_URL:-}"
+          test -z "${SUPABASE_SERVICE_ROLE_KEY:-}"
+      - name: Migrate and exercise finance accounting v2 against temporary PostgreSQL 17
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat scripts/tests/finance-accounting-staging-bootstrap.sql \
+            supabase/migrations/20261118133000_finance_accounting_v2_documents_journal.sql \
+            scripts/tests/finance-accounting-staging-smoke.sql \
+            | docker exec -i "${{ job.services.postgres.id }}" \
+                psql -X -v ON_ERROR_STOP=1 -U postgres -d finance_staging
+          echo "STAGING PASS: isolated PostgreSQL 17 migration and synthetic accounting transactions"
