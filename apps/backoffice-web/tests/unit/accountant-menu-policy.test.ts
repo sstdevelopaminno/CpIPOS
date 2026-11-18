@@ -5,11 +5,15 @@ import {
 } from "../../src/lib/accountant-menu-policy";
 
 describe("accountant UI-only Finance role menu contract", () => {
-  it("shows exactly five user-selected More items, without non-accounting POS menus", () => {
+  it("shows only finance-relevant More items, excluding product master data", () => {
     expect(ACCOUNTANT_MORE_MENU.map(item => item.key)).toEqual([
       "more.sales_summary", "more.receipts", "more.tax_invoices",
-      "more.stock", "more.product_sales"
+      "more.product_sales"
     ]);
+    expect(ACCOUNTANT_ALLOWED_MENU_KEYS).not.toContain("more.stock");
+    expect(accountantMenuItem("more", "stock")).toBeNull();
+    expect(isAccountantMenuVisible("more.stock", {})).toBe(false);
+    expect(ACCOUNTANT_MORE_MENU.find(item => item.slug === "product-sales")?.label).toBe("รายงานรายการขาย");
     expect(ACCOUNTANT_ALLOWED_MENU_KEYS).not.toContain("main.sales");
     expect(ACCOUNTANT_ALLOWED_MENU_KEYS).not.toContain("main.shift");
     expect(ACCOUNTANT_ALLOWED_MENU_KEYS).not.toContain("more.tables");

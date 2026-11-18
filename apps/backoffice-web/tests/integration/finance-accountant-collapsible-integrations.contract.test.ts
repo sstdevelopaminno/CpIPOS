@@ -40,14 +40,15 @@ describe("Accountant menu collapse, branding and read-only integration", () => {
     expect(layout).toContain('requireFinanceSession()');
   });
 
-  it("renders real read-only sales/receipts/catalog reports for accounting routes", () => {
+  it("renders real finance sales/receipts without exposing the product catalog route", () => {
     expect(page).toContain('requireAccountantPage(item.key)');
     expect(page).toContain('requireAccountantPage(item.key)');
     expect(page).toContain('<FinanceSectionHeader title={item.label}');
     expect(page).toContain('<FinanceSalesDashboard actor="accountant" initialTab="dashboard" />');
     expect(page).toContain('<FinanceDocumentWorkspace kind="receipt" />');
     expect(page).toContain('<FinanceDocumentWorkspace kind="tax" />');
-    expect(page).toContain('loadAccountantProductCatalog(identity)');
+    expect(page).not.toContain('loadAccountantProductCatalog(identity)');
+    expect(page).not.toContain('slug === "stock"');
     expect(page).toContain('loadAccountantProductSales(identity)');
     expect(page).toContain('loadAccountantStoreOverview(identity)');
     expect(page).toContain('import { FinanceDocumentWorkspace }');

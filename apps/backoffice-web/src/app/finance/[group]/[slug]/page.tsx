@@ -7,7 +7,7 @@ import {
 } from "@/lib/accountant-menu-policy";
 import { requireAccountantPage } from "@/lib/server/accountant-page-guard";
 import {
-  loadAccountantProductCatalog, loadAccountantProductSales, loadAccountantStoreOverview
+  loadAccountantProductSales, loadAccountantStoreOverview
 } from "@/lib/server/finance-accountant-readonly-services";
 import { formatSalesMoney } from "@/lib/pos-money";
 
@@ -26,17 +26,14 @@ export default async function AccountantFeaturePage({ params }: {
   const summaryView = group === "more" && slug === "sales-summary";
   const receiptView = group === "more" && slug === "receipts";
   const productSalesView = group === "more" && slug === "product-sales";
-  const catalogView = group === "more" && slug === "stock";
   const storeView = group === "settings" && (slug === "store" || slug === "branches");
   const taxView = group === "more" && slug === "tax-invoices";
 
   let productSales: Awaited<ReturnType<typeof loadAccountantProductSales>> | null = null;
-  let products: Awaited<ReturnType<typeof loadAccountantProductCatalog>> | null = null;
   let store: Awaited<ReturnType<typeof loadAccountantStoreOverview>> | null = null;
   let dataError: string | null = null;
   try {
     if (productSalesView) productSales = await loadAccountantProductSales(identity);
-    if (catalogView) products = await loadAccountantProductCatalog(identity);
     if (storeView) store = await loadAccountantStoreOverview(identity);
   } catch {
     dataError = "ยังโหลดข้อมูลจากระบบ POS ไม่สำเร็จ กรุณาลองอีกครั้งหรือติดต่อฝ่าย IT";
@@ -80,37 +77,6 @@ export default async function AccountantFeaturePage({ params }: {
                   </tr>
                 ))}
                 {!productSales.rows.length ? <tr><td colSpan={6} className="p-6 text-center text-slate-500">ยังไม่มีรายการขายสินค้าในช่วง 7 วันที่ผ่านมา</td></tr> : null}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      ) : null}
-
-      {products ? (
-        <section className={panel + " overflow-hidden border-b border-slate-200"}>
-          <div className="border-b border-slate-200 bg-[#f3f6fa] px-5 py-3 text-sm font-bold leading-6">
-            สินค้าที่เปิดใช้งาน ({products.length} รายการ) · แสดงเพื่อการตรวจสอบ
-          </div>
-          <p className="px-5 py-3 text-xs leading-5 text-slate-500">
-            หน้านี้เป็นทะเบียนสินค้าแบบอ่านอย่างเดียว ไม่แสดงยอดคงเหลือ และยังไม่อนุญาตเพิ่ม ลบ หรือแก้สินค้าใน Session บัญชี
-          </p>
-          <div className="max-h-[60vh] overflow-auto">
-            <table className="w-full min-w-[680px] text-xs">
-              <thead className="sticky top-0 bg-[#e8f0fa] text-[#183b62]">
-                <tr><th className={cell}>รหัสสินค้า</th><th className={cell}>ชื่อสินค้า</th>
-                  <th className={cell}>หมวด</th><th className={cell}>ประเภทสาขา</th>
-                  <th className={cell + " text-right"}>ราคาที่บันทึก</th></tr>
-              </thead>
-              <tbody>
-                {products.map(row => (
-                  <tr key={row.id} className="even:bg-slate-50">
-                    <td className={cell}>{row.sku ?? "—"}</td><td className={cell}>{row.name}</td>
-                    <td className={cell}>{row.category ?? "—"}</td>
-                    <td className={cell}>{row.branchId ? "เฉพาะสาขา" : "ทั้งร้าน"}</td>
-                    <td className={cell + " text-right"}>{row.price?.toLocaleString("th-TH") ?? "—"}</td>
-                  </tr>
-                ))}
-                {!products.length ? <tr><td colSpan={5} className="p-6 text-center text-slate-500">ไม่มีข้อมูลสินค้า</td></tr> : null}
               </tbody>
             </table>
           </div>

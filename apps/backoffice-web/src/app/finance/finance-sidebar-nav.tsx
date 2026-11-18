@@ -21,8 +21,7 @@ const moreIcons: Record<string, FinanceNavIconName> = {
   "sales-summary": "sales",
   receipts: "receipt",
   "tax-invoices": "tax",
-  stock: "products",
-  "product-sales": "list"
+  "product-sales": "sales"
 };
 
 const settingsIcons: Record<string, FinanceNavIconName> = {
@@ -47,12 +46,12 @@ const settingsIcons: Record<string, FinanceNavIconName> = {
 };
 
 const baseLink =
-  "group flex min-h-10 items-center gap-3 rounded-lg border px-3 py-2.5 text-[13px] font-semibold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-300";
+  "group flex min-h-10 items-center gap-3 rounded-md border-l-[3px] px-3 py-2.5 text-[13px] font-semibold leading-5 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-300";
 
 function activeLink(active: boolean): string {
   return active
-    ? baseLink + " border-sky-400/50 bg-[#1761a0] text-white shadow-[inset_3px_0_0_#67e8f9]"
-    : baseLink + " border-transparent text-slate-200 hover:border-white/10 hover:bg-white/10 hover:text-white";
+    ? baseLink + " border-cyan-300 bg-[#1a568b] text-white"
+    : baseLink + " border-transparent text-slate-200 hover:bg-white/10 hover:text-white";
 }
 
 export function FinanceSidebarNav({
@@ -85,11 +84,11 @@ export function FinanceSidebarNav({
       ) : null}
 
       {showMore ? (
-        <section className={"rounded-xl border border-white/10 bg-white/[0.045] " + (collapsed ? "p-1" : "p-1.5")}>
+        <section className={collapsed ? "px-1 pt-2" : "border-t border-white/10 px-1 pt-2"}>
           <button type="button" aria-expanded={!collapsed && moreOpen} aria-controls="finance-more-menu"
             aria-label="เพิ่มเติม" title={collapsed ? "เพิ่มเติม" : undefined}
             onClick={() => { if (collapsed) { onExpand(); setMoreOpen(true); } else setMoreOpen(open => !open); }}
-            className={"flex min-h-10 w-full items-center gap-3 rounded-lg py-2 text-left text-[13px] font-bold text-slate-100 transition-colors hover:bg-white/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-sky-300 " + (collapsed ? "justify-center px-1" : "px-2.5")}>
+            className={"flex min-h-10 w-full items-center gap-3 rounded-md py-2 text-left text-[13px] font-bold text-slate-100 transition-colors hover:bg-white/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-sky-300 " + (collapsed ? "justify-center px-1" : "px-2.5")}>
             <FinanceNavIcon name="more" />
             {!collapsed ? <span className="min-w-0 flex-1">เพิ่มเติม</span> : null}
             {!collapsed ? <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
@@ -115,11 +114,11 @@ export function FinanceSidebarNav({
       ) : null}
 
       {showSettings ? (
-        <section className={"rounded-xl border border-white/10 bg-white/[0.045] " + (collapsed ? "p-1" : "p-1.5")}>
+        <section className={collapsed ? "px-1 pt-2" : "border-t border-white/10 px-1 pt-2"}>
           <button type="button" aria-expanded={!collapsed && settingsOpen} aria-controls="finance-settings-menu"
             aria-label="ตั้งค่า" title={collapsed ? "ตั้งค่า" : undefined}
             onClick={() => { if (collapsed) { onExpand(); setSettingsOpen(true); } else setSettingsOpen(open => !open); }}
-            className={"flex min-h-10 w-full items-center gap-3 rounded-lg py-2 text-left text-[13px] font-bold text-slate-100 transition-colors hover:bg-white/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-sky-300 " + (collapsed ? "justify-center px-1" : "px-2.5")}>
+            className={"flex min-h-10 w-full items-center gap-3 rounded-md py-2 text-left text-[13px] font-bold text-slate-100 transition-colors hover:bg-white/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-sky-300 " + (collapsed ? "justify-center px-1" : "px-2.5")}>
             <FinanceNavIcon name="settings" />
             {!collapsed ? <span className="min-w-0 flex-1">ตั้งค่า</span> : null}
             {!collapsed ? <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"

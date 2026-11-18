@@ -6,9 +6,10 @@ export const ACCOUNTANT_MORE_MENU: readonly AccountantNavItem[] = [
   { key: "more.sales_summary", label: "สรุปยอดขาย", slug: "sales-summary", group: "more" },
   { key: "more.receipts", label: "ใบเสร็จย้อนหลัง", slug: "receipts", group: "more" },
   { key: "more.tax_invoices", label: "ออกใบกำกับภาษี", slug: "tax-invoices", group: "more" },
-  { key: "more.stock", label: "จัดการสินค้า", slug: "stock", group: "more" },
-  { key: "more.product_sales", label: "รายการขายสินค้า", slug: "product-sales", group: "more" }
+  { key: "more.product_sales", label: "รายงานรายการขาย", slug: "product-sales", group: "more" }
 ] as const;
+// Product master data and inventory are POS operations, not Accountant Finance routes.
+// Product-level completed sales remain accessible only as an accounting report.
 
 export const ACCOUNTANT_SETTINGS_MENU: readonly AccountantNavItem[] = [
   { key: "settings.branding", label: "ธีมสี / โลโก้ / ชื่อระบบ (CUSTOM)", slug: "branding", group: "settings" },
