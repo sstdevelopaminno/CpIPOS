@@ -52,8 +52,8 @@ describe("Finance bill selection and shared modal behavior", () => {
   });
 
   it("leaves other read-only Finance menus and reports reachable without inventing write actions", () => {
-    expect(page).toContain('<FinanceSalesDashboard actor="accountant" initialTab="sales" />');
-    expect(page).toContain('<FinanceSalesDashboard actor="accountant" initialTab="reconcile" />');
+    expect(page).toContain("<FinanceIncomeWorkspace />");
+    expect(page).toContain("<FinanceBankingWorkspace />");
     expect(settingsPage).toContain("storeView");
     expect(settingsPage).not.toContain("catalogView");
     expect(page).toContain('requireAccountantPage(item.key)');

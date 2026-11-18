@@ -7,6 +7,7 @@ import { PosBackButton } from "@/components/pos-preview/pos-back-button";
 import type { Language } from "@/lib/i18n";
 import { LAO_RECEIPT_COPY } from "@/lib/printing/receipt-history-lao";
 import { parsePosItemNotes } from "@/lib/pos-item-notes";
+import type { OfficePaperSize } from "@/lib/printing/office-document-html";
 
 type ReceiptItem = {
   product_id: string;
@@ -95,6 +96,7 @@ const OPTICAL_RECEIPT_SUMMARY_VISIBILITY_KEY = "cpipos_custom_optical_receipts_s
 
 type ReprintState = {
   order: ReceiptRecord;
+  paper: "58" | "80" | OfficePaperSize;
   pin: string;
   note: string;
   status: "idle" | "printing" | "printed" | "failed";
@@ -109,6 +111,7 @@ type BluetoothReprintResponseBody = {
     order_id?: string;
     order_no?: string;
     message?: string;
+    html?: string;
   } | null;
   error?: { message?: string } | null;
 };
@@ -271,6 +274,7 @@ function buildReceiptPrintHtml(args: {
   storeProfile?: ReceiptStoreProfile | null;
   lang: Language;
   autoPrint?: boolean;
+  paperWidthMm?: 58 | 80;
 }) {
   const { record, branchName, lang, autoPrint = false } = args;
   const currencySymbol = record.currencyCode === "LAK" ? "₭" : record.currencyCode === "THB" ? "฿" : record.currencyCode === "USD" ? "$" : "";
@@ -323,7 +327,7 @@ function buildReceiptPrintHtml(args: {
           change: "Change"
         };
   const pageHeightMm = Math.min(700, Math.max(120, 78 + record.items.length * 10));
-  const paperWidthMm = hasLocalWindowsPrintBridge() ? 80 : 58;
+  const paperWidthMm = args.paperWidthMm ?? (hasLocalWindowsPrintBridge() ? 80 : 58);
   // XP-80T 80mm stock has a smaller printable area; preserve right-side safe space.
   const printableWidthMm = paperWidthMm === 80 ? 56 : 45;
   const printableLeftMm = 1;
@@ -579,7 +583,9 @@ export function PosReceiptsWorkspace({ lang, opticalMode = false }: { lang: Lang
     setLoading(true);
     setError(null);
     try {
-      const query = buildQuery({ mode, date, month, year, from, to, q, status, page: nextPage });
+      const officeBillNo = new URLSearchParams(window.location.search).get("officeBillNo");
+      const query = buildQuery({ mode, date, month, year, from, to,
+        q: q || officeBillNo || "", status, page: nextPage });
       const response = await fetch(`/api/pos/receipts?${query}`, { cache: "no-store" });
       const body = (await response.json()) as { data?: ReceiptPayload | null; error?: { message?: string } | null };
       if (!response.ok || !body.data) {
@@ -587,10 +593,24 @@ export function PosReceiptsWorkspace({ lang, opticalMode = false }: { lang: Lang
       }
       const nextData = body.data;
       setPayload(nextData);
+      const directBill = new URLSearchParams(window.location.search).get("officeBillNo");
+      const exactMatch = directBill
+        ? nextData.records.find(record => record.orderNo === directBill && record.status === "completed")
+        : null;
+      if (exactMatch) {
+        setSelected(exactMatch);
+        setDetailOpen(true);
+        setReprint({ order: exactMatch, pin: "", note: "", paper: "A4",
+          status: "idle", message: null });
+        const currentUrl = new URL(window.location.href);
+        currentUrl.searchParams.delete("officeBillNo");
+        window.history.replaceState(null, "", currentUrl.pathname + currentUrl.search);
+      } else {
       setSelected((current) => {
         if (!current) return nextData.records[0] ?? null;
         return nextData.records.find((record) => record.id === current.id) ?? nextData.records[0] ?? null;
       });
+      }
       setPage(nextPage);
       window.requestAnimationFrame(() => {
         tableScrollRef.current?.scrollTo({ top: 0, behavior: "smooth" });
@@ -628,12 +648,13 @@ export function PosReceiptsWorkspace({ lang, opticalMode = false }: { lang: Lang
     });
   }
 
-  function openBrowserReceiptPrint(record: ReceiptRecord) {
+  function openBrowserReceiptPrint(record: ReceiptRecord, width?: 58 | 80) {
     const receiptHtml = buildReceiptPrintHtml({
       record,
       branchName: payload?.branch.name ?? "-",
       storeProfile: payload?.branch.store_profile ?? null,
       lang,
+      paperWidthMm: width,
       autoPrint: true
     });
     const printWindow = window.open("", "_blank", "width=360,height=720");
@@ -647,16 +668,28 @@ export function PosReceiptsWorkspace({ lang, opticalMode = false }: { lang: Lang
   }
 
   async function submitReprint() {
-    if (!reprint) return;
+    if (!reprint || reprint.status === "printing") return;
+    const officePaper = reprint.paper === "A5" || reprint.paper === "A4" ? reprint.paper : null;
+    // Office printing is an explicitly requested reprint, not another payment or an
+    // automatic cash-drawer/thermal print job. Open the blank window on the click.
+    const officeWindow = officePaper ? window.open("", "_blank", "width=900,height=900") : null;
+    if (officePaper && !officeWindow) {
+      setReprint({ ...reprint, status: "failed", message: "โปรดอนุญาต Pop-up เพื่อพิมพ์เอกสาร A5/A4" });
+      return;
+    }
+    if (officeWindow) {
+      try { officeWindow.opener = null; } catch { /* browser may protect opener */ }
+    }
     setReprint({ ...reprint, status: "printing", message: null });
     try {
-      const receiptHtml = buildReceiptPrintHtml({
+      const receiptHtml = officePaper ? null : buildReceiptPrintHtml({
         record: reprint.order,
         branchName: payload?.branch.name ?? "-",
         storeProfile: payload?.branch.store_profile ?? null,
-        lang
+        lang,
+        paperWidthMm: reprint.paper === "80" ? 80 : 58
       });
-      const nativeWindows = hasLocalWindowsPrintBridge();
+      const nativeWindows = !officePaper && hasLocalWindowsPrintBridge();
       const response = await fetch(`/api/pos/receipts/${reprint.order.id}/reprint`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -664,13 +697,31 @@ export function PosReceiptsWorkspace({ lang, opticalMode = false }: { lang: Lang
           manager_pin: reprint.pin,
           note: reprint.note,
           order_no: reprint.order.orderNo,
-          receipt_html: nativeWindows ? undefined : receiptHtml,
+          office_paper: officePaper ?? undefined,
+          receipt_html: nativeWindows || officePaper ? undefined : receiptHtml,
           windows_local_bridge: nativeWindows
         })
       });
       const body = (await response.json().catch(() => null)) as BluetoothReprintResponseBody | null;
-      if (!response.ok) {
-        throw new Error(body?.error?.message ?? "Reprint failed.");
+      if (!response.ok) throw new Error(body?.error?.message ?? "Reprint failed.");
+
+      if (officePaper) {
+        if (body?.data?.mode !== "office_browser_authorized" ||
+            body.data.order_id !== reprint.order.id ||
+            body.data.order_no !== reprint.order.orderNo ||
+            typeof body.data.html !== "string" || !officeWindow) {
+          throw new Error("ไม่สามารถยืนยันเอกสาร A5/A4 จากระบบได้");
+        }
+        officeWindow.document.open();
+        officeWindow.document.write(body.data.html);
+        officeWindow.document.close();
+        try { officeWindow.focus(); officeWindow.addEventListener("load", () => officeWindow.print(), { once: true }); }
+        catch { /* the operator can use Ctrl+P */ }
+        setReprint({
+          ...reprint, status: "printed", pin: "",
+          message: "อนุมัติสำเนา " + officePaper + " แล้ว โปรดตรวจสอบตัวอย่างก่อนสั่งพิมพ์"
+        });
+        return;
       }
       if (nativeWindows) {
         if (body?.data?.mode !== "windows_local_authorized" ||
@@ -678,23 +729,20 @@ export function PosReceiptsWorkspace({ lang, opticalMode = false }: { lang: Lang
             body.data.order_no !== reprint.order.orderNo) {
           throw new Error("ระบบยังไม่ได้อนุมัติการพิมพ์ย้อนหลังผ่าน Windows กรุณาตรวจสิทธิ์และรหัส PIN");
         }
-        const sent = await printWindowsReceiptHtml(receiptHtml, {
+        const sent = await printWindowsReceiptHtml(receiptHtml!, {
           orderNo: reprint.order.orderNo,
           reprint: true
         });
         setReprint({
-          ...reprint,
-          status: "printed",
-          message: `ส่งใบเสร็จย้อนหลังไปยัง Windows ${sent.printer} แล้ว โปรดตรวจว่ากระดาษออกจริง`,
-          pin: ""
+          ...reprint, status: "printed", pin: "",
+          message: `ส่งใบเสร็จย้อนหลังไปยัง Windows ${sent.printer} แล้ว โปรดตรวจว่ากระดาษออกจริง`
         });
         return;
       }
-      if (body?.data?.fallback_to_browser_print) {
-        openBrowserReceiptPrint(reprint.order);
-      }
+      if (body?.data?.fallback_to_browser_print) openBrowserReceiptPrint(reprint.order, reprint.paper === "80" ? 80 : 58);
       setReprint({ ...reprint, status: "printed", message: copy.printed, pin: "" });
     } catch (printError) {
+      try { officeWindow?.close(); } catch { /* ignore */ }
       setReprint({
         ...reprint,
         status: "failed",
@@ -702,7 +750,6 @@ export function PosReceiptsWorkspace({ lang, opticalMode = false }: { lang: Lang
       });
     }
   }
-
   const records = payload?.records ?? [];
   const pagination = payload?.pagination;
 
@@ -926,7 +973,7 @@ export function PosReceiptsWorkspace({ lang, opticalMode = false }: { lang: Lang
             <footer className="border-t border-slate-200 p-4">
               <button
                 type="button"
-                onClick={() => setReprint({ order: selected, pin: "", note: "", status: "idle", message: null })}
+                onClick={() => setReprint({ order: selected, pin: "", note: "", paper: hasLocalWindowsPrintBridge() ? "80" : "58", status: "idle", message: null })}
                 className="h-11 w-full rounded-lg bg-blue-600 px-4 text-sm font-black text-white shadow-sm hover:bg-blue-700"
               >
                 {copy.print}
@@ -951,6 +998,16 @@ export function PosReceiptsWorkspace({ lang, opticalMode = false }: { lang: Lang
                   inputMode="numeric"
                   className="h-10 rounded-lg border border-slate-300 px-3 text-lg font-black tracking-[0.18em]"
                 />
+              </label>
+              <label className="grid gap-1 text-sm font-bold text-slate-700">
+                {lang === "th" ? "ขนาดกระดาษ" : "Paper size"}
+                <select value={reprint.paper} onChange={(event) => setReprint({ ...reprint, paper: event.target.value as ReprintState["paper"] })}
+                  disabled={reprint.status === "printing"} className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm font-semibold">
+                  <option value="58">58 mm</option>
+                  <option value="80">80 mm</option>
+                  <option value="A5">A5</option>
+                  <option value="A4">A4</option>
+                </select>
               </label>
               <label className="grid gap-1 text-sm font-bold text-slate-700">
                 {copy.note}

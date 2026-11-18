@@ -46,7 +46,10 @@ describe("Finance ERP single-layer full-bleed workspace for all menu surfaces", 
     expect(menu).toContain('finance-secondary-workbench w-full min-w-0 bg-white text-slate-900');
     expect(menu).toContain('w-full min-w-0 divide-y divide-slate-200 bg-white');
     expect(modulePage).toContain('finance-secondary-workbench w-full min-w-0 bg-white text-slate-900');
-    expect(modulePage).toContain('className="min-w-0 bg-white px-5 py-4"');
+    expect(modulePage).toContain('<FinanceAccountingRegister module="sales-receivables" />');
+    expect(modulePage).toContain('<FinanceAccountingRegister module="purchases-payables" />');
+    expect(modulePage).not.toContain("WorkflowPanel");
+    expect(modulePage).not.toContain("ลำดับงานและการเชื่อมเอกสาร");
     expect(menu).toContain('const cell = "border-b border-slate-100 px-4 py-3 text-left text-xs leading-5"');
     expect(packagePage).toContain('className="border-b border-slate-200 bg-white px-5 py-5"');
     expect(header).toContain('bg-[#155c94] px-5 py-3 text-white');

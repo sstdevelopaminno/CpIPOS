@@ -1,0 +1,78 @@
+name: Finance accounting SQL staging (disposable PostgreSQL 17)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'supabase/migrations/20261118164343_finance_accounting_v2_documents_journal.sql'
+      - 'scripts/tests/finance-accounting-staging-*.sql'
+      - '.github/workflows/finance-accounting-staging.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: finance-postgres17-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  isolated-db:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: synthetic-ci-only
+          POSTGRES_DB: finance_staging
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d finance_staging"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - name: Checkout branch under test
+        uses: actions/checkout@v4
+      - name: Assert no connection to any actual CpiPOS Supabase project
+        run: |
+          test -z "${SUPABASE_URL:-}"
+          test -z "${DATABASE_URL:-}"
+          test -z "${SUPABASE_SERVICE_ROLE_KEY:-}"
+      - name: Migrate and exercise finance accounting v2 against temporary PostgreSQL 17
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat scripts/tests/finance-accounting-staging-bootstrap.sql \
+            supabase/migrations/20261118164343_finance_accounting_v2_documents_journal.sql \
+            scripts/tests/finance-accounting-staging-smoke.sql \
+            scripts/tests/finance-accounting-staging-lifecycle.sql \
+            | docker exec -i "${{ job.services.postgres.id }}" \
+                psql -X -v ON_ERROR_STOP=1 -U postgres -d finance_staging
+          echo "STAGING PASS: isolated PostgreSQL 17 migration and synthetic accounting transactions"
+      - name: Concurrent idempotency with independent database sessions
+        shell: bash
+        run: |
+          set -euo pipefail
+          pg="${{ job.services.postgres.id }}"
+          sql="SELECT public.finance_accounting_create_other_income(
+            'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+            '11111111-1111-4111-8111-111111111111',
+            '33333333-3333-4333-8333-333333333333',
+            'cccccccc-0000-4000-8000-000000000001',
+            '2026-11-18', 'THB', 1, 420, 'cash',
+            'Concurrent synthetic income');"
+          docker exec "$pg" psql -X -v ON_ERROR_STOP=1 -U postgres -d finance_staging -tAc "$sql" > /tmp/fin_concurrent_1.out &
+          pid1=$!
+          docker exec "$pg" psql -X -v ON_ERROR_STOP=1 -U postgres -d finance_staging -tAc "$sql" > /tmp/fin_concurrent_2.out &
+          pid2=$!
+          wait "$pid1"
+          wait "$pid2"
+          count=$(docker exec "$pg" psql -X -v ON_ERROR_STOP=1 -U postgres -d finance_staging -tAc \
+            "SELECT COUNT(*) FROM public.finance_accounting_documents
+             WHERE request_key='cccccccc-0000-4000-8000-000000000001'")
+          test "$count" = "1"
+          echo "STAGING PASS: concurrent identical submissions persisted exactly one draft"
