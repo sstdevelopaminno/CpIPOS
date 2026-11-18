@@ -6,7 +6,7 @@ import { orderCurrencyFromMetadata, type SalesCurrencyCode } from "@/lib/pos-mon
 import { buildOrderTaxSnapshot, isValidThaiTaxId, taxInvoiceNumber,
   type TaxBuyerSnapshot, type TaxInvoiceOrderSnapshot, type TaxInvoiceItemSnapshot,
   type TaxSellerSnapshot, type TaxInvoiceTaxSnapshot } from "@/lib/pos-tax-invoice";
-import { writeAuditLog } from "@/lib/server/audit-log";
+
 import type { FinanceIdentity } from "@/lib/server/finance-session";
 
 export type FinanceReceiptLine = { name: string; quantity: number; unitPrice: number; lineTotal: number; note: string };
@@ -39,9 +39,13 @@ const money = (x: unknown) => {
   return Math.round((n + Number.EPSILON) * 100) / 100;
 };
 const plain = (x: unknown, max: number) => String(x ?? "").trim().slice(0, max);
-const isoDay = (iso: string) => new Intl.DateTimeFormat("en-CA", {
-  timeZone: "Asia/Bangkok", year: "numeric", month: "2-digit", day: "2-digit"
-}).format(new Date(iso));
+const isoDay = (iso: string) => {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Bangkok", year: "numeric", month: "2-digit", day: "2-digit"
+  }).formatToParts(new Date(iso));
+  const get = (name: string) => parts.find(p => p.type === name)?.value ?? "";
+  return get("year") + "-" + get("month") + "-" + get("day");
+};
 const asRecord = (v: unknown): Record<string, unknown> =>
   v && typeof v === "object" && !Array.isArray(v) ? v as Record<string, unknown> : {};
 function requireUuid(value: string) {
@@ -149,7 +153,9 @@ export async function appendFinanceReceiptCorrection(
   };
   if (input.action === "correct") {
     const date = String(input.documentDate ?? "");
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || isNaN(Date.parse(date + "T00:00:00+07:00")))
+    if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(date) ||
+      Number.isNaN(Date.parse(date + "T00:00:00+07:00")) ||
+      isoDay(new Date(date + "T00:00:00+07:00").toISOString()) !== date)
       throw new FinanceDocumentError("finance_document_date_invalid");
     const rawLines = input.items;
     if (!Array.isArray(rawLines) || rawLines.length < 1 || rawLines.length > 100)
@@ -229,6 +235,9 @@ export async function issueAccountantTaxInvoice(identity: FinanceIdentity, order
   if (!settings.data?.is_enabled)
     throw new FinanceDocumentError("finance_tax_vat_not_enabled", 409);
   const taxSettings = asRecord(settings.data.settings);
+  // Tax ID and a POS VAT toggle do not establish a verified VAT registration.
+  if (taxSettings.vat_registration_verified !== true)
+    throw new FinanceDocumentError("finance_tax_vat_verification_required", 409);
   const seller: TaxSellerSnapshot = {
     display_name: plain(taxSettings.seller_display_name, 240) || detail.store.name,
     tax_id: String(taxSettings.seller_tax_id ?? "").replace(/\D/g, ""),
@@ -258,11 +267,13 @@ export async function issueAccountantTaxInvoice(identity: FinanceIdentity, order
     tax_total: Number(o.tax_total ?? 0), grand_total: Number(o.grand_total ?? o.total_amount),
     paid_total: Number(o.paid_total ?? 0), customer_name: o.customer_name
   };
-  // Pre-issuance intent must be persisted; the invoice itself is immutable after issuance.
-  await writeAuditLog({ tenantId: identity.tenantId, branchId, actorUserId: identity.userId,
-    actorRole: "accountant", action: "finance_tax_invoice_issue_requested",
-    targetTable: "orders", targetId: orderId,
-    metadata: { buyer_id: buyerId, order_no: o.order_no } });
+  const intent = await db.from("audit_logs").insert({
+    tenant_id: identity.tenantId, branch_id: branchId, actor_user_id: identity.userId,
+    actor_role: "accountant", action: "finance_tax_invoice_issue_requested",
+    target_table: "orders", target_id: orderId, module: "finance", entity_type: "tax_invoice",
+    metadata: { buyer_id: buyerId, order_no: o.order_no }
+  });
+  if (intent.error) throw new FinanceDocumentError("finance_tax_audit_unavailable", 503);
   const { data, error } = await db.from("pos_tax_invoices").insert({
     tenant_id: identity.tenantId, branch_id: branchId, order_id: orderId,
     profile_id: buyerId, invoice_no: taxInvoiceNumber(String(o.order_no)),
@@ -276,9 +287,16 @@ export async function issueAccountantTaxInvoice(identity: FinanceIdentity, order
   }).select("id,invoice_no").single();
   if (error) throw new FinanceDocumentError(error.code === "23505" ?
     "finance_tax_invoice_already_exists" : "finance_tax_issue_failed", error.code === "23505" ? 409 : 503);
-  await writeAuditLog({ tenantId: identity.tenantId, branchId, actorUserId: identity.userId,
-    actorRole: "accountant", action: "finance_tax_invoice_issued",
-    targetTable: "pos_tax_invoices", targetId: data.id,
-    metadata: { order_id: orderId, invoice_no: data.invoice_no, buyer_id: buyerId } });
+  const audit = await db.from("audit_logs").insert({
+    tenant_id: identity.tenantId, branch_id: branchId, actor_user_id: identity.userId,
+    actor_role: "accountant", action: "finance_tax_invoice_issued",
+    target_table: "pos_tax_invoices", target_id: data.id,
+    module: "finance", entity_type: "tax_invoice",
+    metadata: { order_id: orderId, invoice_no: data.invoice_no, buyer_id: buyerId }
+  });
+  if (audit.error) {
+    console.error("[finance/tax] post-issue audit incomplete", audit.error.message);
+    throw new FinanceDocumentError("finance_tax_audit_reconcile_required", 503);
+  }
   return { id: String(data.id), invoiceNo: String(data.invoice_no) };
 }
