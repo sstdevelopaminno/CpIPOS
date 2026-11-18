@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { FinanceSalesDashboard } from "@/components/finance/finance-sales-dashboard";
+import { FinanceDocumentWorkspace } from "@/components/finance/finance-document-workspace";
+import { FinanceSectionHeader } from "@/app/finance/finance-section-header";
 import {
   ACCOUNTANT_MORE_MENU, ACCOUNTANT_SETTINGS_MENU, accountantMenuItem, isAccountantMenuVisible
 } from "@/lib/accountant-menu-policy";
@@ -46,27 +48,13 @@ export default async function AccountantFeaturePage({ params }: {
   }
 
   return (
-    <section className="w-full min-w-0 space-y-4 text-slate-900">
-      <header className={panel + " p-4"}>
-        <p className="text-xs font-bold text-blue-700">
-          {group === "more" ? "เพิ่มเติม" : "ตั้งค่า"} · CpiPOS FINANCE · ฝ่ายบัญชี
-        </p>
-        <h1 className="mt-1 text-xl font-extrabold">{item.label}</h1>
-        <p className="mt-2 text-xs text-slate-500">
-          ข้อมูลเฉพาะร้านที่เข้าสู่ระบบ · {identity.branchIds.length} สาขาที่ได้รับสิทธิ์ · ไม่มีสิทธิ์เปิดกะหรือแก้รายการขาย
-        </p>
-      </header>
-
+    <section className="finance-secondary-workbench w-full min-w-0 text-slate-900">
+      <FinanceSectionHeader title={item.label} group={group as "more" | "settings"}
+        subtitle={`ฝ่ายบัญชี · ${identity.branchIds.length} สาขาที่ได้รับสิทธิ์`} />
+      <div className="space-y-4 p-3 md:p-4">
       {summaryView ? <FinanceSalesDashboard actor="accountant" initialTab="dashboard" /> : null}
-      {receiptView ? (
-        <>
-          <div className="rounded-lg border border-sky-200 bg-sky-50 p-4 text-xs text-sky-900">
-            ประวัติด้านล่างเป็นรายการบิลขายสำเร็จจาก POS แบบอ่านอย่างเดียว
-            ยังไม่ใช่ต้นฉบับใบเสร็จและไม่สามารถสั่งพิมพ์หรือออกเอกสารใหม่จาก Session บัญชี
-          </div>
-          <FinanceSalesDashboard actor="accountant" initialTab="sales" />
-        </>
-      ) : null}
+      {receiptView ? <FinanceDocumentWorkspace kind="receipt" /> : null}
+      {taxView ? <FinanceDocumentWorkspace kind="tax" /> : null}
 
       {dataError ? <div role="alert" className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">{dataError}</div> : null}
 
@@ -154,14 +142,6 @@ export default async function AccountantFeaturePage({ params }: {
         </section>
       ) : null}
 
-      {taxView ? (
-        <div className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
-          เมนูออกใบกำกับภาษียังไม่เปิดการออกเอกสารใน Session ฝ่ายบัญชี
-          จนกว่าจะตรวจเลขประจำตัวผู้เสียภาษี สถานะ VAT และลำดับเลขเอกสาร รวมถึง Audit Log ได้ครบ
-          สามารถเปิดรายการขายสำเร็จในเมนูใบเสร็จย้อนหลังเพื่อใช้ตรวจสอบข้อมูลประกอบได้
-        </div>
-      ) : null}
-
       {group === "settings" && !storeView ? (
         <section className={panel + " p-4"}>
           <h2 className="text-sm font-bold">การตั้งค่า {item.label}</h2>
@@ -173,20 +153,8 @@ export default async function AccountantFeaturePage({ params }: {
         </section>
       ) : null}
 
-      <section className={panel + " p-4"}>
-        <h2 className="text-sm font-bold">เมนูที่เกี่ยวข้อง</h2>
-        <div className="mt-3 flex flex-wrap gap-2">
-          <Link href="/finance" className="rounded border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-800 hover:bg-blue-100">
-            กลับไปการเงิน
-          </Link>
-          {related.filter(entry => entry.slug !== slug).map(entry => (
-            <Link key={entry.key} href={`/finance/${entry.group}/${entry.slug}`}
-              className="rounded border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100">
-              {entry.label}
-            </Link>
-          ))}
-        </div>
-      </section>
+
+      </div>
     </section>
   );
 }
