@@ -8,6 +8,14 @@ import { formatSalesMoney } from "@/lib/pos-money";
 type Kind = "receipt" | "tax";
 type ListPayload = { table: FinanceSalesRecordsPage; branches: FinanceSalesBranch[] };
 type Buyer = { id: string; display_name: string; tax_id: string };
+type BuyerForm = {
+  entityType: string; displayName: string; taxId: string; addressLine: string;
+  postalCode: string; subdistrict: string; district: string; province: string;
+};
+const newBuyer = (): BuyerForm => ({
+  entityType: "company", displayName: "", taxId: "", addressLine: "",
+  postalCode: "", subdistrict: "", district: "", province: ""
+});
 type Api<T> = { data?: T | null; error?: { code?: string; message?: string } | null };
 type Edit = {
   documentDate: string; customerName: string; note: string;
@@ -79,6 +87,7 @@ export function FinanceDocumentWorkspace({ kind }: { kind: Kind }) {
   const [reason, setReason] = useState("");
   const [buyers, setBuyers] = useState<Buyer[]>([]);
   const [buyerId, setBuyerId] = useState("");
+  const [buyerForm, setBuyerForm] = useState<BuyerForm>(newBuyer);
   const [paper, setPaper] = useState<58 | 80>(80);
   const [loading, setLoading] = useState(false);
   const [working, setWorking] = useState(false);
@@ -137,9 +146,15 @@ export function FinanceDocumentWorkspace({ kind }: { kind: Kind }) {
       });
       const json = await response.json().catch(() => null) as Api<unknown> | null;
       if (!response.ok) throw new Error(json?.error?.code ?? "finance_document_action_failed");
+      if (payload.action === "create_buyer" && json?.data &&
+          typeof (json.data as { id?: unknown }).id === "string") {
+        setBuyerId((json.data as { id: string }).id);
+        setBuyerForm(newBuyer());
+      }
       if (selected) await loadDetail(selected.receipt.orderId);
       setQuery(x => x + 1);
       setNotice(payload.action === "issue_tax" ? "ออกใบกำกับภาษีสำเร็จ เลือกพิมพ์สำเนาได้" :
+        payload.action === "create_buyer" ? "บันทึกทะเบียนผู้ซื้อแล้ว เลือกผู้ซื้อก่อนออกใบกำกับภาษี" :
         payload.action === "void" ? "บันทึกการยกเลิกเอกสารแล้ว (ยังคงข้อมูลการขายต้นฉบับ)" :
         "บันทึกใบเสร็จฉบับแก้ไขพร้อมประวัติ Audit แล้ว");
     } catch (cause) {
@@ -260,6 +275,42 @@ export function FinanceDocumentWorkspace({ kind }: { kind: Kind }) {
                 )}
               </>}
             </div>
+            {kind === "tax" && !invoice ? (
+              <details className="rounded border border-slate-200 bg-slate-50 px-3 py-2">
+                <summary className="cursor-pointer text-xs font-bold text-[#155c94]">
+                  เพิ่มผู้ซื้อสำหรับออกใบกำกับภาษี (ใช้ทะเบียนของสาขานี้)
+                </summary>
+                <form className="mt-3 space-y-3" onSubmit={event => {
+                  event.preventDefault();
+                  void post({ action: "create_buyer",
+                    profile: { ...buyerForm, branchId: receipt.branchId } });
+                }}>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                    <label className="text-xs">ประเภทผู้ซื้อ
+                      <select className={field + " mt-1"} value={buyerForm.entityType}
+                        onChange={e => setBuyerForm(b => ({ ...b, entityType: e.target.value }))}>
+                        <option value="company">บริษัท</option><option value="limited_partnership">หจก.</option>
+                        <option value="shop">ร้านค้า</option><option value="individual">บุคคลธรรมดา</option>
+                      </select>
+                    </label>
+                    {([
+                      ["displayName", "ชื่อผู้ซื้อ"], ["taxId", "เลขผู้เสียภาษี 13 หลัก"],
+                      ["addressLine", "บ้านเลขที่ / ถนน"], ["postalCode", "รหัสไปรษณีย์"],
+                      ["subdistrict", "ตำบล / แขวง"], ["district", "อำเภอ / เขต"],
+                      ["province", "จังหวัด"]
+                    ] as Array<[keyof BuyerForm, string]>).map(([key,label]) => (
+                      <label key={key} className="text-xs">{label}
+                        <input required className={field + " mt-1"} value={buyerForm[key]}
+                          maxLength={key === "taxId" ? 13 : key === "postalCode" ? 5 : 240}
+                          onChange={e => setBuyerForm(b => ({ ...b, [key]: e.target.value }))} />
+                      </label>
+                    ))}
+                  </div>
+                  <p className="text-xs text-slate-500">ระบบตรวจสอบเลขผู้เสียภาษีและที่อยู่ให้ตรงกับรหัสไปรษณีย์ก่อนบันทึก</p>
+                  <button className={primary} type="submit" disabled={working}>บันทึกผู้ซื้อ</button>
+                </form>
+              </details>
+            ) : null}
             {kind === "receipt" && !edit ? (
               <div className="grid gap-3 text-sm sm:grid-cols-2 xl:grid-cols-4">
                 <div><p className="text-xs text-slate-500">วันที่ในเอกสาร</p><b>{receipt.documentDate}</b></div>
