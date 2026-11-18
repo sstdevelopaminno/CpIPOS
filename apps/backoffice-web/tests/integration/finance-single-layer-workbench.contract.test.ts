@@ -7,6 +7,7 @@ const main = read("src/components/finance/finance-sales-dashboard.tsx");
 const sales = read("src/components/finance/finance-sales-records-table.tsx");
 const receipts = read("src/components/finance/finance-document-workspace.tsx");
 const menu = read("src/app/finance/[group]/[slug]/page.tsx");
+const modulePage = read("src/app/finance/[module]/page.tsx");
 const packagePage = read("src/app/finance/package-payment/page.tsx");
 const header = read("src/app/finance/finance-section-header.tsx");
 const owner = read("src/app/preview/pos/finance/page.tsx");
@@ -36,7 +37,7 @@ describe("Finance ERP single-layer full-bleed workspace for all menu surfaces", 
     expect(owner).not.toContain('bg-slate-50 p-2');
   });
 
-  it("applies the same single-layer structure to receipt/tax, sales, stock, settings and package screens", () => {
+  it("applies the same single-layer structure to receipts, modules, settings and package screens", () => {
     expect(receipts).toContain('finance-documents-workbench w-full min-w-0 bg-white');
     expect(receipts).toContain('gap-x-4 gap-y-4 border-b border-slate-200 bg-white px-5 py-4');
     expect(receipts).toContain('className="w-full min-w-0 border-b border-slate-200 bg-white"');
@@ -44,7 +45,8 @@ describe("Finance ERP single-layer full-bleed workspace for all menu surfaces", 
     expect(receipts).not.toContain('rounded-lg border border-slate-200 bg-white shadow-sm');
     expect(menu).toContain('finance-secondary-workbench w-full min-w-0 bg-white text-slate-900');
     expect(menu).toContain('w-full min-w-0 divide-y divide-slate-200 bg-white');
-    expect(menu).toContain('const panel = "min-w-0 bg-white"');
+    expect(modulePage).toContain('finance-secondary-workbench w-full min-w-0 bg-white text-slate-900');
+    expect(modulePage).toContain('className="min-w-0 bg-white px-5 py-4"');
     expect(menu).toContain('const cell = "border-b border-slate-100 px-4 py-3 text-left text-xs leading-5"');
     expect(packagePage).toContain('className="border-b border-slate-200 bg-white px-5 py-5"');
     expect(header).toContain('bg-[#155c94] px-5 py-3 text-white');

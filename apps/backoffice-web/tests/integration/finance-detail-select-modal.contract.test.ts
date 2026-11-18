@@ -5,7 +5,8 @@ import { resolve } from "node:path";
 const read = (path: string) => readFileSync(resolve(process.cwd(), path), "utf8");
 const workspace = read("src/components/finance/finance-document-workspace.tsx");
 const dialog = read("src/components/finance/finance-dialog.tsx");
-const page = read("src/app/finance/[group]/[slug]/page.tsx");
+const page = read("src/app/finance/[module]/page.tsx");
+const settingsPage = read("src/app/finance/[group]/[slug]/page.tsx");
 const sidebar = read("src/app/finance/finance-sidebar-nav.tsx");
 const sales = read("src/components/finance/finance-sales-records-table.tsx");
 const main = read("src/components/finance/finance-sales-dashboard.tsx");
@@ -51,9 +52,10 @@ describe("Finance bill selection and shared modal behavior", () => {
   });
 
   it("leaves other read-only Finance menus and reports reachable without inventing write actions", () => {
-    expect(page).toContain("productSalesView");
-    expect(page).toContain("catalogView");
-    expect(page).toContain("storeView");
+    expect(page).toContain('<FinanceSalesDashboard actor="accountant" initialTab="sales" />');
+    expect(page).toContain('<FinanceSalesDashboard actor="accountant" initialTab="reconcile" />');
+    expect(settingsPage).toContain("storeView");
+    expect(settingsPage).not.toContain("catalogView");
     expect(page).toContain('requireAccountantPage(item.key)');
     expect(sales).toContain("รายการขายแบบอ่านอย่างเดียว");
     expect(main).toContain("FinanceSalesRecordsTable");
