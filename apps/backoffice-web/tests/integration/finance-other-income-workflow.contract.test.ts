@@ -80,6 +80,18 @@ describe("Accountant independent other-income workflow and professional module U
     expect(registry).toContain("เป็นแบบร่าง รอการอนุมัติ");
   });
 
+  it("uses accessible shared POP UP dialogs for create, review, chart accounts and journals", () => {
+    expect(register).toContain('<FinanceDialog open={createOpen}');
+    expect(register).toContain('{selected&&<FinanceDialog open={Boolean(selected)}');
+    expect(register).toContain('<FinanceDialog open={accountOpen}');
+    expect(register).toContain('<FinanceDialog open={Boolean(journalOpenId)}');
+    expect(register).not.toContain('role="presentation" className="fixed inset-0 z-[100]');
+    expect(register).toContain('view=document_detail&documentId=');
+    expect(register).toContain('view=journal_detail&journalId=');
+    expect(register).toContain('สมุดรายวันที่โพสต์แล้ว');
+    expect(register).toContain('ยอดค้างชำระ');
+  });
+
   it("keeps bank transfers separate from POS payment-mismatch and real statements", () => {
     expect(banking).toContain('<FinanceAccountingRegister module="banking" />');
     expect(banking).toContain('FinanceSalesDashboard actor="accountant" initialTab="reconcile" showTabs={false}');

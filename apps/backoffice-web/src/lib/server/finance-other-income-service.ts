@@ -67,7 +67,7 @@ export async function listOtherIncome(
 ): Promise<{ rows: OtherIncomeRow[]; hasMore: boolean }> {
   const branch = branchScope(identity, branchId);
   const db = getPrimarySupabaseServiceClient();
-  let query = db.from("finance_accounting_documents")
+  const query = db.from("finance_accounting_documents")
     .select("id,branch_id,document_no,document_date,created_at,payment_method,remarks,counterparty_name,status,version,currency,amount_minor,posted_journal_id,prepared_by,approved_by")
     .eq("tenant_id", identity.tenantId)
     .in("branch_id", branch ? [branch] : identity.branchIds)
@@ -131,7 +131,7 @@ export async function createOtherIncome(
     throw new FinanceAccountingError("finance_accounting_payment_method_invalid", 422);
   const quantity = body.quantity;
   if (typeof quantity !== "number" || !Number.isFinite(quantity) ||
-      quantity <= 0 || quantity > 999999 || Math.round(quantity * 1_000_000) !== quantity * 1_000_000)
+      quantity <= 0 || quantity > 999999 || Math.abs(Math.round(quantity * 1_000_000) - quantity * 1_000_000) > 0.000001)
     throw new FinanceAccountingError("finance_accounting_quantity_invalid", 422);
   const unitPrice = body.unitPrice;
   if (typeof unitPrice !== "number" || unitPrice <= 0)

@@ -373,13 +373,10 @@ export function FinanceAccountingRegister({module}:{module:Module}) {
      {loading&&<p className="px-5 py-4 text-sm text-slate-500">กำลังตรวจข้อมูล...</p>}
     </div>
    </>}
-   {createOpen&&<div role="presentation" className="fixed inset-0 z-[100] grid place-items-center overflow-y-auto bg-slate-900/50 p-3">
-    <section role="dialog" aria-modal="true" aria-label="สร้างเอกสารบัญชี" className="my-auto w-full max-w-3xl rounded-lg bg-white shadow-xl">
-     <header className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
-      <h3 className="font-bold text-slate-900">สร้าง {options.find(x=>x.value===kind)?.label}</h3>
-      <button className={outline} disabled={busy} onClick={()=>setCreateOpen(false)}>ปิด</button>
-     </header>
-     <div className="max-h-[70vh] overflow-y-auto px-5 py-4">
+   <FinanceDialog open={createOpen} title={`สร้าง ${options.find(x=>x.value===kind)?.label??"เอกสาร"}`}
+     description="เอกสารแบบร่างต้องผ่านผู้อนุมัติก่อนออกและลงบัญชี"
+     busy={busy} onClose={()=>{setCreateOpen(false);setError("");}}>
+     <div className="space-y-4">
       <p className="mb-4 text-xs leading-6 text-slate-600">สร้างแบบร่างก่อน ต้องมีผู้ตรวจสอบอีกคนอนุมัติ เอกสารนี้ไม่สร้างบิล POS หรือภาษีใหม่</p>
       <div className="grid gap-3 sm:grid-cols-2">
        <div><label className={label}>เลขที่เอกสาร</label><input className={field} value={number} onChange={e=>setNumber(e.target.value)} maxLength={64} placeholder="เลขที่ตามทะเบียนของร้าน"/></div>
@@ -427,21 +424,18 @@ export function FinanceAccountingRegister({module}:{module:Module}) {
       </div>
       {error&&<p role="alert" className="mt-3 rounded bg-amber-50 p-3 text-sm text-amber-800">{error}</p>}
      </div>
-     <footer className="flex justify-end gap-2 border-t border-slate-200 px-5 py-4">
+     <footer className="mt-5 flex justify-end gap-2 border-t border-slate-200 pt-4">
       <button className={outline} disabled={busy} onClick={()=>setCreateOpen(false)}>ยกเลิก</button>
       <button className={primary} disabled={busy||!number.trim()||!party.trim()||!Number.isFinite(sum)||sum<=0||settlement&&!sourceDocumentId||evidenceNeeded&&evidenceRef.trim().length<8}
        onClick={()=>void createDocument()}>{busy?"กำลังบันทึก...":"บันทึกแบบร่าง"}</button>
      </footer>
-    </section>
-   </div>}
-   {selected&&<div role="presentation" className="fixed inset-0 z-[100] grid place-items-center bg-slate-900/50 p-3">
-    <section role="dialog" aria-modal="true" aria-label="ดำเนินการเอกสารบัญชี" className="w-full max-w-xl rounded-lg bg-white shadow-xl">
-     <header className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
-      <div><h3 className="font-bold text-slate-900">{selected.number}</h3>
-       <p className="text-xs text-slate-500">{statusThai[selected.status]??selected.status} · Version {selected.version}</p></div>
-      <button className={outline} disabled={busy} onClick={()=>setSelected(null)}>ปิด</button>
-     </header>
-     <div className="space-y-3 px-5 py-5 text-sm">
+
+   </FinanceDialog>
+   {selected&&<FinanceDialog open={Boolean(selected)}
+     title={selected.number}
+     description={`${statusThai[selected.status]??selected.status} · Version ${selected.version}`}
+     busy={busy} onClose={()=>{setSelected(null);setSelectedDetail(null);setError("");}}>
+     <div className="space-y-3 text-sm">
       <p>คู่ค้า: <b>{selected.party}</b></p><p>ยอดเงิน: <b>{money(selected.amountMinor,selected.currency)} {selected.currency}</b></p>
       {detailLoading&&<p className="text-xs text-slate-500">กำลังอ่านรายละเอียดจากทะเบียน...</p>}
       {selectedDetail&&<div className="overflow-x-auto border border-slate-200">
@@ -475,7 +469,7 @@ export function FinanceAccountingRegister({module}:{module:Module}) {
        <input className={field} value={reason} onChange={e=>setReason(e.target.value)}/></div>}
       {error&&<p role="alert" className="rounded bg-amber-50 px-3 py-2 text-amber-800">{error}</p>}
      </div>
-     <footer className="flex flex-wrap justify-end gap-2 border-t border-slate-200 px-5 py-4">
+     <footer className="mt-5 flex flex-wrap justify-end gap-2 border-t border-slate-200 pt-4">
       {(selected.status==="draft"||selected.status==="rejected")&&<button className={primary} disabled={busy}
        onClick={()=>void transition("submit")}>ส่งอนุมัติ</button>}
       {selected.status==="submitted"&&<>
@@ -487,8 +481,8 @@ export function FinanceAccountingRegister({module}:{module:Module}) {
       {selected.status==="issued"&&!selected.postedJournalId&&
        <button className={outline} disabled={busy||reason.trim().length<10} onClick={()=>void transition("void")}>ยกเลิกเอกสาร</button>}
      </footer>
-    </section>
-   </div>}
+
+   </FinanceDialog>}
    <FinanceDialog open={Boolean(journalOpenId)} title="รายละเอียดสมุดรายวัน"
     description="ข้อมูลจากรายการที่โพสต์จริงเท่านั้น · แยกตามสกุลเงิน"
     onClose={()=>{setJournalOpenId("");setJournalDetail(null);setError("");}}>
@@ -525,12 +519,10 @@ export function FinanceAccountingRegister({module}:{module:Module}) {
       <button className={outline} onClick={()=>{setJournalOpenId("");setJournalDetail(null);}}>ปิดรายละเอียด</button>
     </div>
    </FinanceDialog>
-   {accountOpen&&<div role="presentation" className="fixed inset-0 z-[100] grid place-items-center bg-slate-900/50 p-3">
-    <section role="dialog" aria-modal="true" aria-label="เพิ่มผังบัญชี" className="w-full max-w-md rounded-lg bg-white shadow-xl">
-     <header className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
-      <h3 className="font-bold">เพิ่มรหัสบัญชี</h3><button className={outline} onClick={()=>setAccountOpen(false)}>ปิด</button>
-     </header>
-     <div className="space-y-4 px-5 py-5">
+   <FinanceDialog open={accountOpen} title="เพิ่มผังบัญชี"
+     description="ระบุรหัสบัญชีและประเภทบัญชีตามที่ได้รับอนุมัติ"
+     busy={busy} onClose={()=>{setAccountOpen(false);setError("");}}>
+     <div className="space-y-4">
       <div><label className={label}>รหัสบัญชี</label><input className={field} value={code} maxLength={32} onChange={e=>setCode(e.target.value)}/></div>
       <div><label className={label}>ชื่อบัญชี</label><input className={field} value={accountName} maxLength={160} onChange={e=>setAccountName(e.target.value)}/></div>
       <div><label className={label}>ประเภทบัญชี</label><select className={field} value={accountType} onChange={e=>setAccountType(e.target.value as Account["type"])}>
@@ -539,14 +531,15 @@ export function FinanceAccountingRegister({module}:{module:Module}) {
       </select></div>
       {error&&<p role="alert" className="rounded bg-amber-50 px-3 py-2 text-sm">{error}</p>}
      </div>
-     <footer className="flex justify-end gap-2 border-t border-slate-200 px-5 py-4">
+     <footer className="mt-5 flex justify-end gap-2 border-t border-slate-200 pt-4">
       <button className={outline} onClick={()=>setAccountOpen(false)}>ยกเลิก</button>
       <button className={primary} disabled={busy||!branch||!code.trim()||!accountName.trim()} onClick={()=>void submit({
        action:"create_account",branchId:branch,code,name:accountName,type:accountType
       })}>บันทึก</button>
      </footer>
-    </section>
-   </div>}
+
+   </FinanceDialog>
+
   </div>
  );
 }
