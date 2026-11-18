@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { requireFinanceSession } from "@/lib/server/finance-session";
 import { getTenantPosMenuOverrides } from "@/lib/server/pos-menu-policy-service";
 import {
-  ACCOUNTANT_MORE_MENU, ACCOUNTANT_SETTINGS_MENU, isAccountantMenuVisible
+  ACCOUNTANT_FINANCE_MENU, ACCOUNTANT_SETTINGS_MENU, isAccountantMenuVisible
 } from "@/lib/accountant-menu-policy";
 import { FinanceAccountantShell } from "./finance-accountant-shell";
 
@@ -18,10 +18,9 @@ export default async function FinanceLayout({ children }: { children: ReactNode 
   return (
     <FinanceAccountantShell
       showFinance={visible("main.finance")}
-      showMore={visible("main.more")}
       showSettings={visible("main.settings")}
       showPackagePayment={visible("main.package_payment")}
-      moreItems={ACCOUNTANT_MORE_MENU.filter(item => visible(item.key))}
+      financeItems={ACCOUNTANT_FINANCE_MENU.filter(item => visible(item.key))}
       settingsItems={ACCOUNTANT_SETTINGS_MENU.filter(item => visible(item.key))}
     >
       {children}

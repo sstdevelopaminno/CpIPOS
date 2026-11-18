@@ -4,7 +4,8 @@ export type FinanceNavIconName =
   | "finance" | "more" | "settings" | "sales" | "receipt" | "tax" | "products"
   | "list" | "package" | "logout" | "store" | "branches" | "devices" | "printer"
   | "activity" | "payments" | "notifications" | "support" | "language"
-  | "layout" | "display" | "qr" | "palette";
+  | "layout" | "display" | "qr" | "palette"
+  | "income" | "expense" | "receivables" | "payables" | "bank" | "ledger" | "reports";
 
 export function FinanceNavIcon({
   name, className = "h-[18px] w-[18px]"
@@ -35,6 +36,13 @@ export function FinanceNavIcon({
     layout: <><rect x="3" y="3" width="18" height="18" rx="2" /><path d="M3 9h18M9 9v12" /></>,
     display: <><rect x="2" y="4" width="20" height="14" rx="2" /><path d="M8 22h8M12 18v4" /></>,
     qr: <><path d="M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h3v3h-3zM21 14v3M17 21h4M14 21v-2" /></>,
+    income: <><path d="M3 13l5 5 5-6 3 3 5-8"/><path d="M16 7h5v5M3 21h18"/></>,
+    expense: <><path d="M3 7l5-4 5 6 3-3 5 8"/><path d="M16 14h5V9M3 21h18"/></>,
+    receivables: <><rect x="3" y="3" width="12" height="18" rx="2"/><path d="M6 8h6M6 12h6M17 13h5m-2.5-2.5L22 13l-2.5 2.5"/></>,
+    payables: <><rect x="9" y="3" width="12" height="18" rx="2"/><path d="M12 8h6m-6 4h6M7 13H2m2.5-2.5L2 13l2.5 2.5"/></>,
+    bank: <><path d="M2 9h20L12 3 2 9zM4 21h16M5 10v9m5-9v9m4-9v9m5-9v9"/></>,
+    ledger: <><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18M12 8h6M12 12h6M12 16h6"/></>,
+    reports: <><path d="M5 3h10l4 4v14H5zM15 3v5h4M8 17l3-4 3 2 2-5"/></>,
     palette: <><path d="M12 3a9 9 0 0 0 0 18h2a2 2 0 0 0 1-4 2 2 0 0 1 1-3h2a4 4 0 0 0 4-4 10 10 0 0 0-10-7z" /><circle cx="7" cy="11" r="1" /><circle cx="10" cy="7" r="1" /><circle cx="16" cy="8" r="1" /></>
   };
   return (

@@ -3,6 +3,7 @@ import { getTenantPosMenuOverrides } from "@/lib/server/pos-menu-policy-service"
 import { isAccountantMenuVisible } from "@/lib/accountant-menu-policy";
 import { FinanceDocumentError, loadFinanceDocument } from "@/lib/server/finance-document-service";
 import { renderReceiptHtml } from "@/lib/printing/receipt-html-template";
+import { renderFinanceOfficeDocumentHtml, type OfficePaperSize } from "@/lib/printing/finance-office-print-html";
 import { buildTaxInvoicePrintHtml } from "@/lib/pos-tax-invoice";
 import { fail } from "@/lib/http";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
@@ -12,14 +13,18 @@ export const dynamic = "force-dynamic";
 export async function GET(request: Request) {
   const params = new URL(request.url).searchParams;
   const kind = params.get("kind");
-  const width: 58 | 80 = params.get("width") === "58" ? 58 : 80;
+  const rawWidth = params.get("width") ?? "80";
+  if (!["58", "80", "A5", "A4"].includes(rawWidth))
+    return fail("finance_print_paper_invalid", "Choose 58, 80, A5 or A4.", 422);
+  const width: 58 | 80 | OfficePaperSize =
+    rawWidth === "58" ? 58 : rawWidth === "80" ? 80 : rawWidth as OfficePaperSize;
   if (kind !== "receipt" && kind !== "tax")
     return fail("finance_print_kind_invalid", "Choose receipt or tax.", 422);
   try {
     const identity = await requireFinanceSession();
     if (!identity) throw new FinanceDocumentError("finance_session_required", 401);
     const overrides = await getTenantPosMenuOverrides(identity.tenantId);
-    if (!isAccountantMenuVisible(kind === "tax" ? "more.tax_invoices" : "more.receipts", overrides))
+    if (!isAccountantMenuVisible(kind === "tax" ? "finance.tax_reports" : "finance.sales_receivables", overrides))
       throw new FinanceDocumentError("finance_menu_disabled", 403);
     const detail = await loadFinanceDocument(identity, params.get("orderId") ?? "");
     let html: string;
@@ -27,11 +32,11 @@ export async function GET(request: Request) {
       const invoice = detail.invoice;
       if (!invoice || invoice.status !== "issued")
         throw new FinanceDocumentError("finance_tax_invoice_not_issued", 409);
-      html = buildTaxInvoicePrintHtml({
+      html = typeof width === "number" ? buildTaxInvoicePrintHtml({
         invoiceNo: invoice.invoiceNo, issuedAt: invoice.issuedAt,
         paperWidthMm: width, seller: invoice.seller, buyer: invoice.buyer,
         order: invoice.order, items: invoice.items, tax: invoice.tax
-      });
+      }) : renderFinanceOfficeDocumentHtml({ detail, kind: "tax", paper: width });
     } else {
       const receipt = detail.receipt;
       if (receipt.currency === "USD") throw new FinanceDocumentError("finance_print_currency_unsupported", 409);
@@ -41,7 +46,7 @@ export async function GET(request: Request) {
       const extra = receipt.revision
         ? `เอกสารฉบับแก้ไข #${receipt.revision} · ${receipt.correctionReason} · ต้นฉบับยอด ${receipt.originalTotal} · วันที่รับเงินจริง ${receipt.paidAt}. ไม่แก้รายการขาย POS`
         : `สำเนาใบเสร็จจากระบบ POS · วันที่รับเงินจริง ${receipt.paidAt}`;
-      html = renderReceiptHtml({
+      html = typeof width === "number" ? renderReceiptHtml({
         paperWidthMm: width, languageCode: "th",
         currencyCode: receipt.currency === "LAK" ? "LAK" : "THB",
         storeName: detail.store.name, branchName: receipt.branchName,
@@ -57,7 +62,7 @@ export async function GET(request: Request) {
         totalAmount: receipt.totalAmount, paymentMethod: receipt.paymentMethod,
         note: [receipt.customerName ? "ลูกค้า: " + receipt.customerName : "", receipt.note, extra].filter(Boolean).join(" | "),
         reprint: true
-      });
+      }) : renderFinanceOfficeDocumentHtml({ detail, kind: "receipt", paper: width });
     }
     const logged = await getSupabaseServiceClient().from("audit_logs").insert({
       tenant_id: identity.tenantId, branch_id: detail.receipt.branchId,

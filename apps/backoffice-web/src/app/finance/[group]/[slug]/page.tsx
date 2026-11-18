@@ -1,120 +1,53 @@
 import { notFound } from "next/navigation";
-import { FinanceSalesDashboard } from "@/components/finance/finance-sales-dashboard";
-import { FinanceDocumentWorkspace } from "@/components/finance/finance-document-workspace";
 import { FinanceSectionHeader } from "@/app/finance/finance-section-header";
-import {
-  accountantMenuItem
-} from "@/lib/accountant-menu-policy";
+import { accountantMenuItem } from "@/lib/accountant-menu-policy";
 import { requireAccountantPage } from "@/lib/server/accountant-page-guard";
-import {
-  loadAccountantProductSales, loadAccountantStoreOverview
-} from "@/lib/server/finance-accountant-readonly-services";
-import { formatSalesMoney } from "@/lib/pos-money";
+import { loadAccountantStoreOverview } from "@/lib/server/finance-accountant-readonly-services";
 
 export const dynamic = "force-dynamic";
-
-const panel = "min-w-0 bg-white";
 const cell = "border-b border-slate-100 px-4 py-3 text-left text-xs leading-5";
-
-export default async function AccountantFeaturePage({ params }: {
+export default async function AccountantSettingsPage({ params }: {
   params: Promise<{ group: string; slug: string }>
 }) {
   const { group, slug } = await params;
+  // Old /finance/more/* URLs are intentionally retired, including the product master route.
   const item = accountantMenuItem(group, slug);
   if (!item) notFound();
   const identity = await requireAccountantPage(item.key);
-  const summaryView = group === "more" && slug === "sales-summary";
-  const receiptView = group === "more" && slug === "receipts";
-  const productSalesView = group === "more" && slug === "product-sales";
-  const storeView = group === "settings" && (slug === "store" || slug === "branches");
-  const taxView = group === "more" && slug === "tax-invoices";
-
-  let productSales: Awaited<ReturnType<typeof loadAccountantProductSales>> | null = null;
+  const storeView = slug === "store";
   let store: Awaited<ReturnType<typeof loadAccountantStoreOverview>> | null = null;
   let dataError: string | null = null;
-  try {
-    if (productSalesView) productSales = await loadAccountantProductSales(identity);
-    if (storeView) store = await loadAccountantStoreOverview(identity);
-  } catch {
-    dataError = "ยังโหลดข้อมูลจากระบบ POS ไม่สำเร็จ กรุณาลองอีกครั้งหรือติดต่อฝ่าย IT";
-  }
-
+  try { if (storeView) store = await loadAccountantStoreOverview(identity); }
+  catch { dataError = "ยังโหลดข้อมูลร้านค้าจาก POS ไม่สำเร็จ กรุณาลองอีกครั้งหรือติดต่อฝ่าย IT"; }
   return (
     <section className="finance-secondary-workbench w-full min-w-0 bg-white text-slate-900">
-      {!summaryView ? <FinanceSectionHeader title={item.label} group={group as "more" | "settings"}
-        subtitle={`ฝ่ายบัญชี · ${identity.branchIds.length} สาขาที่ได้รับสิทธิ์`} /> : null}
+      <FinanceSectionHeader title={item.label} group="settings"
+        subtitle={`ฝ่ายบัญชี · ${identity.branchIds.length} สาขาที่ได้รับสิทธิ์`} />
       <div className="w-full min-w-0 divide-y divide-slate-200 bg-white">
-      {summaryView ? <FinanceSalesDashboard actor="accountant" initialTab="dashboard" /> : null}
-      {receiptView ? <FinanceDocumentWorkspace kind="receipt" /> : null}
-      {taxView ? <FinanceDocumentWorkspace kind="tax" /> : null}
-
-      {dataError ? <div role="alert" className="mx-5 my-4 rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-900">{dataError}</div> : null}
-
-      {productSales ? (
-        <section className={panel + " overflow-hidden border-b border-slate-200"}>
-          <div className="border-b border-slate-200 bg-[#f3f6fa] px-5 py-3 text-sm font-bold leading-6">
-            สรุปรายการขายสินค้า 7 วัน ({productSales.from} ถึง {productSales.to}) · {productSales.orders} บิลสำเร็จ
-          </div>
-          <p className="px-5 py-3 text-xs leading-5 text-slate-500">
-            ยอดตามบรรทัดสินค้า ยังไม่ใช่ยอดสุทธิหลังส่วนลดทั้งบิลหรือภาษี และแยกสกุลเงินเสมอ
-          </p>
-          <div className="max-h-[60vh] overflow-auto">
-            <table className="w-full min-w-[740px] text-xs">
-              <thead className="sticky top-0 bg-[#e8f0fa] text-[#183b62]">
-                <tr><th className={cell}>สาขา</th><th className={cell}>รายการสินค้า</th>
-                  <th className={cell}>สกุลเงิน</th><th className={cell + " text-right"}>จำนวน</th>
-                  <th className={cell + " text-right"}>ยอดตามบรรทัด</th>
-                  <th className={cell + " text-right"}>รายการ</th></tr>
-              </thead>
-              <tbody>
-                {productSales.rows.map((row, index) => (
-                  <tr className="even:bg-slate-50" key={index}>
-                    <td className={cell}>{row.branchName}</td><td className={cell}>{row.product}</td>
-                    <td className={cell}>{row.currency}</td>
-                    <td className={cell + " text-right"}>{row.quantity.toLocaleString("th-TH")}</td>
-                    <td className={cell + " text-right"}>{formatSalesMoney(row.lineTotal, row.currency, "th-TH")}</td>
-                    <td className={cell + " text-right"}>{row.lines}</td>
-                  </tr>
-                ))}
-                {!productSales.rows.length ? <tr><td colSpan={6} className="p-6 text-center text-slate-500">ยังไม่มีรายการขายสินค้าในช่วง 7 วันที่ผ่านมา</td></tr> : null}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      ) : null}
-
-      {store ? (
-        <section className={panel + " border-b border-slate-200 px-5 py-5"}>
-          <h2 className="text-sm font-bold">ข้อมูลร้านค้า (อ่านอย่างเดียว)</h2>
-          <p className="mt-2 text-base font-bold">{store.name}</p>
-          <p className="mt-1 text-xs leading-5 text-slate-600">สถานะร้าน: {store.active ? "เปิดใช้งาน" : "ปิดใช้งาน"}</p>
-          <div className="mt-4 overflow-x-auto">
-            <table className="w-full min-w-[480px] text-xs">
-              <thead className="bg-[#e8f0fa]"><tr><th className={cell}>รหัสสาขา</th>
-                <th className={cell}>ชื่อสาขา</th><th className={cell}>สถานะ</th></tr></thead>
-              <tbody>{store.branches.map(branch => (
-                <tr key={branch.id}><td className={cell}>{branch.code}</td>
-                  <td className={cell}>{branch.name}</td>
-                  <td className={cell}>{branch.active ? "เปิดใช้งาน" : "ปิดใช้งาน"}</td></tr>
-              ))}</tbody>
-            </table>
-          </div>
-          <p className="mt-3 text-xs leading-5 text-slate-500">การแก้ไขที่อยู่บริษัท การเพิ่มสาขา และการกำหนดเครื่องยังต้องผ่านขั้นตอนอนุมัติและสิทธิ์ที่เหมาะสม</p>
-        </section>
-      ) : null}
-
-      {group === "settings" && !storeView ? (
-        <section className={panel + " border-b border-slate-200 px-5 py-5"}>
-          <h2 className="text-sm font-bold">การตั้งค่า {item.label}</h2>
-          <p className="mt-2 text-sm text-slate-600">
-            เปิดหน้าเมนูและสิทธิ์เรียบร้อยแล้ว แต่ยังไม่อนุญาตให้ Session บัญชีเปลี่ยนการตั้งค่าจริง
-            เพื่อป้องกันการแก้ไขสิทธิ์สาขา เครื่องรับชำระ และข้อมูลภาษีโดยไม่มีขั้นตอนยืนยัน
-          </p>
-          <p className="mt-3 text-xs leading-5 text-slate-500">เลือกหมวดที่เกี่ยวข้องด้านล่างได้ โดยแต่ละหน้าตรวจสอบสิทธิ์กับนโยบาย IT แยกกัน</p>
-        </section>
-      ) : null}
-
-
+        {dataError && <div role="alert" className="mx-5 my-4 rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm">{dataError}</div>}
+        {store && (
+          <section className="border-b border-slate-200 bg-white px-5 py-5">
+            <h2 className="text-sm font-bold">ข้อมูลร้านค้า (อ่านอย่างเดียว)</h2>
+            <p className="mt-2 text-base font-bold">{store.name}</p>
+            <p className="mt-1 text-xs text-slate-600">สถานะร้าน: {store.active ? "เปิดใช้งาน" : "ปิดใช้งาน"}</p>
+            <div className="mt-4 overflow-x-auto">
+              <table className="w-full min-w-[480px] text-xs">
+                <thead className="bg-[#e8f0fa]"><tr><th className={cell}>รหัสสาขา</th><th className={cell}>ชื่อสาขา</th><th className={cell}>สถานะ</th></tr></thead>
+                <tbody>{store.branches.map(branch => <tr key={branch.id}><td className={cell}>{branch.code}</td>
+                  <td className={cell}>{branch.name}</td><td className={cell}>{branch.active ? "เปิดใช้งาน" : "ปิดใช้งาน"}</td></tr>)}</tbody>
+              </table>
+            </div>
+          </section>
+        )}
+        {!storeView && (
+          <section className="border-b border-slate-200 px-5 py-5">
+            <h2 className="text-sm font-bold">การตั้งค่า {item.label}</h2>
+            <p className="mt-2 text-sm leading-7 text-slate-600">
+              ฝ่ายบัญชีสามารถตรวจดูหมวดที่ได้รับสิทธิ์ แต่ยังไม่มีสิทธิ์เปลี่ยนการตั้งค่าจริง
+              ต้องผ่านผู้อนุมัติสำหรับเครื่องรับชำระ ภาษี ข้อมูลสาขา และข้อมูลทางการเงิน
+            </p>
+          </section>
+        )}
       </div>
     </section>
   );

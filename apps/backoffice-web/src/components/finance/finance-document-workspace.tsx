@@ -7,6 +7,11 @@ import { formatSalesMoney } from "@/lib/pos-money";
 import { FinanceDialog, FinanceConfirmDialog } from "./finance-dialog";
 
 type Kind = "receipt" | "tax";
+type FinancePrintPaper = 58 | 80 | "A5" | "A4";
+function paperValue(raw: string): FinancePrintPaper {
+  if (raw === "A4" || raw === "A5") return raw;
+  return raw === "58" ? 58 : 80;
+}
 type ListPayload = { table: FinanceSalesRecordsPage; branches: FinanceSalesBranch[] };
 type Buyer = { id: string; display_name: string; tax_id: string };
 type BuyerForm = {
@@ -64,12 +69,12 @@ function startEdit(receipt: FinanceReceiptSnapshot): Edit {
 function recalc(items: FinanceReceiptLine[], discountAmount: number, taxAmount: number) {
   return Math.round((items.reduce((sum, line) => sum + line.lineTotal, 0) - discountAmount + taxAmount) * 100) / 100;
 }
-function printDocument(orderId: string, kind: Kind, width: 58 | 80) {
+function printDocument(orderId: string, kind: Kind, width: FinancePrintPaper) {
   const link = "/api/finance/documents/print?" + new URLSearchParams({ orderId, kind, width: String(width) });
   const popup = window.open(link, "_blank");
   if (!popup) return false;
   try { popup.opener = null; } catch { /* window may be protected */ }
-  // The print page is same origin and rendered from the existing safe POS templates.
+  // Same-origin print page: 58/80mm use POS templates; A5/A4 use office document layout.
   // In locked-down browsers the user can also use Ctrl+P in the new tab.
   try { popup.addEventListener("load", () => popup.print(), { once: true }); } catch { /* popup may be detached */ }
   return true;
@@ -96,7 +101,7 @@ export function FinanceDocumentWorkspace({ kind }: { kind: Kind }) {
   const [issueDialogOpen, setIssueDialogOpen] = useState(false);
   const [voidDialogOpen, setVoidDialogOpen] = useState(false);
   const [buyerRefresh, setBuyerRefresh] = useState(0);
-  const [paper, setPaper] = useState<58 | 80>(80);
+  const [paper, setPaper] = useState<FinancePrintPaper>(80);
   const [loading, setLoading] = useState(false);
   const [working, setWorking] = useState(false);
   const [error, setError] = useState("");
@@ -302,8 +307,9 @@ export function FinanceDocumentWorkspace({ kind }: { kind: Kind }) {
             <div className="space-y-5">
             <div className="flex flex-wrap items-end gap-2">
               <label className="text-xs font-semibold leading-5 text-slate-600">ขนาดกระดาษ
-                <select className={field + " mt-1"} value={paper} onChange={e => setPaper(Number(e.target.value) as 58 | 80)}>
+                <select className={field + " mt-1"} value={paper} onChange={e => setPaper(paperValue(e.target.value))}>
                   <option value={58}>58 มม.</option><option value={80}>80 มม.</option>
+                  <option value="A5">A5 แนวตั้ง</option><option value="A4">A4 แนวตั้ง</option>
                 </select>
               </label>
               {kind === "receipt" ? <>
