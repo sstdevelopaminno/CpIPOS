@@ -226,53 +226,53 @@ export function FinanceDocumentWorkspace({ kind }: { kind: Kind }) {
   const receipt = selected?.receipt;
   const invoice = selected?.invoice;
   return (
-    <div className="space-y-3 px-3 pb-5 pt-3">
+    <div className="finance-documents-workbench w-full min-w-0 bg-white">
       <form onSubmit={event => { event.preventDefault(); setPage(1); setQuery(x => x + 1); }}
-        className="grid gap-2 rounded-lg border border-slate-200 bg-white p-3 shadow-sm sm:grid-cols-2 xl:grid-cols-[1fr_1fr_1fr_1.3fr_auto]">
-        <label className="text-xs font-semibold text-slate-600">จากวันที่
+        className="grid gap-x-4 gap-y-4 border-b border-slate-200 bg-white px-5 py-4 sm:grid-cols-2 xl:grid-cols-[1fr_1fr_1fr_1.3fr_auto]">
+        <label className="text-xs font-semibold leading-5 text-slate-600">จากวันที่
           <input type="date" className={field + " mt-1"} value={from} onChange={event => setFrom(event.target.value)} />
         </label>
-        <label className="text-xs font-semibold text-slate-600">ถึงวันที่
+        <label className="text-xs font-semibold leading-5 text-slate-600">ถึงวันที่
           <input type="date" className={field + " mt-1"} value={to} onChange={event => setTo(event.target.value)} />
         </label>
-        <label className="text-xs font-semibold text-slate-600">สาขา
+        <label className="text-xs font-semibold leading-5 text-slate-600">สาขา
           <select value={branchId} className={field + " mt-1"} onChange={event => { setBranchId(event.target.value); setPage(1); }}>
             <option value="">ทุกสาขาที่ได้รับสิทธิ์</option>
             {(list?.branches ?? []).map(b => <option value={b.id} key={b.id}>{b.name}</option>)}
           </select>
         </label>
-        <label className="text-xs font-semibold text-slate-600">เลขที่บิล
+        <label className="text-xs font-semibold leading-5 text-slate-600">เลขที่บิล
           <input type="search" className={field + " mt-1"} value={billNo} maxLength={80}
             placeholder="ค้นหาเลขบิล" onChange={event => setBillNo(event.target.value)} />
         </label>
         <div className="flex items-end"><button type="submit" className={primary}>ค้นหา</button></div>
       </form>
 
-      {error ? <div role="alert" className="rounded border border-rose-300 bg-rose-50 p-3 text-sm text-rose-900">{error}</div> : null}
-      {notice ? <div role="status" className="rounded border border-emerald-300 bg-emerald-50 p-3 text-sm text-emerald-900">{notice}</div> : null}
+      {error ? <div role="alert" className="mx-5 my-3 rounded-md border border-rose-300 bg-rose-50 px-4 py-3 text-sm leading-6 text-rose-900">{error}</div> : null}
+      {notice ? <div role="status" className="mx-5 my-3 rounded-md border border-emerald-300 bg-emerald-50 px-4 py-3 text-sm leading-6 text-emerald-900">{notice}</div> : null}
 
-      <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
-        <div className="flex items-center justify-between border-b bg-slate-50 px-4 py-3 text-xs">
+      <section className="w-full min-w-0 border-b border-slate-200 bg-white">
+        <div className="flex items-center justify-between gap-3 border-b border-slate-200 bg-[#f3f6fa] px-5 py-3 text-xs leading-5">
           <b>{kind === "tax" ? "บิลสำหรับตรวจสอบใบกำกับภาษี" : "ใบเสร็จย้อนหลังจาก POS"}</b>
           <span>{loading ? "กำลังโหลด..." : `พบ ${list?.table.totalRows ?? 0} บิล`}</span>
         </div>
         <div className="max-h-[360px] overflow-auto">
-          <table className="w-full min-w-[900px] text-left text-xs">
+          <table className="w-full min-w-[900px] text-left text-xs leading-5">
             <thead className="sticky top-0 bg-[#e8f0fa] text-[#153f6e]"><tr>
-              <th className="px-3 py-2.5">วันที่รับชำระ</th><th className="px-3 py-2.5">เลขที่บิล</th>
-              <th className="px-3 py-2.5">สาขา</th><th className="px-3 py-2.5">สกุลเงิน</th>
-              <th className="px-3 py-2.5 text-right">ยอดบิล</th><th className="px-3 py-2.5 text-right">รับชำระ</th>
-              <th className="px-3 py-2.5 text-center">ดำเนินการ</th>
+              <th className="px-4 py-3">วันที่รับชำระ</th><th className="px-4 py-3">เลขที่บิล</th>
+              <th className="px-4 py-3">สาขา</th><th className="px-4 py-3">สกุลเงิน</th>
+              <th className="px-4 py-3 text-right">ยอดบิล</th><th className="px-4 py-3 text-right">รับชำระ</th>
+              <th className="px-4 py-3 text-center">ดำเนินการ</th>
             </tr></thead>
             <tbody>{(list?.table.rows ?? []).map(row => (
               <tr key={row.orderId} className="border-t border-slate-100 even:bg-slate-50">
-                <td className="whitespace-nowrap px-3 py-2">{new Date(row.completedAt).toLocaleString("th-TH", { timeZone: "Asia/Bangkok" })}</td>
-                <td className="px-3 py-2 font-semibold text-blue-800">{row.orderNo}</td>
-                <td className="px-3 py-2">{row.branchName}</td>
-                <td className="px-3 py-2">{row.currency}</td>
-                <td className="px-3 py-2 text-right tabular-nums">{money(row.billed, row.currency)}</td>
-                <td className="px-3 py-2 text-right tabular-nums">{money(row.received, row.currency)}</td>
-                <td className="px-3 py-2 text-center">
+                <td className="whitespace-nowrap px-4 py-3>{new Date(row.completedAt).toLocaleString("th-TH", { timeZone: "Asia/Bangkok" })}</td>
+                <td className="px-4 py-3 font-semibold text-blue-800">{row.orderNo}</td>
+                <td className="px-4 py-3">{row.branchName}</td>
+                <td className="px-4 py-3">{row.currency}</td>
+                <td className="px-4 py-3 text-right tabular-nums">{money(row.billed, row.currency)}</td>
+                <td className="px-4 py-3 text-right tabular-nums">{money(row.received, row.currency)}</td>
+                <td className="px-4 py-3 text-center">
                   <button type="button" className={btn}
                     disabled={working || openingOrderId !== null}
                     onClick={() => { void openBill(row.orderId); }}>
@@ -301,7 +301,7 @@ export function FinanceDocumentWorkspace({ kind }: { kind: Kind }) {
           {receipt ? (
             <div className="space-y-5">
             <div className="flex flex-wrap items-end gap-2">
-              <label className="text-xs font-semibold text-slate-600">ขนาดกระดาษ
+              <label className="text-xs font-semibold leading-5 text-slate-600">ขนาดกระดาษ
                 <select className={field + " mt-1"} value={paper} onChange={e => setPaper(Number(e.target.value) as 58 | 80)}>
                   <option value={58}>58 มม.</option><option value={80}>80 มม.</option>
                 </select>
@@ -321,7 +321,7 @@ export function FinanceDocumentWorkspace({ kind }: { kind: Kind }) {
                   </button>
                 ) : (
                   <>
-                    <label className="text-xs font-semibold text-slate-600">ผู้ซื้อจากทะเบียนภาษีของสาขา
+                    <label className="text-xs font-semibold leading-5 text-slate-600">ผู้ซื้อจากทะเบียนภาษีของสาขา
                       <select className={field + " mt-1 min-w-[260px]"} value={buyerId} onChange={e => setBuyerId(e.target.value)}>
                         <option value="">เลือกผู้ซื้อที่มีเลขประจำตัวผู้เสียภาษี</option>
                         {buyers.map(b => <option key={b.id} value={b.id}>{b.display_name} · {b.tax_id}</option>)}
