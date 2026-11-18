@@ -1,3 +1,4 @@
+import { FinanceSectionHeader } from "@/app/finance/finance-section-header";
 import Link from "next/link";
 import { requireAccountantPage } from "@/lib/server/accountant-page-guard";
 import { loadAccountantContractOverview } from "@/lib/server/finance-accountant-readonly-services";
@@ -11,14 +12,10 @@ export default async function AccountantPackagePaymentPage() {
   try { contract = await loadAccountantContractOverview(identity); } catch { error = true; }
 
   return (
-    <section className="w-full min-w-0 space-y-4 text-slate-900">
-      <header className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-        <p className="text-xs font-bold text-blue-700">CpiPOS FINANCE · ฝ่ายบัญชี</p>
-        <h1 className="mt-1 text-xl font-extrabold">ชำระแพ็กเกจ</h1>
-        <p className="mt-2 text-xs text-slate-600">
-          ตรวจสอบสถานะสัญญาร้านในระบบ (อ่านอย่างเดียว) โดยยังไม่สร้างรายการรับชำระใหม่
-        </p>
-      </header>
+    <section className="finance-secondary-workbench w-full min-w-0 text-slate-900">
+      <FinanceSectionHeader title="ชำระแพ็กเกจ"
+        subtitle="ตรวจสอบสถานะสัญญาแพ็กเกจของร้าน (ไม่สร้างรายการชำระใหม่)" />
+      <div className="space-y-4 p-3 md:p-4">
       {error ? <div role="alert" className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm">
         ไม่สามารถอ่านข้อมูลสัญญาได้ กรุณาตรวจสอบกับฝ่าย IT
       </div> : (
@@ -45,6 +42,7 @@ export default async function AccountantPackagePaymentPage() {
       <Link href="/finance" className="inline-block rounded border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-800 hover:bg-blue-100">
         กลับไปการเงิน
       </Link>
+      </div>
     </section>
   );
 }
