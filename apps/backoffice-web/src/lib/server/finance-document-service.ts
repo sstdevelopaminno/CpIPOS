@@ -151,7 +151,7 @@ export async function appendFinanceReceiptCorrection(
   };
   if (input.action === "correct") {
     const date = String(input.documentDate ?? "");
-    if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(date) ||
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) ||
       Number.isNaN(Date.parse(date + "T00:00:00+07:00")) ||
       isoDay(new Date(date + "T00:00:00+07:00").toISOString()) !== date)
       throw new FinanceDocumentError("finance_document_date_invalid");
