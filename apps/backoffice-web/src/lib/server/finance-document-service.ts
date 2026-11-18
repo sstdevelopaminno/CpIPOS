@@ -3,7 +3,7 @@ import "server-only";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 import { loadReceiptStoreProfile } from "@/lib/services/store-profile-service";
 import { orderCurrencyFromMetadata, type SalesCurrencyCode } from "@/lib/pos-money";
-import { buildOrderTaxSnapshot, isValidThaiTaxId, taxInvoiceNumber,
+import { assertThaiAddressOption, isTaxEntityType, buildOrderTaxSnapshot, isValidThaiTaxId, taxInvoiceNumber,
   type TaxBuyerSnapshot, type TaxInvoiceOrderSnapshot, type TaxInvoiceItemSnapshot,
   type TaxSellerSnapshot, type TaxInvoiceTaxSnapshot } from "@/lib/pos-tax-invoice";
 
@@ -221,6 +221,38 @@ export async function loadAccountantTaxProfiles(identity: FinanceIdentity, branc
     .order("display_name").limit(100);
   if (error) throw new FinanceDocumentError("finance_tax_buyers_unavailable", 503);
   return data ?? [];
+}
+
+export async function createAccountantTaxBuyer(identity: FinanceIdentity, raw: {
+  branchId: string; entityType: string; displayName: string; taxId: string;
+  addressLine: string; postalCode: string; subdistrict: string; district: string; province: string;
+}) {
+  branchAllowed(identity, raw.branchId);
+  if (!isTaxEntityType(raw.entityType) || !plain(raw.displayName, 240) ||
+      !isValidThaiTaxId(raw.taxId) || !plain(raw.addressLine, 500))
+    throw new FinanceDocumentError("finance_tax_buyer_invalid");
+  const address = await assertThaiAddressOption({
+    postal_code: raw.postalCode, subdistrict: raw.subdistrict,
+    district: raw.district, province: raw.province
+  }).catch(() => { throw new FinanceDocumentError("finance_tax_address_invalid"); });
+  const db = getSupabaseServiceClient();
+  const saved = await db.from("pos_tax_invoice_profiles").insert({
+    tenant_id: identity.tenantId, branch_id: raw.branchId,
+    entity_type: raw.entityType, display_name: plain(raw.displayName, 240),
+    tax_id: String(raw.taxId).replace(/\D/g, ""),
+    address_line: plain(raw.addressLine, 500),
+    ...address, created_by: identity.userId, updated_by: identity.userId
+  }).select("id").single();
+  if (saved.error) throw new FinanceDocumentError("finance_tax_buyer_save_failed", 503);
+  const audit = await db.from("audit_logs").insert({
+    tenant_id: identity.tenantId, branch_id: raw.branchId,
+    actor_user_id: identity.userId, actor_role: "accountant",
+    action: "finance_tax_buyer_created", target_table: "pos_tax_invoice_profiles",
+    target_id: saved.data.id, metadata: { name: plain(raw.displayName, 240) },
+    module: "finance", entity_type: "tax_buyer", entity_id: saved.data.id
+  });
+  if (audit.error) console.error("[finance/tax] buyer audit incomplete", audit.error.message);
+  return { id: String(saved.data.id) };
 }
 
 export async function issueAccountantTaxInvoice(identity: FinanceIdentity, orderId: string, buyerId: string) {
