@@ -20,7 +20,7 @@ describe("CpiPOS Finance: text and content no longer touch panel borders", () =>
   });
 
   it("insets every report including summary, charts, branch/method tables and notes", () => {
-    const inset = dashboard.indexOf('data-finance-report-inset className="space-y-4 px-4 pb-5 sm:px-5"');
+    const inset = dashboard.indexOf('data-finance-report-inset className="w-full min-w-0 divide-y divide-slate-200 bg-white"');
     const report = dashboard.indexOf('{report ? (', inset);
     const sales = dashboard.indexOf("<FinanceSalesRecordsTable table={report.table}", report);
     const notes = dashboard.indexOf("หมายเหตุทางบัญชี", report);
@@ -30,6 +30,7 @@ describe("CpiPOS Finance: text and content no longer touch panel borders", () =>
     expect(notes).toBeGreaterThan(sales);
     expect(dashboard).toContain("bg-[#f1f5fb] px-5 py-3");
     expect(dashboard).toContain('className="grid grid-cols-2 gap-4 p-5"');
+    expect(dashboard).toContain('className="bg-[#f3f6fa] px-5 py-4 text-xs leading-5 text-slate-600"');
     expect(dashboard).toContain('className="px-4 py-3 text-right tabular-nums"');
     expect(dashboard).toContain('className="overflow-x-auto"><table className="w-full min-w-[560px] text-xs"');
   });
