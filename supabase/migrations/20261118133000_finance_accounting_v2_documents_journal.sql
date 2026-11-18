@@ -14,6 +14,17 @@ CREATE TABLE IF NOT EXISTS public.finance_accounting_chart (
   UNIQUE(tenant_id,account_code), UNIQUE(tenant_id,id)
 );
 
+-- Per-branch/year manual income series is transactional: no client-generated receipt number.
+-- This is NOT a tax-invoice sequence and is never linked to POS receipt numbering.
+CREATE TABLE IF NOT EXISTS public.finance_accounting_number_series (
+  tenant_id uuid NOT NULL REFERENCES public.tenants(id),
+  branch_id uuid NOT NULL REFERENCES public.branches(id),
+  fiscal_year integer NOT NULL CHECK (fiscal_year BETWEEN 2000 AND 2200),
+  series text NOT NULL CHECK (series IN ('other_income')),
+  next_no bigint NOT NULL DEFAULT 1 CHECK(next_no BETWEEN 1 AND 1000001),
+  PRIMARY KEY(tenant_id,branch_id,fiscal_year,series)
+);
+
 CREATE TABLE IF NOT EXISTS public.finance_accounting_documents (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   tenant_id uuid NOT NULL REFERENCES public.tenants(id),
@@ -21,9 +32,12 @@ CREATE TABLE IF NOT EXISTS public.finance_accounting_documents (
   document_kind text NOT NULL CHECK(document_kind IN (
     'sales_quote','sales_order','delivery_note','sales_invoice',
     'purchase_request','purchase_order','goods_receipt','supplier_bill',
-    'expense_voucher','receipt_voucher','payment_voucher'
+    'expense_voucher','receipt_voucher','payment_voucher','other_income','bank_transfer'
   )),
   document_no text NOT NULL,
+  -- These fields belong to independent manual income, never to a POS order.
+  payment_method text CHECK(payment_method IN ('cash','transfer','card','cheque','other')),
+  remarks text CHECK(remarks IS NULL OR length(remarks)<=1000),
   counterparty_name text NOT NULL CHECK(length(btrim(counterparty_name)) BETWEEN 1 AND 240),
   document_date date NOT NULL,
   due_date date,
@@ -176,6 +190,7 @@ BEGIN
     'finance_accounting_chart','finance_accounting_documents',
     'finance_accounting_document_lines','finance_accounting_document_events',
     'finance_accounting_periods','finance_accounting_journals',
+    'finance_accounting_number_series',
     'finance_accounting_journal_lines','finance_accounting_allocations'
   ] LOOP
     EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY',t);
@@ -233,7 +248,7 @@ BEGIN
   PERFORM public.finance_accounting_check_actor(p_tenant,p_branch,p_actor);
   IF p_kind NOT IN ('sales_quote','sales_order','delivery_note','sales_invoice',
     'purchase_request','purchase_order','goods_receipt','supplier_bill',
-    'expense_voucher','receipt_voucher','payment_voucher') OR
+    'expense_voucher','receipt_voucher','payment_voucher','bank_transfer') OR
     p_currency NOT IN ('THB','LAK','USD') OR
     length(btrim(p_no)) NOT BETWEEN 1 AND 64 OR
     length(btrim(p_counterparty)) NOT BETWEEN 1 AND 240 OR
@@ -246,10 +261,13 @@ BEGIN
     THEN RAISE EXCEPTION 'finance_accounting_due_date_required'; END IF;
   IF p_kind IN ('receipt_voucher','payment_voucher') AND p_source IS NULL
     THEN RAISE EXCEPTION 'finance_accounting_settlement_source_required'; END IF;
-  IF p_kind IN ('expense_voucher','receipt_voucher','payment_voucher') THEN
+  IF p_kind IN ('expense_voucher','receipt_voucher','payment_voucher','bank_transfer') THEN
     IF length(btrim(p_evidence_ref)) NOT BETWEEN 8 AND 120 OR
        p_evidence_type NOT IN ('cash_count','bank_transfer','cheque','card')
     THEN RAISE EXCEPTION 'finance_accounting_payment_evidence_required'; END IF;
+  END IF;
+  IF p_kind='bank_transfer' AND p_evidence_type<>'bank_transfer' THEN
+    RAISE EXCEPTION 'finance_accounting_bank_transfer_evidence_required';
   END IF;
   IF p_source IS NOT NULL THEN
     SELECT * INTO v_source FROM public.finance_accounting_documents
@@ -321,6 +339,86 @@ END;
 $fn$;
 REVOKE ALL ON FUNCTION public.finance_accounting_create_document(uuid,uuid,uuid,text,text,text,date,date,text,jsonb,uuid,uuid,text,text) FROM PUBLIC,anon,authenticated;
 GRANT EXECUTE ON FUNCTION public.finance_accounting_create_document(uuid,uuid,uuid,text,text,text,date,date,text,jsonb,uuid,uuid,text,text) TO service_role;
+
+-- Independent other-income draft: generates unique invoice-like receipt reference
+-- without creating a POS bill, receipt/tax invoice, bank statement, or GL entry.
+CREATE OR REPLACE FUNCTION public.finance_accounting_create_other_income(
+ p_tenant uuid,p_branch uuid,p_actor uuid,p_request uuid,p_date date,
+ p_currency text,p_quantity numeric,p_unit_minor bigint,p_method text,
+ p_description text DEFAULT NULL,p_counterparty text DEFAULT NULL,p_note text DEFAULT NULL
+) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = ''
+AS $fn$
+DECLARE v_id uuid; v_seq bigint; v_no text; v_total bigint; v_year integer;
+  v_snapshot jsonb; v_old public.finance_accounting_documents%ROWTYPE;
+  v_description text := coalesce(nullif(btrim(p_description),''),'-');
+  v_counterparty text := coalesce(nullif(btrim(p_counterparty),''),'-');
+  v_note text := nullif(btrim(p_note),'');
+BEGIN
+  PERFORM public.finance_accounting_check_actor(p_tenant,p_branch,p_actor);
+  IF p_request IS NULL OR p_date IS NULL OR p_currency NOT IN ('THB','LAK','USD')
+     OR p_method NOT IN ('cash','transfer','card','cheque','other')
+     OR p_quantity IS NULL OR p_quantity <= 0 OR p_quantity > 999999
+     OR p_quantity <> pg_catalog.round(p_quantity,6)
+     OR p_unit_minor IS NULL OR p_unit_minor <= 0
+     OR length(v_description)>500 OR length(v_counterparty)>240
+     OR length(v_note)>1000
+    THEN RAISE EXCEPTION 'finance_accounting_other_income_invalid'; END IF;
+  v_total:=pg_catalog.round(p_quantity * p_unit_minor)::bigint;
+  IF v_total<1 OR v_total>99999999999999
+    THEN RAISE EXCEPTION 'finance_accounting_other_income_total_invalid'; END IF;
+  v_year:=extract(year from p_date)::integer;
+  IF v_year NOT BETWEEN 2000 AND 2200
+    THEN RAISE EXCEPTION 'finance_accounting_other_income_date_invalid'; END IF;
+  v_snapshot:=jsonb_build_object(
+    'kind','other_income','date',p_date,'currency',p_currency,
+    'quantity',p_quantity,'unitMinor',p_unit_minor,'method',p_method,
+    'description',v_description,'counterparty',v_counterparty,'note',v_note);
+  PERFORM pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended(
+    p_tenant::text||'/'||p_branch::text||'/'||p_request::text,0));
+  SELECT * INTO v_old FROM public.finance_accounting_documents
+    WHERE tenant_id=p_tenant AND branch_id=p_branch AND request_key=p_request;
+  IF FOUND THEN
+    IF v_old.document_kind<>'other_income' OR v_old.request_snapshot<>v_snapshot
+      THEN RAISE EXCEPTION 'finance_accounting_idempotency_conflict'; END IF;
+    RETURN jsonb_build_object('id',v_old.id,'number',v_old.document_no,
+      'status',v_old.status,'amountMinor',v_old.amount_minor,'created',false);
+  END IF;
+
+  INSERT INTO public.finance_accounting_number_series
+    (tenant_id,branch_id,fiscal_year,series,next_no)
+    VALUES(p_tenant,p_branch,v_year,'other_income',2)
+  ON CONFLICT (tenant_id,branch_id,fiscal_year,series)
+  DO UPDATE SET next_no=public.finance_accounting_number_series.next_no+1
+  RETURNING next_no-1 INTO v_seq;
+  IF v_seq<1 OR v_seq>999999
+    THEN RAISE EXCEPTION 'finance_accounting_other_income_series_full'; END IF;
+  v_no:='OIN-'||v_year::text||'-'||pg_catalog.lpad(v_seq::text,6,'0');
+
+  INSERT INTO public.finance_accounting_documents(
+     tenant_id,branch_id,document_kind,document_no,payment_method,remarks,
+     counterparty_name,document_date,currency,amount_minor,tax_minor,
+     status,request_key,request_snapshot,prepared_by)
+  VALUES(p_tenant,p_branch,'other_income',v_no,p_method,v_note,
+     v_counterparty,p_date,p_currency,v_total,0,'draft',p_request,v_snapshot,p_actor)
+  RETURNING id INTO v_id;
+  INSERT INTO public.finance_accounting_document_lines(
+    tenant_id,branch_id,document_id,line_no,description,quantity,unit_minor,line_minor)
+  VALUES(p_tenant,p_branch,v_id,1,v_description,p_quantity,p_unit_minor,v_total);
+  INSERT INTO public.finance_accounting_document_events(
+    tenant_id,branch_id,document_id,action,old_status,new_status,actor_user_id,event_payload)
+  VALUES(p_tenant,p_branch,v_id,'created',NULL,'draft',p_actor,
+    jsonb_build_object('numberGeneratedBy','server','source','manual_other_income',
+      'paymentMethod',p_method));
+  RETURN jsonb_build_object('id',v_id,'number',v_no,'status','draft',
+     'amountMinor',v_total,'created',true);
+END;
+$fn$;
+REVOKE ALL ON FUNCTION public.finance_accounting_create_other_income(
+ uuid,uuid,uuid,uuid,date,text,numeric,bigint,text,text,text,text
+) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION public.finance_accounting_create_other_income(
+ uuid,uuid,uuid,uuid,date,text,numeric,bigint,text,text,text,text
+) TO service_role;
 
 CREATE OR REPLACE FUNCTION public.finance_accounting_transition_document(
  p_tenant uuid,p_branch uuid,p_actor uuid,p_document uuid,p_action text,
@@ -394,7 +492,7 @@ BEGIN
   IF v_doc.status<>'issued' OR v_doc.approved_by IS NULL OR p_actor=v_doc.prepared_by
     THEN RAISE EXCEPTION 'finance_accounting_posting_not_approved'; END IF;
   IF v_doc.document_kind NOT IN ('sales_invoice','supplier_bill',
-       'expense_voucher','receipt_voucher','payment_voucher')
+       'expense_voucher','receipt_voucher','payment_voucher','other_income','bank_transfer')
     THEN RAISE EXCEPTION 'finance_accounting_posting_kind_forbidden'; END IF;
   IF v_doc.tax_minor<>0 THEN RAISE EXCEPTION 'finance_accounting_verified_tax_required'; END IF;
   v_period:=pg_catalog.date_trunc('month',v_doc.document_date)::date;
@@ -412,6 +510,8 @@ BEGIN
     RAISE EXCEPTION 'finance_accounting_account_not_found'; END IF;
   IF NOT (
     (v_doc.document_kind='sales_invoice' AND v_debit_type='asset' AND v_credit_type='income') OR
+    (v_doc.document_kind='other_income' AND v_debit_type='asset' AND v_credit_type='income') OR
+    (v_doc.document_kind='bank_transfer' AND v_debit_type='asset' AND v_credit_type='asset') OR
     (v_doc.document_kind='supplier_bill' AND v_debit_type='expense' AND v_credit_type='liability') OR
     (v_doc.document_kind='expense_voucher' AND v_debit_type='expense' AND v_credit_type='asset') OR
     (v_doc.document_kind='receipt_voucher' AND v_debit_type='asset' AND v_credit_type='asset') OR

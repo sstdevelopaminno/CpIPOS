@@ -15,6 +15,8 @@ export const financeAccountModule = (kind: string): string => {
     return "finance.sales_receivables";
   if (["purchase_request","purchase_order","goods_receipt","supplier_bill","payment_voucher"].includes(kind))
     return "finance.purchases_payables";
+  if (kind === "other_income") return "finance.income";
+  if (kind === "bank_transfer") return "finance.banking";
   if (kind === "expense_voucher") return "finance.expenses";
   throw new FinanceAccountingError("finance_accounting_kind_invalid");
 };

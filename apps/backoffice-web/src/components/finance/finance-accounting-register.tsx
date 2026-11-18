@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { currencyToMinor, type FinanceCurrency } from "@/lib/finance-accounting-core";
 
-type Module = "sales-receivables" | "purchases-payables" | "expenses" | "ledger";
+type Module = "sales-receivables" | "purchases-payables" | "expenses" | "ledger" | "banking";
 type Branch = { id:string; name:string; code:string };
 type Account = { id:string; code:string; name:string; type:"asset"|"liability"|"equity"|"income"|"expense" };
 type Document = {
@@ -35,7 +35,8 @@ const kinds:Record<Exclude<Module,"ledger">,Array<{value:string;label:string}>>=
   {value:"supplier_bill",label:"ใบแจ้งหนี้ผู้ขาย"},
   {value:"payment_voucher",label:"ใบสำคัญจ่าย / จ่ายชำระเจ้าหนี้"}
  ],
- expenses:[{value:"expense_voucher",label:"ค่าใช้จ่าย / ใบสำคัญจ่าย"}]
+ expenses:[{value:"expense_voucher",label:"ค่าใช้จ่าย / ใบสำคัญจ่าย"}],
+ banking:[{value:"bank_transfer",label:"รายการโอนระหว่างบัญชี"}]
 };
 const sourceKinds:Record<string,string[]>={
   sales_order:["sales_quote"],
@@ -123,7 +124,7 @@ export function FinanceAccountingRegister({module}:{module:Module}) {
  const settlement=kind==="receipt_voucher"||kind==="payment_voucher";
  const availableSourceKinds=sourceKinds[kind]??[];
  const canLinkSource=availableSourceKinds.length>0;
- const evidenceNeeded=settlement||kind==="expense_voucher";
+ const evidenceNeeded=settlement||kind==="expense_voucher"||kind==="bank_transfer";
 
  const refresh=useCallback(async()=>{
   setLoading(true);setError(null);
@@ -228,21 +229,23 @@ export function FinanceAccountingRegister({module}:{module:Module}) {
   }).catch(()=>{if(!ignore)setSources([]);});
   return()=>{ignore=true};
  },[kind,createOpen,branch,currency,settlement]);
- const monthNote=module==="ledger"?"ลงบัญชีได้เฉพาะเอกสารที่ออกแล้วและผ่านอนุมัติ โดยมีการตรวจงวดบัญชีและรหัสรายการซ้ำ":"การออกเอกสารและรายการชำระไม่ใช่การออกใบกำกับภาษีใหม่";
+ const monthNote=module==="ledger"?"ลงบัญชีได้เฉพาะเอกสารที่ผ่านอนุมัติ ตรวจงวดบัญชีและรหัสรายการซ้ำ":
+  module==="banking"?"บันทึกการโอนโดยมีหลักฐานและผู้อนุมัติ ก่อนเลือกบัญชีเดบิตและเครดิตจริง":
+  "จัดการทะเบียนเอกสารและผู้อนุมัติอย่างเป็นขั้นตอน ไม่สร้างยอดขาย POS หรือใบกำกับภาษีซ้ำ";
  const canPost=selected?.status==="issued"&&!selected.postedJournalId&&
-  ["sales_invoice","supplier_bill","expense_voucher","receipt_voucher","payment_voucher"].includes(selected.kind);
+  ["sales_invoice","supplier_bill","expense_voucher","receipt_voucher","payment_voucher","bank_transfer"].includes(selected.kind);
  return (
   <div className="w-full min-w-0 border-b border-slate-200 bg-white">
    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 px-5 py-3">
     <div className="min-w-0">
-     <h2 className="text-sm font-bold text-slate-800">{module==="ledger"?"ผังบัญชีสำหรับการลงรายการ":"ทะเบียนเอกสารธุรกิจ"}</h2>
+     <h2 className="text-sm font-bold text-slate-800">{module==="ledger"?"ผังบัญชีและสมุดรายวัน":module==="banking"?"ทะเบียนโอนเงินระหว่างบัญชี":"ทะเบียนเอกสารธุรกิจ"}</h2>
      <p className="mt-1 text-xs leading-5 text-slate-500">{monthNote}</p>
     </div>
     <div className="flex flex-wrap gap-2">
      <button className={outline} disabled={loading} onClick={()=>void refresh()}>โหลดใหม่</button>
      {module==="ledger"
       ?<button className={primary} disabled={!enabled} onClick={()=>setAccountOpen(true)}>เพิ่มบัญชี</button>
-      :<button className={primary} disabled={!enabled||!branch} onClick={openCreate}>สร้างเอกสาร</button>}
+      :<button className={primary} disabled={!enabled||!branch} onClick={openCreate}>+ เพิ่มเอกสาร</button>}
     </div>
    </div>
    {error&&<p role="alert" className="mx-5 my-3 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-900">{error}</p>}
@@ -257,7 +260,7 @@ export function FinanceAccountingRegister({module}:{module:Module}) {
     </div>
     {module!=="ledger"&&<div className="min-w-[190px] flex-1">
      <label className={label} htmlFor="finance-register-kind">ประเภทเอกสาร</label>
-     <select id="finance-register-kind" className={field} value={kind} onChange={e=>{setKind(e.target.value);setSourceDocumentId("");}}>
+     <select id="finance-register-kind" className={field} value={kind} onChange={e=>{setKind(e.target.value);setSourceDocumentId("");setEvidenceType("bank_transfer");}}>
       {options.map(x=><option key={x.value} value={x.value}>{x.label}</option>)}
      </select>
     </div>}
@@ -339,7 +342,7 @@ export function FinanceAccountingRegister({module}:{module:Module}) {
        <div><label className={label}>สกุลเงิน</label><select className={field} value={currency} onChange={e=>setCurrency(e.target.value as FinanceCurrency)}>
         <option>THB</option><option>LAK</option><option>USD</option></select></div>
        {evidenceNeeded&&<div><label className={label}>หลักฐานการรับ/จ่ายเงิน</label>
-        <select className={field} value={evidenceType} onChange={e=>setEvidenceType(e.target.value as typeof evidenceType)}>
+        <select className={field} value={evidenceType} disabled={kind==="bank_transfer"} onChange={e=>setEvidenceType(e.target.value as typeof evidenceType)}>
          <option value="bank_transfer">โอนเงินพร้อมหลักฐาน</option>
          <option value="cash_count">เงินสด / ใบนับเงิน</option>
          <option value="cheque">เช็ค</option>

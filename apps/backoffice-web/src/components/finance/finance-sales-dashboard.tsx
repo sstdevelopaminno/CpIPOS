@@ -74,8 +74,8 @@ function currencyTotals(report: FinanceSalesReport) {
 }
 
 export function FinanceSalesDashboard({
-  actor, initialTab = "dashboard"
-}: { actor: FinanceActor; initialTab?: FinanceTab }) {
+  actor, initialTab = "dashboard", showTabs = true
+}: { actor: FinanceActor; initialTab?: FinanceTab; showTabs?: boolean }) {
   const [tab, setTab] = useState<FinanceTab>(initialTab);
   const [draft, setDraft] = useState<Search>(() => initialSearch());
   const [applied, setApplied] = useState<Search>(() => initialSearch());
@@ -159,7 +159,7 @@ export function FinanceSalesDashboard({
   return (
     <div className="finance-program-workbench w-full min-w-0 bg-white text-slate-900">
       <div className="w-full min-w-0 border-b border-slate-200 bg-white">
-        <nav aria-label="หมวดการเงิน" className="flex min-h-[52px] flex-wrap items-end gap-1 overflow-x-auto bg-[#155c94] px-4 pt-2 sm:px-5">
+        {showTabs && <nav aria-label="หมวดการเงิน" className="flex min-h-[52px] flex-wrap items-end gap-1 overflow-x-auto bg-[#155c94] px-4 pt-2 sm:px-5">
           <div className="flex min-h-10 shrink-0 items-center gap-2.5 px-4 text-xs font-black text-white">
             <span>CpiPOS FINANCE</span>
             <span className="border-l border-white/30 pl-2 font-semibold">{actor === "owner" ? "เจ้าของร้าน" : "ฝ่ายบัญชี"}</span>
@@ -175,7 +175,7 @@ export function FinanceSalesDashboard({
               {item.label}
             </button>
           ))}
-        </nav>
+        </nav>}
         <div className="flex flex-wrap items-center gap-2.5 border-b border-[#cbd7e8] bg-[#edf3fa] px-4 py-3 sm:px-5">
           <span className="mr-2 text-xs font-bold text-[#194879]">คำสั่ง</span>
           <button type="button" onClick={() => selectRange(1)} className={actionClass}>วันนี้</button>
@@ -249,7 +249,7 @@ export function FinanceSalesDashboard({
               ค้นหา
             </button>
             <button type="button" className={actionClass}
-              onClick={() => { const next = initialSearch(); setDraft(next); apply(next); setTab("dashboard"); }}>ล้างตัวกรอง</button>
+              onClick={() => { const next = initialSearch(); setDraft(next); apply(next); setTab(showTabs ? "dashboard" : initialTab); }}>ล้างตัวกรอง</button>
             <span className="text-xs leading-5 text-slate-500">
               เงื่อนไขเลขบิล ช่องทาง และสถานะใช้กับตาราง · ยอดสรุปคำนวณตามช่วงวันที่และสาขา
             </span>
