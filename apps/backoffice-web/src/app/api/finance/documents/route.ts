@@ -5,7 +5,7 @@ import { isAccountantMenuVisible } from "@/lib/accountant-menu-policy";
 import { loadFinanceSalesReport } from "@/lib/server/finance-sales-report-service";
 import {
   FinanceDocumentError, loadFinanceDocument, loadAccountantTaxProfiles,
-  appendFinanceReceiptCorrection, issueAccountantTaxInvoice,
+  appendFinanceReceiptCorrection, issueAccountantTaxInvoice, createAccountantTaxBuyer,
   type ReceiptEditInput
 } from "@/lib/server/finance-document-service";
 import { todayBangkok } from "@/lib/finance-sales-analytics";
@@ -84,6 +84,18 @@ export async function POST(request: Request) {
         totalAmount: body?.totalAmount as number | undefined
       }, request);
       return ok(data);
+    }
+    if (action === "create_buyer") {
+      const identity = await authorized("more.tax_invoices");
+      const profile = body?.profile as Record<string, unknown> | null | undefined;
+      if (!profile) return fail("finance_tax_buyer_invalid", "Buyer details required", 422);
+      return ok(await createAccountantTaxBuyer(identity, {
+        branchId: String(profile.branchId ?? ""), entityType: String(profile.entityType ?? ""),
+        displayName: String(profile.displayName ?? ""), taxId: String(profile.taxId ?? ""),
+        addressLine: String(profile.addressLine ?? ""), postalCode: String(profile.postalCode ?? ""),
+        subdistrict: String(profile.subdistrict ?? ""), district: String(profile.district ?? ""),
+        province: String(profile.province ?? "")
+      }));
     }
     if (action === "issue_tax") {
       const identity = await authorized("more.tax_invoices");
