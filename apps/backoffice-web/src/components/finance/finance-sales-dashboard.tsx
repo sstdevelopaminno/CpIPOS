@@ -159,16 +159,11 @@ export function FinanceSalesDashboard({
   return (
     <div className="w-full min-w-0 space-y-3 text-slate-900">
       <div className={"overflow-hidden border border-[#c5d4e7] bg-white shadow-sm " + (actor === "accountant" ? "rounded-none border-x-0 border-t-0" : "rounded-lg")}>
-        <div className="flex flex-wrap items-center justify-between gap-2 bg-[#0c345e] px-4 py-2.5 text-white">
-          <div className="flex flex-wrap items-center gap-3">
-            <span className="text-sm font-black tracking-wide">CpiPOS <span className="text-cyan-300">FINANCE</span></span>
-            <span className="border-l border-white/25 pl-3 text-xs font-semibold">
-              {actor === "owner" ? "เจ้าของร้าน" : "ฝ่ายบัญชี (ออฟฟิศ)"}
-            </span>
+        <nav aria-label="หมวดการเงิน" className="flex min-h-[48px] flex-wrap items-end gap-0.5 overflow-x-auto bg-[#155c94] px-2 pt-1">
+          <div className="flex min-h-10 shrink-0 items-center gap-2 px-3 text-xs font-black text-white">
+            <span>CpiPOS FINANCE</span>
+            <span className="border-l border-white/30 pl-2 font-semibold">{actor === "owner" ? "เจ้าของร้าน" : "ฝ่ายบัญชี"}</span>
           </div>
-          <span className="rounded border border-cyan-300/40 bg-white/10 px-2 py-1 text-[11px] font-bold">อ่านอย่างเดียว · READ ONLY</span>
-        </div>
-        <nav aria-label="หมวดการเงิน" className="flex gap-0.5 overflow-x-auto bg-[#155c94] px-2 pt-1">
           {tabs.map(item => (
             <button type="button" key={item.id} onClick={() => selectTab(item.id)}
               aria-current={tab === item.id ? "page" : undefined}
