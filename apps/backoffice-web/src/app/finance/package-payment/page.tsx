@@ -16,7 +16,7 @@ export default async function AccountantPackagePaymentPage() {
       <FinanceSectionHeader title="ชำระแพ็กเกจ"
         subtitle="ตรวจสอบสถานะสัญญาแพ็กเกจของร้าน (ไม่สร้างรายการชำระใหม่)" />
       <div className="w-full min-w-0 bg-white">
-      {error ? <div role="alert" className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm">
+      {error ? <div role="alert" className="mx-5 my-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6">
         ไม่สามารถอ่านข้อมูลสัญญาได้ กรุณาตรวจสอบกับฝ่าย IT
       </div> : (
         <section className="border-b border-slate-200 bg-white px-5 py-5">
