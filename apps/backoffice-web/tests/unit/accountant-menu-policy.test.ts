@@ -5,14 +5,16 @@ import {
 } from "../../src/lib/accountant-menu-policy";
 
 describe("Accountant Finance role navigation and deny-by-default contract", () => {
-  it("exposes exactly seven Finance modules in the required order", () => {
+  it("exposes nine Finance navigation entries with two read-only destinations", () => {
     expect(ACCOUNTANT_FINANCE_MENU.map(item => [item.slug, item.label])).toEqual([
       ["income", "รายรับ"],
       ["expenses", "รายจ่าย"],
       ["sales-receivables", "งานขายและลูกหนี้"],
+      ["pos-receipts", "ใบเสร็จย้อนหลังจาก POS"],
       ["purchases-payables", "งานซื้อและเจ้าหนี้"],
       ["banking", "การเงินและธนาคาร"],
       ["ledger", "บัญชีแยกประเภท"],
+      ["posted-journals", "สมุดรายวันที่โพสต์แล้ว"],
       ["tax-reports", "ภาษีและรายงาน"]
     ]);
     for (const item of ACCOUNTANT_FINANCE_MENU) {
@@ -22,6 +24,10 @@ describe("Accountant Finance role navigation and deny-by-default contract", () =
       expect(isAccountantMenuVisible(item.key, { [item.key]: false })).toBe(false);
     }
     expect(accountantFinanceModule("invalid")).toBeNull();
+    expect(accountantFinanceModule("pos-receipts")?.key).toBe("finance.pos_receipts");
+    expect(accountantFinanceModule("posted-journals")?.key).toBe("finance.posted_journals");
+    expect(isAccountantMenuVisible("finance.pos_receipts", { "finance.sales_receivables": false })).toBe(false);
+    expect(isAccountantMenuVisible("finance.posted_journals", { "finance.ledger": false })).toBe(false);
   });
   it("removes all legacy More navigation and URL grants, even under IT overrides", () => {
     expect(ACCOUNTANT_ALLOWED_MENU_KEYS).not.toContain("main.more");

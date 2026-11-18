@@ -13,17 +13,9 @@ type Document = {
  preparedBy:string; approvedBy:string|null; postedJournalId:string|null;
  sourceDocumentId:string|null;
 };
-type Journal = {
- id:string;branchId:string;documentId:string;date:string;currency:FinanceCurrency;
- debitMinor:number;creditMinor:number;postedAt:string;postedBy:string
-};
 type DocumentDetail = {
  lines:Array<{no:number;description:string;quantity:number;unitMinor:number;totalMinor:number}>;
  events:Array<{action:string;previous:string;current:string;timestamp:string;actorId:string}>;
-};
-type JournalDetail = {
- journal:Journal;
- lines:Array<{no:number;accountId:string;code:string;name:string;currency:string;debitMinor:number;creditMinor:number}>;
 };
 type AgingRecord = { id:string;currency:FinanceCurrency;dueDate:string;originalMinor:number;appliedMinor:number };
 type AgingBucket = { currency:FinanceCurrency; currentMinor:number; days1to30Minor:number;
@@ -106,13 +98,10 @@ export function FinanceAccountingRegister({module}:{module:Module}) {
  const [kind,setKind]=useState(module==="ledger"?"":kinds[module][0].value);
  const [docs,setDocs]=useState<Document[]>([]);
  const [accounts,setAccounts]=useState<Account[]>([]);
- const [journals,setJournals]=useState<Journal[]>([]);
  const [aging,setAging]=useState<AgingBucket[]>([]);
  const [openDebts,setOpenDebts]=useState<AgingRecord[]>([]);
  const [selected,setSelected]=useState<Document|null>(null);
  const [selectedDetail,setSelectedDetail]=useState<DocumentDetail|null>(null);
- const [journalOpenId,setJournalOpenId]=useState("");
- const [journalDetail,setJournalDetail]=useState<JournalDetail|null>(null);
  const [detailLoading,setDetailLoading]=useState(false);
  const [createOpen,setCreateOpen]=useState(false);
  const [accountOpen,setAccountOpen]=useState(false);
@@ -151,10 +140,6 @@ export function FinanceAccountingRegister({module}:{module:Module}) {
    if(module==="ledger"){
     const result=await api<{accounts:Account[]}>(path+"?view=accounts");
     setAccounts(result.accounts);setDocs([]);setAging([]);setOpenDebts([]);
-    if(activeBranch){
-      const logs=await api<{journals:Journal[]}>(path+"?view=journals&branchId="+encodeURIComponent(activeBranch));
-      setJournals(logs.journals);
-    }else setJournals([]);
    } else {
     const result=await api<{documents:Document[]}>(path+"?view=documents&kind="+
       encodeURIComponent(kind)+(activeBranch?"&branchId="+encodeURIComponent(activeBranch):""));
@@ -238,15 +223,6 @@ export function FinanceAccountingRegister({module}:{module:Module}) {
   }catch(e){setError(e instanceof Error?e.message:"ไม่สามารถโหลดรายละเอียดเอกสาร");}
   finally{setDetailLoading(false);}
  }
- async function openJournal(id:string){
-  setError("");setJournalDetail(null);setJournalOpenId(id);setDetailLoading(true);
-  try{
-   const value=await api<JournalDetail>(
-     path+"?view=journal_detail&journalId="+encodeURIComponent(id));
-   setJournalDetail(value);
-  }catch(e){setError(e instanceof Error?e.message:"ไม่สามารถโหลดรายละเอียดสมุดรายวัน");}
-  finally{setDetailLoading(false);}
- }
  async function loadAccounts(){
   try{const x=await api<{accounts:Account[]}>(path+"?view=accounts");setAccounts(x.accounts);}
   catch(e){setError(e instanceof Error?e.message:"ไม่สามารถโหลดผังบัญชี");}
@@ -265,7 +241,7 @@ export function FinanceAccountingRegister({module}:{module:Module}) {
   }).catch(()=>{if(!ignore)setSources([]);});
   return()=>{ignore=true};
  },[kind,createOpen,branch,currency,settlement]);
- const monthNote=module==="ledger"?"ลงบัญชีได้เฉพาะเอกสารที่ผ่านอนุมัติ ตรวจงวดบัญชีและรหัสรายการซ้ำ":
+ const monthNote=module==="ledger"?"ผังบัญชีสำหรับลงรายการเดบิต–เครดิตจากเอกสารที่ผ่านการอนุมัติ โดยไม่สร้างยอดบัญชีสมมติ":
   module==="banking"?"บันทึกการโอนโดยมีหลักฐานและผู้อนุมัติ ก่อนเลือกบัญชีเดบิตและเครดิตจริง":
   "จัดการทะเบียนเอกสารและผู้อนุมัติอย่างเป็นขั้นตอน ไม่สร้างยอดขาย POS หรือใบกำกับภาษีซ้ำ";
  const canPost=selected?.status==="issued"&&!selected.postedJournalId&&
@@ -274,7 +250,7 @@ export function FinanceAccountingRegister({module}:{module:Module}) {
   <div className="w-full min-w-0 border-b border-slate-200 bg-white">
    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 px-5 py-3">
     <div className="min-w-0">
-     <h2 className="text-sm font-bold text-slate-800">{module==="ledger"?"ผังบัญชีและสมุดรายวัน":module==="banking"?"ทะเบียนโอนเงินระหว่างบัญชี":"ทะเบียนเอกสารธุรกิจ"}</h2>
+     <h2 className="text-sm font-bold text-slate-800">{module==="ledger"?"ผังบัญชี":module==="banking"?"ทะเบียนโอนเงินระหว่างบัญชี":"ทะเบียนเอกสารธุรกิจ"}</h2>
      <p className="mt-1 text-xs leading-5 text-slate-500">{monthNote}</p>
     </div>
     <div className="flex flex-wrap gap-2">
@@ -312,23 +288,6 @@ export function FinanceAccountingRegister({module}:{module:Module}) {
        <td className="px-5 py-3">{a.type}</td>
       </tr>)}</tbody></table>
      {accounts.length===0&&<p className="px-5 py-5 text-sm text-slate-500">ยังไม่มีผังบัญชีที่ยืนยันแล้ว</p>}
-     <div className="border-t border-slate-200 bg-slate-50 px-5 py-3 text-sm font-bold text-slate-800">สมุดรายวันที่โพสต์แล้ว (ตรวจจากฐานข้อมูล)</div>
-     <table className="w-full min-w-[600px] text-sm">
-      <thead className="bg-slate-100 text-xs text-slate-600"><tr>
-       <th className="px-5 py-3 text-left">วันที่</th><th className="px-5 py-3 text-left">รหัสเอกสารต้นทาง</th>
-       <th className="px-5 py-3 text-right">เดบิต</th><th className="px-5 py-3 text-right">เครดิต</th>
-       <th className="px-5 py-3 text-left">สกุลเงิน</th>
-       <th className="px-5 py-3 text-right">เรียกดู</th>
-      </tr></thead><tbody>{journals.map(j=><tr key={j.id} className="border-t border-slate-100">
-       <td className="px-5 py-3">{j.date}</td>
-       <td className="px-5 py-3 font-mono text-xs">{j.documentId}</td>
-       <td className="px-5 py-3 text-right tabular-nums">{money(j.debitMinor,j.currency)}</td>
-       <td className="px-5 py-3 text-right tabular-nums">{money(j.creditMinor,j.currency)}</td>
-       <td className="px-5 py-3">{j.currency}</td>
-       <td className="px-5 py-3 text-right"><button className={outline}
-         onClick={()=>void openJournal(j.id)}>ดูเดบิต–เครดิต</button></td></tr>)}</tbody>
-     </table>
-     {journals.length===0&&<p className="px-5 py-5 text-sm text-slate-500">ยังไม่มีรายการที่ผ่านการลงบัญชีในสาขานี้</p>}
     </div>
     :<>
     {side&&aging.length>0&&<div className="grid gap-px border-y border-slate-200 bg-slate-200 sm:grid-cols-2 lg:grid-cols-5">
@@ -483,42 +442,6 @@ export function FinanceAccountingRegister({module}:{module:Module}) {
      </footer>
 
    </FinanceDialog>}
-   <FinanceDialog open={Boolean(journalOpenId)} title="รายละเอียดสมุดรายวัน"
-    description="ข้อมูลจากรายการที่โพสต์จริงเท่านั้น · แยกตามสกุลเงิน"
-    onClose={()=>{setJournalOpenId("");setJournalDetail(null);setError("");}}>
-    {detailLoading?<p className="py-6 text-sm text-slate-500">กำลังโหลดรายการเดบิต–เครดิต...</p>:null}
-    {error?<p role="alert" className="rounded border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">{error}</p>:null}
-    {journalDetail&&<>
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-md bg-blue-50 px-4 py-3 text-sm">
-        <span>ลงบัญชีวันที่ <b>{journalDetail.journal.date}</b></span>
-        <span>อ้างอิง <b className="font-mono text-xs">{journalDetail.journal.documentId}</b></span>
-      </div>
-      <div className="overflow-x-auto rounded-md border border-slate-200">
-        <table className="w-full min-w-[560px] text-xs">
-          <thead className="bg-slate-100"><tr>
-            <th className="px-3 py-3 text-left">เลขที่บัญชี</th>
-            <th className="px-3 py-3 text-left">ชื่อบัญชี</th>
-            <th className="px-3 py-3 text-right">เดบิต</th>
-            <th className="px-3 py-3 text-right">เครดิต</th>
-          </tr></thead>
-          <tbody>{journalDetail.lines.map(line=><tr key={line.no} className="border-t border-slate-100">
-            <td className="px-3 py-3 font-semibold">{line.code}</td>
-            <td className="px-3 py-3">{line.name}</td>
-            <td className="px-3 py-3 text-right tabular-nums">{line.debitMinor?money(line.debitMinor,journalDetail.journal.currency):"-"}</td>
-            <td className="px-3 py-3 text-right tabular-nums">{line.creditMinor?money(line.creditMinor,journalDetail.journal.currency):"-"}</td>
-          </tr>)}</tbody>
-          <tfoot className="border-t-2 border-blue-200 bg-blue-50 font-bold"><tr>
-            <td colSpan={2} className="px-3 py-3">รวม ({journalDetail.journal.currency})</td>
-            <td className="px-3 py-3 text-right tabular-nums">{money(journalDetail.journal.debitMinor,journalDetail.journal.currency)}</td>
-            <td className="px-3 py-3 text-right tabular-nums">{money(journalDetail.journal.creditMinor,journalDetail.journal.currency)}</td>
-          </tr></tfoot>
-        </table>
-      </div>
-    </>}
-    <div className="mt-5 flex justify-end border-t border-slate-100 pt-4">
-      <button className={outline} onClick={()=>{setJournalOpenId("");setJournalDetail(null);}}>ปิดรายละเอียด</button>
-    </div>
-   </FinanceDialog>
    <FinanceDialog open={accountOpen} title="เพิ่มผังบัญชี"
      description="ระบุรหัสบัญชีและประเภทบัญชีตามที่ได้รับอนุมัติ"
      busy={busy} onClose={()=>{setAccountOpen(false);setError("");}}>

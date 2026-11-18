@@ -9,6 +9,7 @@ const sql=file("../../supabase/migrations/20261118164343_finance_accounting_v2_d
 const service=file("src/lib/server/finance-accounting-workflow.ts");
 const api=file("src/app/api/finance/accounting/route.ts");
 const ui=file("src/components/finance/finance-accounting-register.tsx");
+const postedJournal=file("src/components/finance/finance-posted-journals.tsx");
 const sales=file("src/components/pos/pos-sales-module.tsx");
 const history=file("src/components/pos-preview/pos-receipts-workspace.tsx");
 const receiptRoute=file("src/app/preview/pos/receipts/page.tsx");
@@ -50,8 +51,11 @@ describe("Finance accounting v2 core and POS cash receipt contracts",()=>{
       'receipt_voucher:["sales_invoice"]','payment_voucher:["supplier_bill"]',
       'sourceDocumentId:canLinkSource&&sourceDocumentId?',
       'evidenceNeeded=settlement||kind==="expense_voucher"||kind==="bank_transfer"',
-      'สมุดรายวันที่โพสต์แล้ว','หลักฐานการรับ/จ่ายเงิน'
+      'หลักฐานการรับ/จ่ายเงิน'
     ])expect(ui).toContain(required);
+    expect(postedJournal).toContain("สมุดรายวันที่โพสต์แล้ว");
+    expect(postedJournal).toContain("view=journals&branchId=");
+    expect(ui).not.toContain("view=journals&branchId=");
   });
   it("links the POS sale completion action to its existing guarded history route",()=>{
     expect(receiptRoute).toContain("requirePosSession()");

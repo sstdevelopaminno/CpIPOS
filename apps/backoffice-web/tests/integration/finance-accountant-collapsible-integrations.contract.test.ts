@@ -44,7 +44,8 @@ describe("Accountant financial workbench, authorization and print contracts", ()
     expect(modulePage).toContain("<FinanceIncomeWorkspace />");
     expect(modulePage).toContain("<FinanceBankingWorkspace />");
     expect(modulePage).toContain('<FinanceAccountingRegister module="expenses" />');
-    expect(modulePage).toContain('<FinanceDocumentWorkspace kind="receipt" />');
+    expect(modulePage).toContain('slug === "pos-receipts" && <FinanceDocumentWorkspace kind="receipt" />');
+    expect(modulePage).toContain('slug === "posted-journals" && <FinancePostedJournals />');
     expect(modulePage).toContain('<FinanceDocumentWorkspace kind="tax" />');
     expect(service).toContain('import "server-only"');
     expect(service).toContain('.eq("tenant_id", identity.tenantId)');

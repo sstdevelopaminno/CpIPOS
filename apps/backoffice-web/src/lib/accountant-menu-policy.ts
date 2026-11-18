@@ -8,9 +8,11 @@ export const ACCOUNTANT_FINANCE_MENU: readonly AccountantFinanceItem[] = [
   { key: "finance.income", label: "รายรับ", slug: "income" },
   { key: "finance.expenses", label: "รายจ่าย", slug: "expenses" },
   { key: "finance.sales_receivables", label: "งานขายและลูกหนี้", slug: "sales-receivables" },
+  { key: "finance.pos_receipts", label: "ใบเสร็จย้อนหลังจาก POS", slug: "pos-receipts" },
   { key: "finance.purchases_payables", label: "งานซื้อและเจ้าหนี้", slug: "purchases-payables" },
   { key: "finance.banking", label: "การเงินและธนาคาร", slug: "banking" },
   { key: "finance.ledger", label: "บัญชีแยกประเภท", slug: "ledger" },
+  { key: "finance.posted_journals", label: "สมุดรายวันที่โพสต์แล้ว", slug: "posted-journals" },
   { key: "finance.tax_reports", label: "ภาษีและรายงาน", slug: "tax-reports" }
 ] as const;
 
@@ -51,9 +53,14 @@ export function accountantMenuItem(group: string, slug: string): AccountantNavIt
  */
 export function isAccountantMenuVisible(menuKey: string, overrides: Record<string, boolean>): boolean {
   if (!ACCOUNTANT_ALLOWED_MENU_KEYS.includes(menuKey)) return false;
+  // New read-only navigation points to existing protected data; retain the originating
+  // module's IT denial so direct URLs never widen Accountant entitlements.
+  const sourceModule = menuKey === "finance.pos_receipts" ? "finance.sales_receivables" :
+    menuKey === "finance.posted_journals" ? "finance.ledger" : null;
   const parent = menuKey.startsWith("finance.") ? "main.finance" :
     menuKey.startsWith("settings.") ? "main.settings" : null;
   return overrides["main.finance"] !== false &&
     overrides[menuKey] !== false &&
+    (!sourceModule || overrides[sourceModule] !== false) &&
     (!parent || overrides[parent] !== false);
 }
