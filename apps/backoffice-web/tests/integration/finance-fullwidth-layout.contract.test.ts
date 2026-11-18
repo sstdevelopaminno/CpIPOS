@@ -32,9 +32,9 @@ describe("Finance full-width workbench for Owner and Accountant", () => {
   });
 
   it("lets single-currency totals span the available width without affecting financial operations", () => {
-    expect(workbench).toContain('className="w-full min-w-0 space-y-3 text-slate-900"');
-    expect(workbench).toContain('totals.length === 1 ? "grid grid-cols-1 gap-3"');
-    expect(workbench).toContain('min-w-0 gap-3 lg:grid-cols-2');
+    expect(workbench).toContain('className="finance-program-workbench w-full min-w-0 bg-white text-slate-900"');
+    expect(workbench).toContain('totals.length === 1 ? "grid grid-cols-1"');
+    expect(workbench).toContain('grid min-w-0 divide-y divide-slate-200 lg:grid-cols-2');
     expect(workbench).toContain('aria-label="หมวดการเงิน"');
     expect(workbench).toContain('FinanceSalesRecordsTable');
     expect(workbench).toContain('อ่านอย่างเดียว · READ ONLY');
