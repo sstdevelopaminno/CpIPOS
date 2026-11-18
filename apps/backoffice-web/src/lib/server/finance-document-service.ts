@@ -241,7 +241,9 @@ export async function createAccountantTaxBuyer(identity: FinanceIdentity, raw: {
     entity_type: raw.entityType, display_name: plain(raw.displayName, 240),
     tax_id: String(raw.taxId).replace(/\D/g, ""),
     address_line: plain(raw.addressLine, 500),
-    ...address, created_by: identity.userId, updated_by: identity.userId
+    postal_code: address.postal_code, subdistrict: address.subdistrict,
+    district: address.district, province: address.province,
+    created_by: identity.userId, updated_by: identity.userId
   }).select("id").single();
   if (saved.error) throw new FinanceDocumentError("finance_tax_buyer_save_failed", 503);
   const audit = await db.from("audit_logs").insert({
