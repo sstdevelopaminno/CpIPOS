@@ -20,12 +20,34 @@ describe("accountant UI-only Finance role menu contract", () => {
     expect(ACCOUNTANT_ALLOWED_MENU_KEYS).not.toContain("more.kitchen_manage");
     expect(ACCOUNTANT_ALLOWED_MENU_KEYS).not.toContain("settings.users");
   });
-  it("includes all Settings except users and keeps package payment visible", () => {
-    expect(ACCOUNTANT_SETTINGS_MENU).toHaveLength(18);
+  it("allows only finance-relevant Settings and keeps package payment visible", () => {
+    expect(ACCOUNTANT_SETTINGS_MENU.map(item => item.slug)).toEqual([
+      "branding", "store", "printers", "payments", "taxes",
+      "support", "push-notifications", "language", "currency", "placement"
+    ]);
     expect(ACCOUNTANT_ALLOWED_MENU_KEYS).toContain("main.settings");
     expect(ACCOUNTANT_ALLOWED_MENU_KEYS).toContain("main.package_payment");
     expect(accountantMenuItem("settings", "users")).toBeNull();
     expect(accountantMenuItem("more", "kitchen")).toBeNull();
+  });
+  it("hides all eight operational Settings entries and rejects their direct routes", () => {
+    const excluded: Array<[string, string]> = [
+      ["settings.inet_nops", "inet-nops"],
+      ["settings.notifications", "notifications"],
+      ["settings.display", "display"],
+      ["settings.order_kitchen", "order-kitchen"],
+      ["settings.table_qr", "table-qr"],
+      ["settings.activity", "activity"],
+      ["settings.devices", "devices"],
+      ["settings.branches", "branches"]
+    ];
+    for (const [key, slug] of excluded) {
+      expect(ACCOUNTANT_SETTINGS_MENU.some(item => item.key === key)).toBe(false);
+      expect(ACCOUNTANT_ALLOWED_MENU_KEYS).not.toContain(key);
+      expect(accountantMenuItem("settings", slug)).toBeNull();
+      expect(isAccountantMenuVisible(key, {})).toBe(false);
+      expect(isAccountantMenuVisible(key, { [key]: true })).toBe(false);
+    }
   });
   it("respects IT denials without broadening accountant grants", () => {
     expect(isAccountantMenuVisible("more.receipts", {})).toBe(true);

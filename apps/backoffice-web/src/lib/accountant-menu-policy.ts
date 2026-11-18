@@ -11,25 +11,19 @@ export const ACCOUNTANT_MORE_MENU: readonly AccountantNavItem[] = [
 // Product master data and inventory are POS operations, not Accountant Finance routes.
 // Product-level completed sales remain accessible only as an accounting report.
 
+// Keep operational POS settings out of the Accountant workspace; removing a key
+// also disables direct /finance/settings/[slug] access via accountantMenuItem.
 export const ACCOUNTANT_SETTINGS_MENU: readonly AccountantNavItem[] = [
   { key: "settings.branding", label: "ธีมสี / โลโก้ / ชื่อระบบ (CUSTOM)", slug: "branding", group: "settings" },
   { key: "settings.store", label: "ข้อมูลร้านค้า/บริษัท", slug: "store", group: "settings" },
-  { key: "settings.branches", label: "เพิ่มสาขา", slug: "branches", group: "settings" },
-  { key: "settings.devices", label: "เพิ่มเครื่องแคชเชียร์", slug: "devices", group: "settings" },
   { key: "settings.printers", label: "ตั้งค่าเครื่องพิมพ์", slug: "printers", group: "settings" },
-  { key: "settings.activity", label: "ตรวจสอบพฤติกรรมการใช้งาน", slug: "activity", group: "settings" },
   { key: "settings.payments", label: "ตั้งค่าชำระเงิน", slug: "payments", group: "settings" },
-  { key: "settings.inet_nops", label: "INET QR", slug: "inet-nops", group: "settings" },
   { key: "settings.taxes", label: "ตั้งค่าภาษี", slug: "taxes", group: "settings" },
-  { key: "settings.notifications", label: "ตั้งค่าการแจ้งเตือน", slug: "notifications", group: "settings" },
   { key: "settings.support", label: "ศูนย์ช่วยเหลือ", slug: "support", group: "settings" },
   { key: "settings.push_notifications", label: "การแจ้งเตือนอุปกรณ์", slug: "push-notifications", group: "settings" },
   { key: "settings.language", label: "เปลี่ยนภาษา", slug: "language", group: "settings" },
   { key: "settings.currency", label: "ตั้งค่าสกุลเงิน (CUSTOM)", slug: "currency", group: "settings" },
   { key: "settings.placement", label: "สลับแถบเมนูหลัก", slug: "placement", group: "settings" },
-  { key: "settings.display", label: "จอลูกค้า", slug: "display", group: "settings" },
-  { key: "settings.order_kitchen", label: "การแจ้งเตือนออเดอร์และครัว", slug: "order-kitchen", group: "settings" },
-  { key: "settings.table_qr", label: "ตั้งค่า QR โต๊ะ", slug: "table-qr", group: "settings" }
 ] as const;
 
 export const ACCOUNTANT_MAIN_MENU_KEYS = ["main.finance", "main.more", "main.settings", "main.package_payment"] as const;
