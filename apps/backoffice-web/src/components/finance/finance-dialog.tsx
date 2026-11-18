@@ -89,7 +89,7 @@ export function FinanceDialog({
 
 export function FinanceConfirmDialog({
   open, onClose, onConfirm, title, description, confirmLabel, busy = false,
-  danger = false, children
+  danger = false, children, confirmDisabled = false
 }: {
   open: boolean;
   onClose: () => void;
@@ -99,6 +99,7 @@ export function FinanceConfirmDialog({
   confirmLabel: string;
   busy?: boolean;
   danger?: boolean;
+  confirmDisabled?: boolean;
   children?: ReactNode;
 }) {
   return (
@@ -110,7 +111,7 @@ export function FinanceConfirmDialog({
           className="min-h-10 rounded-lg border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40">
           ยกเลิก
         </button>
-        <button type="button" disabled={busy} onClick={onConfirm}
+        <button type="button" disabled={busy || confirmDisabled} onClick={onConfirm}
           className={
             "min-h-10 rounded-lg px-5 text-sm font-bold text-white shadow-sm disabled:cursor-wait disabled:opacity-50 " +
             (danger ? "bg-rose-700 hover:bg-rose-800" : "bg-blue-700 hover:bg-blue-800")
