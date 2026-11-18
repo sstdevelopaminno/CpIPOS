@@ -33,6 +33,7 @@ export async function GET(request: Request) {
       });
     } else {
       const receipt = detail.receipt;
+      if (receipt.currency === "USD") throw new FinanceDocumentError("finance_print_currency_unsupported", 409);
       if (receipt.voided) throw new FinanceDocumentError("finance_receipt_voided", 409);
       // This renders the immutable original or an explicitly versioned correction.
       // Underlying completed sale and payment timestamp are always preserved.
