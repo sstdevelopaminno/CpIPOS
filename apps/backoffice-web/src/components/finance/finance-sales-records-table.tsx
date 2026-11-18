@@ -42,7 +42,7 @@ export function FinanceSalesRecordsTable({
 }) {
   return (
     <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm" aria-label="ตารางรายรับจากการขาย">
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 bg-slate-50 px-4 py-3">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 bg-slate-50 px-5 py-4">
         <div>
           <h3 className="text-sm font-bold text-slate-900">รายการขายสินค้า · ข้อมูลจาก POS</h3>
           <p className="mt-0.5 text-xs text-slate-500">ค้นหาจากรายการทั้งหมดภายในช่วงวันที่และสาขาที่เลือก ไม่ใช่เฉพาะ 50 รายการล่าสุด</p>
@@ -50,19 +50,19 @@ export function FinanceSalesRecordsTable({
         <p className="text-xs font-semibold tabular-nums text-slate-600">พบ {table.totalRows.toLocaleString("th-TH")} รายการ</p>
       </div>
       <div className="max-h-[560px] overflow-auto">
-        <table className="w-full min-w-[1160px] border-collapse text-left text-xs" aria-label="รายการขายแบบอ่านอย่างเดียว">
+        <table className="w-full min-w-[1240px] border-collapse text-left text-[13px] leading-5" aria-label="รายการขายแบบอ่านอย่างเดียว">
           <thead className="sticky top-0 z-10 bg-[#eaf1fb] text-[#19385c]">
             <tr className="border-b border-[#bfd0e9]">
-              <th scope="col" className="w-12 border-r border-[#d9e3f1] px-3 py-3 text-center">ลำดับ</th>
-              <th scope="col" className="whitespace-nowrap px-3 py-3">วันที่รับชำระ</th>
-              <th scope="col" className="whitespace-nowrap px-3 py-3">เลขที่บิล</th>
-              <th scope="col" className="px-3 py-3">สาขา</th>
-              <th scope="col" className="px-3 py-3">ช่องทางรับชำระ</th>
-              <th scope="col" className="px-3 py-3 text-center">สกุลเงิน</th>
-              <th scope="col" className="px-3 py-3 text-right">ยอดบิล</th>
-              <th scope="col" className="px-3 py-3 text-right">ยอดรับชำระ</th>
-              <th scope="col" className="px-3 py-3 text-right">ส่วนต่าง</th>
-              <th scope="col" className="px-3 py-3 text-center">สถานะตรวจสอบ</th>
+              <th scope="col" className="w-12 border-r border-[#d9e3f1] px-4 py-3 text-center">ลำดับ</th>
+              <th scope="col" className="whitespace-nowrap px-4 py-3">วันที่รับชำระ</th>
+              <th scope="col" className="whitespace-nowrap px-4 py-3">เลขที่บิล</th>
+              <th scope="col" className="px-4 py-3">สาขา</th>
+              <th scope="col" className="px-4 py-3">ช่องทางรับชำระ</th>
+              <th scope="col" className="px-4 py-3 text-center">สกุลเงิน</th>
+              <th scope="col" className="px-4 py-3 text-right">ยอดบิล</th>
+              <th scope="col" className="px-4 py-3 text-right">ยอดรับชำระ</th>
+              <th scope="col" className="px-4 py-3 text-right">ส่วนต่าง</th>
+              <th scope="col" className="px-4 py-3 text-center">สถานะตรวจสอบ</th>
             </tr>
           </thead>
           <tbody>
@@ -70,22 +70,22 @@ export function FinanceSalesRecordsTable({
               const rowStatus = status(row);
               return (
                 <tr key={row.orderId} className="border-b border-slate-100 even:bg-[#f7faff] hover:bg-[#e9f2ff]">
-                  <td className="border-r border-slate-100 px-3 py-2.5 text-center tabular-nums text-slate-500">
+                  <td className="border-r border-slate-100 px-4 py-3 text-center tabular-nums text-slate-500">
                     {(table.page - 1) * table.pageSize + index + 1}
                   </td>
-                  <td className="whitespace-nowrap px-3 py-2.5 tabular-nums">{timestamp(row.completedAt)}</td>
-                  <td className="px-3 py-2.5 font-semibold text-blue-800">{row.orderNo}</td>
-                  <td className="px-3 py-2.5">{row.branchName}</td>
-                  <td className="px-3 py-2.5">{row.methods.map(financePaymentMethodLabel).join(" + ") || "—"}</td>
-                  <td className="px-3 py-2.5 text-center font-semibold">{row.currency}</td>
-                  <td className="whitespace-nowrap px-3 py-2.5 text-right tabular-nums">{money(row.billed, row.currency)}</td>
-                  <td className="whitespace-nowrap px-3 py-2.5 text-right tabular-nums">{money(row.received, row.currency)}</td>
-                  <td className={"whitespace-nowrap px-3 py-2.5 text-right font-semibold tabular-nums " +
+                  <td className="whitespace-nowrap px-4 py-3 tabular-nums">{timestamp(row.completedAt)}</td>
+                  <td className="px-4 py-3 font-semibold text-blue-800">{row.orderNo}</td>
+                  <td className="px-4 py-3">{row.branchName}</td>
+                  <td className="px-4 py-3">{row.methods.map(financePaymentMethodLabel).join(" + ") || "—"}</td>
+                  <td className="px-4 py-3 text-center font-semibold">{row.currency}</td>
+                  <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums">{money(row.billed, row.currency)}</td>
+                  <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums">{money(row.received, row.currency)}</td>
+                  <td className={"whitespace-nowrap px-4 py-3 text-right font-semibold tabular-nums " +
                     (row.unmatched ? "text-amber-800" : "text-slate-600")}>
                     {money(row.billed - row.received, row.currency)}
                   </td>
-                  <td className="px-3 py-2.5 text-center">
-                    <span className={"inline-block whitespace-nowrap rounded border px-2 py-1 text-[11px] font-bold " + rowStatus.className}>
+                  <td className="px-4 py-3 text-center">
+                    <span className={"inline-block whitespace-nowrap rounded-md border px-3 py-1.5 text-xs font-bold " + rowStatus.className}>
                       {rowStatus.label}
                     </span>
                   </td>
@@ -93,14 +93,14 @@ export function FinanceSalesRecordsTable({
               );
             })}
             {table.rows.length === 0 ? (
-              <tr><td colSpan={10} className="px-4 py-12 text-center text-sm text-slate-500">
+              <tr><td colSpan={10} className="px-5 py-12 text-center text-sm text-slate-500">
                 ไม่พบรายการตรงกับเงื่อนไขค้นหา ลองเปลี่ยนช่วงวันที่ เลขบิล หรือช่องทางรับชำระ
               </td></tr>
             ) : null}
           </tbody>
         </table>
       </div>
-      <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 bg-slate-50 px-4 py-3 text-xs">
+      <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 bg-slate-50 px-5 py-4 text-xs">
         <p className="tabular-nums text-slate-600">
           หน้า {table.page.toLocaleString("th-TH")} / {table.totalPages.toLocaleString("th-TH")}
           {" "}· แสดง {table.rows.length.toLocaleString("th-TH")} รายการในหน้านี้
