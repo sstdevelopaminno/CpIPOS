@@ -5,6 +5,7 @@ import { FinanceDocumentError, loadFinanceDocument } from "@/lib/server/finance-
 import { renderReceiptHtml } from "@/lib/printing/receipt-html-template";
 import { buildTaxInvoicePrintHtml } from "@/lib/pos-tax-invoice";
 import { fail } from "@/lib/http";
+import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 
 export const dynamic = "force-dynamic";
 
@@ -58,6 +59,16 @@ export async function GET(request: Request) {
         reprint: true
       });
     }
+    const logged = await getSupabaseServiceClient().from("audit_logs").insert({
+      tenant_id: identity.tenantId, branch_id: detail.receipt.branchId,
+      actor_user_id: identity.userId, actor_role: "accountant",
+      action: kind === "tax" ? "finance_tax_invoice_print_requested" : "finance_receipt_print_requested",
+      target_table: kind === "tax" ? "pos_tax_invoices" : "orders",
+      target_id: kind === "tax" ? detail.invoice?.id : detail.receipt.orderId,
+      module: "finance", entity_type: kind === "tax" ? "tax_invoice" : "receipt",
+      metadata: { width, order_id: detail.receipt.orderId, revision: detail.receipt.revision }
+    });
+    if (logged.error) throw new FinanceDocumentError("finance_print_audit_unavailable", 503);
     return new Response(html, {
       headers: {
         "Content-Type": "text/html; charset=utf-8",
