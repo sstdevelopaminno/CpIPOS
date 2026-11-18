@@ -266,7 +266,7 @@ export function FinanceDocumentWorkspace({ kind }: { kind: Kind }) {
             </tr></thead>
             <tbody>{(list?.table.rows ?? []).map(row => (
               <tr key={row.orderId} className="border-t border-slate-100 even:bg-slate-50">
-                <td className="whitespace-nowrap px-4 py-3>{new Date(row.completedAt).toLocaleString("th-TH", { timeZone: "Asia/Bangkok" })}</td>
+                <td className="whitespace-nowrap px-4 py-3">{new Date(row.completedAt).toLocaleString("th-TH", { timeZone: "Asia/Bangkok" })}</td>
                 <td className="px-4 py-3 font-semibold text-blue-800">{row.orderNo}</td>
                 <td className="px-4 py-3">{row.branchName}</td>
                 <td className="px-4 py-3">{row.currency}</td>
@@ -285,7 +285,7 @@ export function FinanceDocumentWorkspace({ kind }: { kind: Kind }) {
             </tbody>
           </table>
         </div>
-        {list?.table ? <div className="flex items-center justify-end gap-2 border-t bg-slate-50 px-4 py-2 text-xs">
+        {list?.table ? <div className="flex items-center justify-end gap-3 border-t border-slate-200 bg-[#f3f6fa] px-5 py-3 text-xs leading-5">
           <span>หน้า {list.table.page} / {list.table.totalPages}</span>
           <button type="button" className={btn} disabled={page <= 1 || loading} onClick={() => setPage(page - 1)}>ก่อนหน้า</button>
           <button type="button" className={btn} disabled={page >= list.table.totalPages || loading} onClick={() => setPage(page + 1)}>ถัดไป</button>
