@@ -12,14 +12,14 @@ export default async function AccountantPackagePaymentPage() {
   try { contract = await loadAccountantContractOverview(identity); } catch { error = true; }
 
   return (
-    <section className="finance-secondary-workbench w-full min-w-0 text-slate-900">
+    <section className="finance-secondary-workbench w-full min-w-0 bg-white text-slate-900">
       <FinanceSectionHeader title="ชำระแพ็กเกจ"
         subtitle="ตรวจสอบสถานะสัญญาแพ็กเกจของร้าน (ไม่สร้างรายการชำระใหม่)" />
-      <div className="space-y-4 p-3 md:p-4">
+      <div className="w-full min-w-0 bg-white">
       {error ? <div role="alert" className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm">
         ไม่สามารถอ่านข้อมูลสัญญาได้ กรุณาตรวจสอบกับฝ่าย IT
       </div> : (
-        <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+        <section className="border-b border-slate-200 bg-white px-5 py-5">
           <h2 className="text-sm font-bold">สัญญาแพ็กเกจล่าสุด</h2>
           {contract ? (
             <dl className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -33,13 +33,13 @@ export default async function AccountantPackagePaymentPage() {
                 <dd className="mt-1 text-sm font-bold">{contract.endedAt ? new Date(contract.endedAt).toLocaleDateString("th-TH", { timeZone: "Asia/Bangkok" }) : "—"}</dd></div>
             </dl>
           ) : <p className="mt-3 text-sm text-slate-500">ยังไม่มีข้อมูลสัญญาแพ็กเกจ</p>}
-          <p className="mt-4 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950">
+          <p className="mt-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-xs leading-5 text-amber-950">
             การชำระเงินจริงต้องดำเนินการผ่านขั้นตอนที่ตรวจสอบสิทธิ์และ Settlement ก่อน
             หน้านี้ไม่ออกใบเสร็จ ไม่รับชำระ และไม่เปลี่ยนสัญญาหรือสิทธิ์ของร้าน
           </p>
         </section>
       )}
-      <Link href="/finance" className="inline-block rounded border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-800 hover:bg-blue-100">
+      <Link href="/finance" className="m-5 inline-block rounded-md border border-blue-200 bg-blue-50 px-4 py-2.5 text-xs font-semibold text-blue-800 hover:bg-blue-100">
         กลับไปการเงิน
       </Link>
       </div>
