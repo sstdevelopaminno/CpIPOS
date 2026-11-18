@@ -49,7 +49,7 @@ describe("Finance accounting v2 core and POS cash receipt contracts",()=>{
       'supplier_bill:["goods_receipt","purchase_order"]',
       'receipt_voucher:["sales_invoice"]','payment_voucher:["supplier_bill"]',
       'sourceDocumentId:canLinkSource&&sourceDocumentId?',
-      'evidenceNeeded=settlement||kind==="expense_voucher"',
+      'evidenceNeeded=settlement||kind==="expense_voucher"||kind==="bank_transfer"',
       'สมุดรายวันที่โพสต์แล้ว','หลักฐานการรับ/จ่ายเงิน'
     ])expect(ui).toContain(required);
   });

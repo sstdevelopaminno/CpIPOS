@@ -41,8 +41,9 @@ describe("Accountant financial workbench, authorization and print contracts", ()
     expect(modulePage).toContain("accountantFinanceModule(slug)");
     expect(modulePage).toContain("if (!item) notFound()");
     expect(modulePage).toContain("requireAccountantPage(item.key)");
-    expect(modulePage).toContain('<FinanceSalesDashboard actor="accountant" initialTab="sales" />');
-    expect(modulePage).toContain('<FinanceSalesDashboard actor="accountant" initialTab="reconcile" />');
+    expect(modulePage).toContain("<FinanceIncomeWorkspace />");
+    expect(modulePage).toContain("<FinanceBankingWorkspace />");
+    expect(modulePage).toContain('<FinanceAccountingRegister module="expenses" />');
     expect(modulePage).toContain('<FinanceDocumentWorkspace kind="receipt" />');
     expect(modulePage).toContain('<FinanceDocumentWorkspace kind="tax" />');
     expect(service).toContain('import "server-only"');
