@@ -23,13 +23,15 @@ const errorMessages: Record<string, string> = {
   finance_tax_invoice_requires_credit_or_replacement: "มีใบกำกับภาษีออกแล้ว ต้องแก้ผ่านกระบวนการยกเลิก/ใบลดหนี้/ออกเอกสารใหม่ ไม่สามารถแก้บิลต้นฉบับได้",
   finance_tax_invoice_already_exists: "ใบกำกับภาษีของบิลนี้ถูกออกแล้ว",
   finance_tax_vat_not_enabled: "ยังไม่ได้เปิดและยืนยันข้อมูล VAT ของสาขานี้",
+  finance_tax_vat_verification_required: "ต้องให้ฝ่าย IT ตรวจสอบหลักฐาน ภ.พ.20 และยืนยันสิทธิ์ออกใบกำกับภาษีก่อน",
   finance_tax_seller_vat_profile_required: "ต้องตั้งค่าชื่อ ที่อยู่ และเลขผู้เสียภาษีของผู้ขายให้ครบก่อน",
   finance_tax_buyer_invalid: "ข้อมูลเลขประจำตัวผู้เสียภาษีของผู้ซื้อไม่ถูกต้อง",
   finance_tax_billed_tax_missing: "บิลนี้ไม่มีหลักฐานภาษีที่บันทึกไว้ จึงไม่ออก VAT ย้อนหลังโดยสมมติเอง",
   finance_receipt_audit_write_failed: "ไม่สามารถบันทึกหลักฐานการแก้ไขได้ จึงไม่ดำเนินการ",
   finance_tax_invoice_thb_only: "ระบบออกใบกำกับภาษีชุดนี้รองรับเฉพาะบิลสกุล THB",
   finance_document_items_invalid: "ต้องมีรายการสินค้า 1–100 รายการ",
-  finance_receipt_already_void: "เอกสารฉบับนี้ถูกยกเลิกแล้ว"
+  finance_receipt_already_void: "เอกสารฉบับนี้ถูกยกเลิกแล้ว",
+  finance_tax_audit_reconcile_required: "มีการออกเอกสารแล้วแต่บันทึก Audit หลังออกไม่ครบ กรุณาติดต่อ IT ก่อนทำซ้ำ"
 };
 const money = (n: number, currency: FinanceReceiptSnapshot["currency"]) => formatSalesMoney(n, currency, "th-TH");
 function bangkokDay(now = new Date()) {
@@ -55,8 +57,9 @@ function recalc(items: FinanceReceiptLine[], discountAmount: number, taxAmount: 
 }
 function printDocument(orderId: string, kind: Kind, width: 58 | 80) {
   const link = "/api/finance/documents/print?" + new URLSearchParams({ orderId, kind, width: String(width) });
-  const popup = window.open(link, "_blank", "noopener,noreferrer");
+  const popup = window.open(link, "_blank");
   if (!popup) return false;
+  try { popup.opener = null; } catch { /* window may be protected */ }
   // The print page is same origin and rendered from the existing safe POS templates.
   // In locked-down browsers the user can also use Ctrl+P in the new tab.
   try { popup.addEventListener("load", () => popup.print(), { once: true }); } catch { /* popup may be detached */ }
