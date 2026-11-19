@@ -8,11 +8,15 @@ import { PosGeneralSaleTableController } from "@/components/pos/pos-general-sale
 import { PosEntryGate } from "@/components/pos/pos-entry-gate";
 import { getCurrentLanguage } from "@/lib/i18n";
 import { requirePosPagePermission } from "@/lib/pos-page-guard";
+import { isAuthorizedRecyclingTenant } from "@/lib/server/recycling-pos-service";
+import { redirect } from "next/navigation";
 
 export default async function PosPreviewPage() {
   const posMenuScope = await requirePosSession();
   await assertPosMenuPageAllowed(posMenuScope.session.tenant_id, "/preview/pos");
   await requirePosPagePermission("sale:create", "/login/store");
+  // CUSTOM Recycling gets a dedicated scanner/cart UI. Other tenants retain the existing POS.
+  if (await isAuthorizedRecyclingTenant(posMenuScope.session.tenant_id)) redirect("/preview/pos/recycling");
   const lang = await getCurrentLanguage();
 
   return (
