@@ -2,9 +2,9 @@ import { describe, expect, it } from "vitest";
 import { DEFAULT_POS_SALES_MODES, normalizePosSalesModes, normalizeCustomPosSalesModes, posUiModeToControlKey } from "../../src/lib/pos-sales-modes";
 
 describe("IT controlled POS sales modes", () => {
-  it("keeps all five customer POS modes enabled when no IT override exists", () => {
+  it("preserves existing modes and keeps CUSTOM Recycling disabled by default", () => {
     expect(normalizePosSalesModes(null)).toEqual(DEFAULT_POS_SALES_MODES);
-    expect(Object.keys(DEFAULT_POS_SALES_MODES)).toEqual(["takeaway", "dine_in", "buffet_table", "delivery", "general_sale", "optical_retail"]);
+    expect(Object.keys(DEFAULT_POS_SALES_MODES)).toEqual(["takeaway", "dine_in", "buffet_table", "delivery", "general_sale", "optical_retail", "recycling"]);
   });
 
   it("honors explicit false values written by the IT Control Plane", () => {
@@ -14,7 +14,8 @@ describe("IT controlled POS sales modes", () => {
       buffet_table: true,
       delivery: true,
       general_sale: false,
-      optical_retail: false
+      optical_retail: false,
+      recycling: false
     });
   });
 
@@ -23,6 +24,9 @@ describe("IT controlled POS sales modes", () => {
     expect(normalizeCustomPosSalesModes(null).optical_retail).toBe(false);
     expect(normalizeCustomPosSalesModes({ optical_retail: true }).optical_retail).toBe(true);
     expect(normalizeCustomPosSalesModes({ general_sale: true }).optical_retail).toBe(false);
+    expect(normalizePosSalesModes(null).recycling).toBe(false);
+    expect(normalizeCustomPosSalesModes({ recycling: true }).recycling).toBe(true);
+    expect(normalizeCustomPosSalesModes({ general_sale: true }).recycling).toBe(false);
   });
 
   it("maps the customer selector mode ids to the canonical IT keys", () => {
@@ -32,6 +36,7 @@ describe("IT controlled POS sales modes", () => {
     expect(posUiModeToControlKey("delivery")).toBe("delivery");
     expect(posUiModeToControlKey("general_sale")).toBe("general_sale");
     expect(posUiModeToControlKey("optical_retail")).toBe("optical_retail");
+    expect(posUiModeToControlKey("recycling")).toBe("recycling");
     expect(posUiModeToControlKey("unknown")).toBeNull();
   });
 });
