@@ -118,3 +118,27 @@ describe("pre-entry employee route recovers single-register branch context", () 
     ).toBe(false);
   });
 });
+
+describe("standard store branch selection", () => {
+  it("requires a branch choice by default, while preserving explicit skip and hidden modes", async () => {
+    const { isAutoSkipSingleBranchEnabled, shouldSkipBranchSelection } = await import("@/lib/server/store-login-mode");
+    const standardMode = {
+      singleRegister: false,
+      branchSelection: "visible" as const,
+      maxBranches: 1,
+      maxDevices: 2,
+      packageCode: "starter",
+      source: "tenant_package" as const
+    };
+    const hiddenMode = { ...standardMode, singleRegister: true, branchSelection: "hidden" as const };
+
+    expect(isAutoSkipSingleBranchEnabled(undefined)).toBe(false);
+    expect(isAutoSkipSingleBranchEnabled("false")).toBe(false);
+    expect(shouldSkipBranchSelection(standardMode, 1, isAutoSkipSingleBranchEnabled(undefined))).toBe(false);
+    expect(shouldSkipBranchSelection(standardMode, 2, isAutoSkipSingleBranchEnabled(undefined))).toBe(false);
+    expect(isAutoSkipSingleBranchEnabled("true")).toBe(true);
+    expect(shouldSkipBranchSelection(standardMode, 1, isAutoSkipSingleBranchEnabled("true"))).toBe(true);
+    expect(shouldSkipBranchSelection(standardMode, 2, isAutoSkipSingleBranchEnabled("true"))).toBe(false);
+    expect(shouldSkipBranchSelection(hiddenMode, 1, false)).toBe(true);
+  });
+});

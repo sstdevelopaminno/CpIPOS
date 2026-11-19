@@ -5,7 +5,7 @@ import { AuthTimeoutError, withAuthTimeout } from "@/lib/server/auth-timeout";
 import { buildRateLimitKey, enforceRateLimit, getClientIpAddress, readRateLimitSetting, type RateLimitResult } from "@/lib/server/rate-limit";
 import { clearPreEntryFlowState, createFlowState, writePreEntryFlowState } from "@/lib/server/pre-entry-state";
 import { resolveSessionCookieConfig } from "@/lib/server/pos-session";
-import { resolveStoreLoginMode, shouldSkipBranchSelection } from "@/lib/server/store-login-mode";
+import { isAutoSkipSingleBranchEnabled, resolveStoreLoginMode, shouldSkipBranchSelection } from "@/lib/server/store-login-mode";
 import { normalizeStoreCodeLookup, resolveTenantByStoreCode } from "@/lib/server/tenant-store-code";
 
 type RequestBody = {
@@ -55,11 +55,6 @@ function writeStoreLookupCache(storeCode: string, entry: Omit<StoreLookupCacheEn
     ...entry,
     expiresAt: Date.now() + STORE_LOOKUP_CACHE_TTL_MS
   });
-}
-
-function isAutoSkipEnabled() {
-  const raw = String(process.env.POS_AUTO_SKIP_SINGLE_BRANCH ?? "true").trim().toLowerCase();
-  return raw === "1" || raw === "true" || raw === "yes";
 }
 
 function clearPosSessionCookies(response: NextResponse) {
@@ -224,7 +219,7 @@ export async function POST(request: Request) {
     const tenant = lookup.tenant;
     const branches = lookup.branches;
     const storeMode = await withAuthTimeout(resolveStoreLoginMode(tenant.id), "store_login_mode_lookup_timeout");
-    const autoSkip = shouldSkipBranchSelection(storeMode, branches.length, isAutoSkipEnabled());
+    const autoSkip = shouldSkipBranchSelection(storeMode, branches.length, isAutoSkipSingleBranchEnabled(process.env.POS_AUTO_SKIP_SINGLE_BRANCH));
     const selectedBranch = autoSkip ? branches[0] : null;
     const flowState = createFlowState({
       stage: autoSkip ? "branch_selected" : "store_verified",
