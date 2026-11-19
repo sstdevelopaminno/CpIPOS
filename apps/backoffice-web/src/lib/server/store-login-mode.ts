@@ -135,6 +135,13 @@ export async function resolveStoreLoginMode(tenantId: string): Promise<StoreLogi
   return deriveMode({ contract: null, packageRow, source: packageRow ? "tenant_package" : "fallback" });
 }
 
+// Standard stores should choose a branch, even if only one branch is active.
+// An explicit environment opt-in can retain the one-branch shortcut.
+export function isAutoSkipSingleBranchEnabled(rawValue: string | undefined) {
+  const value = String(rawValue ?? "").trim().toLowerCase();
+  return value === "1" || value === "true" || value === "yes";
+}
+
 export function shouldSkipBranchSelection(mode: StoreLoginMode, activeBranchCount: number, autoSkipSingleBranch: boolean) {
   if (activeBranchCount !== 1) return false;
   if (mode.singleRegister || mode.branchSelection === "hidden") return true;
