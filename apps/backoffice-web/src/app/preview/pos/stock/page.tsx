@@ -15,6 +15,7 @@ import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { getCustomPosStockUiMode } from "@/lib/server/custom-stock-ui-policy";
+import { isAuthorizedRecyclingTenant } from "@/lib/server/recycling-pos-service";
 
 const ARCHIVED_INGREDIENT_PREFIX = "__archived__:";
 const FALLBACK_INGREDIENT_PREFIX = "STOCK:";
@@ -122,6 +123,8 @@ export default async function PosStockPage({
   const posMenuScope = await requirePosSession();
   await assertPosMenuPageAllowed(posMenuScope.session.tenant_id, "/preview/pos/stock");
   const scope = await requirePosPagePermission("inventory:view");
+  // Isolated Recycling catalogue; never replace the ordinary/Optical stock page.
+  if (await isAuthorizedRecyclingTenant(scope.session.tenant_id)) redirect("/preview/pos/recycling/stock");
   // Optical-only/retail-only CUSTOM gets its own read-only catalogue instead
   // of restaurant ingredient popups; food, fixed plans and ambiguous grants
   // retain their existing stock workflow unchanged.
