@@ -26,6 +26,9 @@ create table if not exists public.recycling_transactions (
   receipt_no text not null check (length(receipt_no) between 12 and 90),
   request_hash text not null check (length(request_hash)=32),
   finance_document_id uuid unique references public.finance_accounting_documents(id),
+  constraint recycling_finance_doc_same_branch foreign key
+    (tenant_id,branch_id,finance_document_id)
+    references public.finance_accounting_documents(tenant_id,branch_id,id),
   direction text not null check (direction in ('buy','sell')),
   settlement text not null check (settlement in ('cash','bank_transfer','credit')),
   counterparty_name text not null check (length(btrim(counterparty_name)) between 1 and 240),
@@ -45,18 +48,23 @@ create table if not exists public.recycling_transactions (
       and length(btrim(void_reason)) between 10 and 500 and void_request_id is not null
       and void_stock_confirmed is true)
   ),
+  unique (tenant_id,branch_id,id),
   unique (tenant_id,branch_id,request_id),
   unique (tenant_id,branch_id,receipt_no),
   unique (tenant_id,branch_id,void_request_id)
 );
 create index if not exists recycling_transactions_tenant_branch_created_idx
   on public.recycling_transactions(tenant_id,branch_id,created_at desc);
+create index if not exists recycling_transactions_shift_status_idx
+  on public.recycling_transactions(tenant_id,branch_id,shift_id,status);
 
 create table if not exists public.recycling_transaction_lines (
   id uuid primary key default gen_random_uuid(),
   transaction_id uuid not null references public.recycling_transactions(id) on delete restrict,
   tenant_id uuid not null references public.tenants(id),
   branch_id uuid not null references public.branches(id),
+  constraint recycling_line_same_branch foreign key(tenant_id,branch_id,transaction_id)
+    references public.recycling_transactions(tenant_id,branch_id,id),
   line_no int not null check (line_no between 1 and 100),
   product_id uuid not null references public.products(id),
   sku_snapshot text not null,
@@ -80,6 +88,8 @@ create table if not exists public.recycling_accounting_entries (
   transaction_id uuid not null references public.recycling_transactions(id) on delete restrict,
   tenant_id uuid not null references public.tenants(id),
   branch_id uuid not null references public.branches(id),
+  constraint recycling_entry_same_branch foreign key(tenant_id,branch_id,transaction_id)
+    references public.recycling_transactions(tenant_id,branch_id,id),
   line_no int not null check (line_no between 1 and 10),
   account_code text not null check (account_code in ('1100','1110','1200','2100','1201','4100','5100')),
   account_name text not null,
