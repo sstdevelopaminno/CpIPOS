@@ -45,7 +45,7 @@ export function RecyclingPosWorkspace({ products, branchName, transactionWritesE
   const [settlement, setSettlement] = useState<"cash" | "bank_transfer" | "credit">("cash");
   const [posting, setPosting] = useState(false);
   const [postError, setPostError] = useState("");
-  const [posted, setPosted] = useState<{ id: string; total_minor: number } | null>(null);
+  const [posted, setPosted] = useState<{ id: string; receipt_no?: string; total_minor: number } | null>(null);
   const requestIdRef = useRef("");
   const nextKey = useRef(0);
   const scannerRef = useRef<HTMLInputElement>(null);
@@ -134,7 +134,7 @@ export function RecyclingPosWorkspace({ products, branchName, transactionWritesE
         })
       });
       const body = await response.json().catch(() => null) as {
-        data?: { transaction?: { id?: string; total_minor?: number } };
+        data?: { transaction?: { id?: string; receipt_no?: string; total_minor?: number } };
         error?: { code?: string; message?: string };
       } | null;
       if (!response.ok || !body?.data?.transaction?.id) {
@@ -152,6 +152,7 @@ export function RecyclingPosWorkspace({ products, branchName, transactionWritesE
       }
       setPosted({
         id: body.data.transaction.id,
+        receipt_no: body.data.transaction.receipt_no,
         total_minor: Number(body.data.transaction.total_minor ?? 0)
       });
       requestIdRef.current = "";
@@ -287,7 +288,12 @@ export function RecyclingPosWorkspace({ products, branchName, transactionWritesE
         </div>
         {postError && <p role="alert" className="mt-3 rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm font-semibold text-rose-800">{postError}</p>}
         {posted && <p role="status" className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm font-semibold text-emerald-900">
-          บันทึกรายการสำเร็จ หมายเลขอ้างอิง {posted.id} · ยอดที่บันทึก {formatMoney(posted.total_minor / 100)} บาท
+          บันทึกรายการสำเร็จ หมายเลขอ้างอิง {posted.receipt_no ?? posted.id}
+          · ยอดที่บันทึก {formatMoney(posted.total_minor / 100)} บาท
+          <Link href={`/preview/pos/recycling/receipts/${posted.id}`}
+            className="mt-2 block w-fit rounded-lg bg-emerald-700 px-3 py-2 text-sm font-bold text-white">
+            ดูหลักฐานและพิมพ์ใบรับซื้อ–ขายออก
+          </Link>
         </p>}
         <button type="button" onClick={() => void postTransaction()}
           disabled={!transactionWritesEnabled || posting || visibleLines.length === 0 || !counterpartyName.trim()}
