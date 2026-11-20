@@ -52,8 +52,15 @@ export async function isAuthorizedRecyclingTenant(tenantId: string): Promise<boo
   if (String(plan.data?.code ?? "").toLowerCase() !== "custom") return false;
   if (tenantStatus.data?.is_active !== true || !lifecycle.data || lifecycle.data.access_locked === true) return false;
   if (lifecycle.data.lifecycle_status === "trial" &&
-      (!lifecycle.data.trial_expires_at || Date.parse(lifecycle.data.trial_expires_at) <= now)) return false;
-  if (lifecycle.data.lifecycle_status === "expired" || lifecycle.data.lifecycle_status === "cancelled") return false;
+      (!lifecycle.data.trial_expires_at ||
+       !Number.isFinite(Date.parse(lifecycle.data.trial_expires_at)) ||
+       Date.parse(lifecycle.data.trial_expires_at) <= now)) return false;
+  if (lifecycle.data.lifecycle_status === "active" &&
+      lifecycle.data.subscription_expires_at &&
+      (!Number.isFinite(Date.parse(lifecycle.data.subscription_expires_at)) ||
+       Date.parse(lifecycle.data.subscription_expires_at) <= now)) return false;
+  if (lifecycle.data.lifecycle_status !== "trial" &&
+      lifecycle.data.lifecycle_status !== "active") return false;
   return true;
 }
 
