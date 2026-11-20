@@ -117,6 +117,15 @@ export function isAuthorizedOpticalRetailMode(snapshot: {
   return normalizeCustomPosSalesModes(snapshot.sales_modes).optical_retail === true;
 }
 
+/** An explicit IT-selected mode is required for CUSTOM cashier access.
+ * Includes Recycling only when its own entitlement is granted; assigning
+ * CUSTOM alone never unlocks the cashier.
+ */
+export function isCustomCashierModeEnabled(rawSalesModes: unknown): boolean {
+  const modes = normalizeCustomPosSalesModes(rawSalesModes);
+  return modes.general_sale || modes.optical_retail || modes.recycling;
+}
+
 /** Optical checkout reuses the general retail scanner only when explicitly enabled by IT. */
 export function isOpticalRetailExplicitlyEnabled(value: unknown): boolean {
   return asRecord(value).optical_retail === true;
