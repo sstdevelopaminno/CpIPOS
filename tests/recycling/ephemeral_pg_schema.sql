@@ -43,6 +43,9 @@ create table public.shifts (
   tenant_id uuid not null references public.tenants(id),
   branch_id uuid not null references public.branches(id),
   opening_cash numeric,
+  expected_cash numeric,
+  actual_cash numeric,
+  metadata jsonb not null default '{}'::jsonb,
   status text not null check(status in ('open','closed'))
 );
 create table public.orders (
