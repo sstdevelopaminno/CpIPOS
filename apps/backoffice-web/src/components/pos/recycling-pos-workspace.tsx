@@ -29,9 +29,10 @@ function CatalogImage({ item }: { item: RecyclingCatalogItem }) {
     : <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-slate-100 text-xl" aria-hidden="true">♻️</div>;
 }
 
-export function RecyclingPosWorkspace({ products, branchName }: {
+export function RecyclingPosWorkspace({ products, branchName, transactionWritesEnabled }: {
   products: RecyclingCatalogItem[];
   branchName: string;
+  transactionWritesEnabled: boolean;
 }) {
   const [direction, setDirection] = useState<Direction>("buy");
   const [search, setSearch] = useState("");
@@ -289,9 +290,11 @@ export function RecyclingPosWorkspace({ products, branchName }: {
           บันทึกรายการสำเร็จ หมายเลขอ้างอิง {posted.id} · ยอดที่บันทึก {formatMoney(posted.total_minor / 100)} บาท
         </p>}
         <button type="button" onClick={() => void postTransaction()}
-          disabled={posting || visibleLines.length === 0 || !counterpartyName.trim()}
+          disabled={!transactionWritesEnabled || posting || visibleLines.length === 0 || !counterpartyName.trim()}
           className="mt-4 w-full rounded-lg bg-blue-700 px-4 py-4 text-base font-extrabold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-50">
-          {posting ? "กำลังตรวจสอบและบันทึก..." : direction === "buy" ? "บันทึกใบรับซื้อและรับเข้าสต๊อก" : "บันทึกขายออกและตัดสต๊อก"}
+          {!transactionWritesEnabled ? "ยังไม่เปิดการบันทึกธุรกรรมจริง" :
+            posting ? "กำลังตรวจสอบและบันทึก..." :
+            direction === "buy" ? "บันทึกใบรับซื้อและรับเข้าสต๊อก" : "บันทึกขายออกและตัดสต๊อก"}
         </button>
       </section>
     </div>
