@@ -283,7 +283,7 @@ export function RecyclingPosWorkspace({ products, branchName, transactionWritesE
             <select value={settlement} onChange={event => setSettlement(event.target.value as typeof settlement)}
               className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-3 text-slate-900">
               <option value="cash">เงินสด</option>
-              <option value="bank_transfer">โอนเงิน</option>
+              <option value="bank_transfer" disabled>โอนเงิน (รอยืนยันหลักฐานธนาคาร)</option>
               <option value="credit">ค้างชำระ / เครดิต</option>
             </select>
           </label>
