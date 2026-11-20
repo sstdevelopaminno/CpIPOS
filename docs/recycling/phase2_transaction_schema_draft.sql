@@ -131,6 +131,8 @@ declare
   v_new_value bigint;
   v_cash_code text;
   v_cash_name text;
+  v_opening_cash_minor bigint;
+  v_cash_balance_minor bigint;
 begin
   if p_tenant_id is null or p_branch_id is null or p_shift_id is null or
      p_user_id is null or p_request_id is null then
@@ -194,9 +196,22 @@ begin
   if not exists (select 1 from public.tenants t join public.branches b
       on b.tenant_id=t.id where t.id=p_tenant_id and b.id=p_branch_id
       and t.is_active and b.is_active) then raise exception 'recycling_branch_invalid'; end if;
-  if not exists (select 1 from public.shifts s where s.id=p_shift_id
-      and s.tenant_id=p_tenant_id and s.branch_id=p_branch_id and s.status='open')
-      then raise exception 'recycling_shift_closed'; end if;
+  -- Serialize cash movements for the entire shift, including different SKUs,
+  -- so concurrent material purchases cannot overdraw the same cash drawer.
+  select pg_catalog.round(coalesce(s.opening_cash,0)*100)::bigint
+    into v_opening_cash_minor
+    from public.shifts s where s.id=p_shift_id
+      and s.tenant_id=p_tenant_id and s.branch_id=p_branch_id and s.status='open'
+    for update;
+  if not found then raise exception 'recycling_shift_closed'; end if;
+  if v_opening_cash_minor<0 then raise exception 'recycling_shift_opening_cash_invalid'; end if;
+  -- Mixing ordinary POS orders and weighed recycling in the same cash shift
+  -- would omit standard POS payments from the recycler-only drawer ledger.
+  if exists (select 1 from public.orders o
+    where o.tenant_id=p_tenant_id and o.branch_id=p_branch_id
+      and o.shift_id=p_shift_id limit 1) then
+    raise exception 'recycling_mixed_legacy_shift_requires_reconciliation';
+  end if;
   if not exists (select 1 from public.user_branch_roles u
     where u.tenant_id=p_tenant_id and u.branch_id=p_branch_id and u.user_id=p_user_id)
       then raise exception 'recycling_user_not_in_branch'; end if;
@@ -292,6 +307,18 @@ begin
   if v_total_minor>99999999999999 then raise exception 'recycling_total_too_large'; end if;
   update public.recycling_transactions
     set total_minor=v_total_minor,cogs_minor=v_cogs_minor where id=v_id;
+
+  if p_direction='buy' and p_settlement='cash' then
+    select v_opening_cash_minor +
+      coalesce(sum(case when direction='sell' then total_minor else -total_minor end),0)
+      into v_cash_balance_minor
+      from public.recycling_transactions
+      where tenant_id=p_tenant_id and branch_id=p_branch_id
+        and shift_id=p_shift_id and status='posted' and settlement='cash';
+    if v_cash_balance_minor<0 then
+      raise exception 'recycling_cash_drawer_insufficient';
+    end if;
+  end if;
   v_cash_code := case p_settlement when 'cash' then '1100'
     when 'bank_transfer' then '1110'
     else case p_direction when 'buy' then '2100' else '1201' end end;
@@ -332,6 +359,53 @@ revoke all on function public.recycling_post_transaction(
 grant execute on function public.recycling_post_transaction(
  uuid,uuid,uuid,uuid,uuid,text,text,text,jsonb
 ) to service_role;
+
+-- Separate, read-only, branch-scoped cash/transfer shift report.
+-- Covers only verified Recycling transactions; ordinary POS orders may not mix.
+create or replace function public.recycling_shift_totals(
+  p_tenant_id uuid,p_branch_id uuid,p_shift_id uuid
+) returns jsonb language plpgsql security invoker set search_path='' as $shift$
+declare
+  v_buy_count bigint;
+  v_sell_count bigint;
+  v_cash_in bigint;
+  v_cash_out bigint;
+  v_transfer_in bigint;
+  v_transfer_out bigint;
+  v_credit_in bigint;
+  v_credit_out bigint;
+begin
+  if not exists (select 1 from public.shifts s where s.tenant_id=p_tenant_id
+     and s.branch_id=p_branch_id and s.id=p_shift_id) then
+    raise exception 'recycling_shift_not_found';
+  end if;
+  select
+    count(*) filter(where direction='buy'),
+    count(*) filter(where direction='sell'),
+    coalesce(sum(total_minor) filter(where direction='sell' and settlement='cash'),0),
+    coalesce(sum(total_minor) filter(where direction='buy' and settlement='cash'),0),
+    coalesce(sum(total_minor) filter(where direction='sell' and settlement='bank_transfer'),0),
+    coalesce(sum(total_minor) filter(where direction='buy' and settlement='bank_transfer'),0),
+    coalesce(sum(total_minor) filter(where direction='sell' and settlement='credit'),0),
+    coalesce(sum(total_minor) filter(where direction='buy' and settlement='credit'),0)
+    into v_buy_count,v_sell_count,v_cash_in,v_cash_out,
+      v_transfer_in,v_transfer_out,v_credit_in,v_credit_out
+  from public.recycling_transactions
+  where tenant_id=p_tenant_id and branch_id=p_branch_id
+    and shift_id=p_shift_id and status='posted';
+  return pg_catalog.jsonb_build_object(
+    'buy_count',v_buy_count,'sell_count',v_sell_count,
+    'cash_in_minor',v_cash_in,'cash_out_minor',v_cash_out,
+    'cash_net_minor',v_cash_in-v_cash_out,
+    'transfer_in_minor',v_transfer_in,'transfer_out_minor',v_transfer_out,
+    'credit_in_minor',v_credit_in,'credit_out_minor',v_credit_out
+  );
+end;
+$shift$;
+revoke all on function public.recycling_shift_totals(uuid,uuid,uuid)
+  from public,anon,authenticated;
+grant execute on function public.recycling_shift_totals(uuid,uuid,uuid)
+  to service_role;
 
 -- Release plan:
 -- 1. Run draft on isolated staging and inspect RLS/function grants.
