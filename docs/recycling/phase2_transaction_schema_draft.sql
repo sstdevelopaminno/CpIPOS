@@ -215,7 +215,7 @@ begin
     v_line := p_lines -> v_index;
     if jsonb_typeof(v_line) is distinct from 'object' or
        coalesce(v_line->>'product_id','') !~* '^[a-f0-9-]{36}$' or
-       coalesce(v_line->>'quantity','') !~ '^[0-9]{1,10}(\.[0-9]{1,6})?$' then
+       coalesce(v_line->>'quantity','') !~ '^[0-9]{1,10}([.][0-9]{1,6})?$' then
       raise exception 'recycling_invalid_line';
     end if;
     v_unit := v_line->>'unit';
@@ -248,7 +248,7 @@ begin
       raise exception 'recycling_amount_too_large';
     end if;
     -- Client price is an assertion only, never the server authority.
-    if coalesce(v_line->>'expected_price','') !~ '^[0-9]{1,10}(\\.[0-9]{1,2})?$' then
+    if coalesce(v_line->>'expected_price','') !~ '^[0-9]{1,10}([.][0-9]{1,2})?$' then
       raise exception 'recycling_invalid_expected_price';
     end if;
     if (v_line->>'expected_price')::numeric <> v_price then
