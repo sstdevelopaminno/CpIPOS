@@ -2,6 +2,7 @@ import "server-only";
 import {getSupabaseServiceClient} from "@/lib/supabase-admin";
 import {isFeatureUnlockEnabled} from "@/lib/feature-unlock";
 import {hasBranchFeatureSafe} from "@/lib/server/feature-gate-safe";
+import {isCustomCashierModeEnabled} from "@/lib/pos-sales-modes";
 import {classifyPosEntryDenial,unavailablePosFeatureDenial,type PosEntryContract,type PosEntryLifecycle} from "@/lib/server/pos-entry-denial-reasons";
 type SupabaseServiceClient=ReturnType<typeof getSupabaseServiceClient>;
 type BranchFeatureOverrideRow={enabled:boolean|null};
@@ -63,6 +64,60 @@ async function readBranchFeatureOverride(
   return Boolean(data.enabled);
 }
 
+/**
+ * The device selector must honour the SAME explicit CUSTOM cashier mode as
+ * the protected POS pages. A CUSTOM plan by itself grants nothing. This fresh
+ * database check is used only when the ordinary cached feature lookup gives
+ * no grant, so an older negative feature cache cannot strand an eligible
+ * General Sale tenant at "เปิดแคช".
+ *
+ * Check both IT feature override sources; any explicit denial takes
+ * precedence. Subscription expiration and lock are checked by
+ * evaluatePosEntryAccess BEFORE this helper runs.
+ */
+async function hasFreshItApprovedCustomCashierMode(
+ supabase:SupabaseServiceClient,tenantId:string,branchId:string
+):Promise<boolean> {
+ const contractResult=await supabase.from("tenant_subscription_contracts")
+   .select("status,ended_at,package_id,metadata")
+   .eq("tenant_id",tenantId).order("created_at",{ascending:false})
+   .limit(1).maybeSingle();
+ if(contractResult.error)throw new PosFeatureLookupUnavailable();
+ const contract=contractResult.data;
+ if(!contract || !["active","trial"].includes(contract.status) ||
+     (contract.ended_at && (!Number.isFinite(Date.parse(contract.ended_at)) ||
+         Date.parse(contract.ended_at)<=Date.now())) ||
+     !contract.package_id ||
+     !isCustomCashierModeEnabled(
+       (contract.metadata && typeof contract.metadata==="object" &&
+        !Array.isArray(contract.metadata)
+          ? (contract.metadata as Record<string,unknown>).sales_modes : null)
+     )) return false;
+
+ const [plan,tenantOverrides,branchOverrides]=await Promise.all([
+   supabase.from("subscription_packages").select("code")
+     .eq("id",contract.package_id).maybeSingle(),
+   supabase.from("tenant_feature_subscriptions")
+     .select("branch_id,feature_code,is_enabled")
+     .eq("tenant_id",tenantId).in("feature_code",[...POS_SALES_FEATURE_KEYS]),
+   supabase.from("branch_feature_overrides")
+     .select("feature_key,enabled")
+     .eq("tenant_id",tenantId).eq("branch_id",branchId)
+     .in("feature_key",[...POS_SALES_FEATURE_KEYS])
+ ]);
+ if(plan.error || tenantOverrides.error ||
+     (branchOverrides.error && !isMissingBranchFeatureOverrideError(branchOverrides.error)))
+   throw new PosFeatureLookupUnavailable();
+ if(String(plan.data?.code??"").toLowerCase()!=="custom")return false;
+
+ // No fallback over any explicit IT-controlled denial. A disabled tenant
+ // grant or a branch-specific denial always requires IT to enable it.
+ if((tenantOverrides.data??[]).some(row =>
+   (row.branch_id===null || row.branch_id===branchId) && row.is_enabled===false
+ ) || (branchOverrides.data??[]).some(row => row.enabled===false))return false;
+ return true;
+}
+
 async function hasAnyPosSalesFeature(supabase: SupabaseServiceClient, tenantId: string, branchId: string) {
   if (isFeatureUnlockEnabled()) return true;
   for (const featureKey of POS_SALES_FEATURE_KEYS) {
@@ -86,6 +141,10 @@ async function hasAnyPosSalesFeature(supabase: SupabaseServiceClient, tenantId: 
     }
   }
 
+  // A selected CUSTOM General Sale or Optical mode must also unlock the
+  // register chooser, just as it unlocks the protected POS cashier route.
+  // This check is fresh and preserves all explicit IT denials.
+  if(await hasFreshItApprovedCustomCashierMode(supabase,tenantId,branchId))return true;
   if(lookupFailed)throw new PosFeatureLookupUnavailable();
   return false;
 }
