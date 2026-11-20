@@ -25,7 +25,8 @@ export default async function PosPreviewPage() {
     return <RecyclingSalesContent
       tenantId={posMenuScope.session.tenant_id}
       branchId={posMenuScope.session.branch_id}
-      deviceCode={posMenuScope.session.device_code ?? null}/>;
+      deviceCode={posMenuScope.session.device_code ?? null}
+      operatorUserId={posMenuScope.session.user_id}/>;
   }
 
   const lang = await getCurrentLanguage();
