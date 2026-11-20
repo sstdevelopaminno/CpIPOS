@@ -1,6 +1,5 @@
 import "server-only";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
-import { isAuthorizedRecyclingTenant } from "@/lib/server/recycling-pos-service";
 
 export type RecyclingShiftSettlement = {
   buyCount: number;
@@ -36,27 +35,31 @@ export async function getRecyclingShiftReconciliation(args: {
   branchId: string;
   shiftId: string;
 }): Promise<RecyclingShiftSettlement | null> {
-  if (process.env.RECYCLING_STOCK_SCHEMA_READY !== "1" ||
-      process.env.RECYCLING_TRANSACTION_WRITES_ENABLED !== "1") return null;
-  if (!await isAuthorizedRecyclingTenant(args.tenantId)) return null;
+  // Historical shift cash must remain reconcilable even if a tenant's
+  // trial later expires or new writes are disabled.
+  if (process.env.RECYCLING_STOCK_SCHEMA_READY !== "1") return null;
   const db = getSupabaseServiceClient();
-  const [shift, nonRecyclingOrders, totals] = await Promise.all([
+  const [shift, totals] = await Promise.all([
     db.from("shifts").select("opening_cash")
       .eq("id",args.shiftId).eq("tenant_id",args.tenantId)
       .eq("branch_id",args.branchId).eq("status","open").maybeSingle(),
-    db.from("orders").select("id").eq("tenant_id",args.tenantId)
-      .eq("branch_id",args.branchId).eq("shift_id",args.shiftId).limit(1),
     db.rpc("recycling_shift_totals",{
       p_tenant_id:args.tenantId,p_branch_id:args.branchId,p_shift_id:args.shiftId
     })
   ]);
-  if (shift.error || !shift.data || nonRecyclingOrders.error || totals.error || !totals.data) {
+  if (shift.error || !shift.data || totals.error || !totals.data) {
     throw new Error("recycling_shift_reconciliation_unavailable");
   }
-  if ((nonRecyclingOrders.data ?? []).length > 0) {
+  const raw = totals.data as Record<string,unknown>;
+  const buyCount = safeInt(raw.buy_count,"buy_count");
+  const sellCount = safeInt(raw.sell_count,"sell_count");
+  if (buyCount === 0 && sellCount === 0) return null;
+  const nonRecyclingOrders = await db.from("orders").select("id")
+    .eq("tenant_id",args.tenantId)
+    .eq("branch_id",args.branchId).eq("shift_id",args.shiftId).limit(1);
+  if (nonRecyclingOrders.error || (nonRecyclingOrders.data ?? []).length > 0) {
     throw new Error("recycling_mixed_legacy_shift_requires_reconciliation");
   }
-  const raw = totals.data as Record<string,unknown>;
   const cashInMinor = safeInt(raw.cash_in_minor,"cash_in");
   const cashOutMinor = safeInt(raw.cash_out_minor,"cash_out");
   const cashNetMinor = safeInt(raw.cash_net_minor,"cash_net");
@@ -73,8 +76,7 @@ export async function getRecyclingShiftReconciliation(args: {
     throw new Error("recycling_shift_cash_sum_mismatch");
   }
   return {
-    buyCount:safeInt(raw.buy_count,"buy_count"),
-    sellCount:safeInt(raw.sell_count,"sell_count"),
+    buyCount, sellCount,
     cashInMinor,cashOutMinor,cashNetMinor,
     transferInMinor:safeInt(raw.transfer_in_minor,"transfer_in"),
     transferOutMinor:safeInt(raw.transfer_out_minor,"transfer_out"),
