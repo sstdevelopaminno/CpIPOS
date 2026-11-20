@@ -84,8 +84,8 @@ begin
    where transaction_id=v_tx.id and tenant_id=p_tenant_id and branch_id=p_branch_id;
   if v_line_count<2 or v_line_count>4 or v_debits<=0 or v_debits<>v_credits
     then raise exception 'recycling_finance_unbalanced_subledger'; end if;
-  if v_debits <> v_tx.total_minor +
-       case when v_tx.direction='sell' then v_tx.cogs_minor else 0 end
+  if v_debits <> (v_tx.total_minor +
+       (case when v_tx.direction='sell' then v_tx.cogs_minor else 0 end))
     then raise exception 'recycling_finance_subledger_total_mismatch'; end if;
 
   select count(*),coalesce(sum(amount_minor),0)
