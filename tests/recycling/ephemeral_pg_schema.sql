@@ -231,3 +231,17 @@ values
   ('11111111-1111-4111-8111-111111111111','2100','เจ้าหนี้','liability','44444444-4444-4444-8444-444444444444'),
   ('11111111-1111-4111-8111-111111111111','4100','รายได้ขาย','income','44444444-4444-4444-8444-444444444444'),
   ('11111111-1111-4111-8111-111111111111','5100','ต้นทุนขาย','expense','44444444-4444-4444-8444-444444444444');
+
+-- A deliberately unrelated, non-Recycling shift. In production several
+-- authenticated clients may have shift permissions but no access to the
+-- private Recycling tables. The close trigger may not break these tenants.
+insert into public.tenants(id,name) values
+  ('aaaaaaaa-0000-4000-8000-000000000000','Synthetic unrelated POS tenant');
+insert into public.branches(id,tenant_id,name) values
+  ('bbbbbbbb-0000-4000-8000-000000000000',
+   'aaaaaaaa-0000-4000-8000-000000000000','Standard POS branch');
+insert into public.shifts(id,tenant_id,branch_id,opening_cash,status) values
+  ('cccccccc-0000-4000-8000-000000000000',
+   'aaaaaaaa-0000-4000-8000-000000000000',
+   'bbbbbbbb-0000-4000-8000-000000000000',100,'open');
+grant select,update on public.shifts to authenticated;
