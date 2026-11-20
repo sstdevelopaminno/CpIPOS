@@ -13,6 +13,7 @@ Shop 155858, ส.เจริญทรัพย์รุ่งเรื่อง
 - `RECYCLING_TRANSACTION_WRITES_ENABLED=1` **only** in staging and only after the atomic RPC and finance reconciler have passed validation.
 - `RECYCLING_FINANCE_GL_POSTING_ENABLED=1` only in staging after Finance chart-of-accounts and independent-approver UAT. Default must remain OFF.
 - `RECYCLING_VOID_ENABLED=1` only after separate supervisor/physical-stock/cash-return UAT; off by default. Only an open shift, unposted-to-Finance transaction, and most-recent stock movement may be voided.
+- **Bank transfer settlement remains disabled**. A cashier-selected `bank_transfer` is rejected by the API and atomic SQL. Do not call a transfer paid or debit Bank until an independent bank-evidence verification and statement reconciliation workflow exists.
 - Staging must install and check `docs/recycling/phase3_finance_gl_bridge_draft.sql` **after** phase2, then `docs/recycling/phase4_void_unposted_transaction_draft.sql` **after** phase3. All three are review drafts, not production migrations.
 - Synthetic owner, manager, cashier, accountant, kitchen, and unauthorized user; test devices, open/closed shifts and trial expirations.
 - Synthetic material records with independent buy/sell prices; no production data.
@@ -51,7 +52,7 @@ Shop 155858, ส.เจริญทรัพย์รุ่งเรื่อง
 | FIN-01 | Per-transaction entry sum | **sum(debit_minor) = sum(credit_minor)**, for purchase and sale. |
 | FIN-02 | Settlement = credit | Purchase booked as payable; sale booked as receivable; no fictional cash movement. |
 | FIN-03 | Finance GL bridge | Review `phase3_finance_gl_bridge_draft.sql`. Require a *different* active branch accountant than the source cashier; create linked Finance document and two-to-four-line GL journal with source snapshot, posting key and audit events. Reconcile all totals; **staging UAT not yet completed**. |
-| FIN-04 | Cancellation/refund/void | **Restricted same-shift VOID implemented and tested in isolated PostgreSQL**: approved by a different owner/manager/accountant, stock reconfirmed, cash refund acknowledged, no later stock movement, not yet posted GL, with immutable original receipt and status VOID. **Bank transfer refunds, closed shifts and already-posted Finance documents remain blocked** pending formal accounting adjustment/credit-note workflow. |
+| FIN-04 | Cancellation/refund/void | **Restricted same-shift VOID implemented and tested in isolated PostgreSQL**: approved by a different owner/manager/accountant, stock reconfirmed, cash refund acknowledged, no later stock movement, not yet posted GL, with immutable original receipt and status VOID. **Bank transfer payments/refunds, closed shifts and already-posted Finance documents remain blocked** pending formal accounting adjustment/credit-note workflow. |
 | SHIFT-01 | 100 THB opening cash, buy 20.63 THB cash, sell 10 THB cash | Expected cash is **89.37 THB**. Bank transfers and credit must not inflate drawer cash. |
 | SHIFT-02 | Two concurrent purchases attempt to overdraw cash float | Shift row lock and cash movement calculation prevent negative drawer balance. |
 | SHIFT-03 | Ordinary POS order and recycling transaction in one shift | Reject mixed ledger, require documented cross-ledger reconciliation before close. |
@@ -64,6 +65,7 @@ Shop 155858, ส.เจริญทรัพย์รุ่งเรื่อง
 | VOID-04 | Same actor as original cashier, settled bank transfer, later inventory movement, locked shift or posted GL | Refuse unsafe VOID, no stock or account write. |
 | VOID-05 | Receipt already marked VOID | Clearly show VOID on printable 58/80mm copies and historical detail. |
 | FIN-05 | VAT/tax invoice | Disabled until merchant VAT status, numbering, legal invoice fields and tax policies verified. |
+| FIN-06 | User selects bank transfer without verified bank evidence | Reject with `recycling_bank_transfer_verification_required`; neither bank asset nor stock/receipt may be posted. |
 | PRINT-01 | Material purchase/sale receipts | Implemented draft: immutable SKU/name/price/quantity snapshots, unique `RCY-B/S-...` purchase/sale reference, Print Agent queue/browser print and visible VOID watermark on cancelled copies. Must physically test 58/80mm drivers and Android/Windows; **not a tax invoice**. |
 
 ## Read-only staging verification SQL
