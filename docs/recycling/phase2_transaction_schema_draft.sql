@@ -166,12 +166,15 @@ begin
      (v_contract.ended_at is not null and v_contract.ended_at <= now()) then
     raise exception 'recycling_contract_not_authorized';
   end if;
-  select lifecycle_status,access_locked,trial_expires_at into v_lifecycle
+  select lifecycle_status,access_locked,trial_expires_at,subscription_expires_at into v_lifecycle
     from public.tenant_data_lifecycle where tenant_id=p_tenant_id;
   if not found or coalesce(v_lifecycle.access_locked,true) or
      coalesce(v_lifecycle.lifecycle_status,'') not in ('trial','active') or
      (v_lifecycle.lifecycle_status='trial' and
-      (v_lifecycle.trial_expires_at is null or v_lifecycle.trial_expires_at<=now())) then
+      (v_lifecycle.trial_expires_at is null or v_lifecycle.trial_expires_at<=now())) or
+     (v_lifecycle.lifecycle_status='active' and
+      v_lifecycle.subscription_expires_at is not null and
+      v_lifecycle.subscription_expires_at<=now()) then
     raise exception 'recycling_subscription_inactive';
   end if;
   if not exists (select 1 from public.tenants t join public.branches b
