@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { RecyclingPrintReceiptButton } from "@/components/pos/recycling-print-receipt-button";
+import { RecyclingVoidTransaction } from "@/components/pos/recycling-void-transaction";
 import { requirePosSession } from "@/lib/pos-session-guard";
 import { isAuthorizedRecyclingTenant } from "@/lib/server/recycling-pos-service";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
@@ -45,9 +46,9 @@ export default async function RecyclingReceiptPage({
 
   const db = getSupabaseServiceClient();
   const tx = await db.from("recycling_transactions")
-    .select("id,receipt_no,direction,settlement,counterparty_name,total_minor,created_at,status")
+    .select("id,receipt_no,direction,settlement,counterparty_name,total_minor,created_at,status,finance_document_id,void_reason,voided_at")
     .eq("id",id).eq("tenant_id",tenantId).eq("branch_id",branchId).maybeSingle();
-  if (tx.error || !tx.data || tx.data.status !== "posted") notFound();
+  if (tx.error || !tx.data || !["posted","voided"].includes(tx.data.status)) notFound();
   const [linesResult, tenantResult, branchResult] = await Promise.all([
     db.from("recycling_transaction_lines")
       .select("line_no,sku_snapshot,name_snapshot,category_snapshot,original_quantity,original_unit,base_unit,price_per_base,amount_minor")
@@ -80,6 +81,11 @@ export default async function RecyclingReceiptPage({
       <RecyclingPrintReceiptButton receiptId={id} />
     </nav>
     <article className="recycling-receipt rounded-lg border border-slate-200 bg-white px-4 py-5 font-sans text-[12px] leading-relaxed text-black shadow-sm">
+      {tx.data.status === "voided" && <div role="status" className="mb-4 border-2 border-rose-600 p-3 text-center text-lg font-extrabold text-rose-700">
+        เอกสารยกเลิก (VOID) — ห้ามใช้เป็นหลักฐานการชำระที่ยังมีผล
+        <p className="mt-1 text-xs font-normal">เหตุผล: {tx.data.void_reason ?? "ไม่ได้ระบุ"}</p>
+        <p className="text-xs font-normal">ยกเลิกเมื่อ {tx.data.voided_at ? new Date(tx.data.voided_at).toLocaleString("th-TH",{timeZone:"Asia/Bangkok"}) : "ไม่ทราบวันที่"}</p>
+      </div>}
       <header className="border-b border-dashed border-slate-500 pb-3 text-center">
         <h1 className="text-lg font-extrabold">{shopName}</h1>
         <p className="mt-1 text-xs">{branchResult.data?.name ?? "สาขา"}</p>
@@ -126,5 +132,15 @@ export default async function RecyclingReceiptPage({
       <p className="mt-3 break-all text-center text-[9px] text-slate-600">รหัสธุรกรรม: {id}</p>
       <p className="mt-3 border-t border-dashed border-slate-300 pt-2 text-center text-[10px]">CpiPOS CUSTOM Recycling</p>
     </article>
+    {tx.data.status === "posted" && !tx.data.finance_document_id &&
+      ["owner","manager","accountant"].includes(role) &&
+      <div className="mt-4">
+        <RecyclingVoidTransaction
+          transactionId={id}
+          direction={isBuy?"buy":"sell"}
+          settlement={tx.data.settlement as "cash"|"bank_transfer"|"credit"}
+          enabled={process.env.RECYCLING_VOID_ENABLED === "1"}
+        />
+      </div>}
   </main>;
 }
