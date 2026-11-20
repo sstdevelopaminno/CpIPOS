@@ -6,19 +6,29 @@ import { PosDineInCommitResetBoundary } from "@/components/pos/pos-dine-in-commi
 import { PosGeneralSaleRuntime } from "@/components/pos/pos-general-sale-runtime";
 import { PosGeneralSaleTableController } from "@/components/pos/pos-general-sale-table-controller";
 import { PosEntryGate } from "@/components/pos/pos-entry-gate";
+import { RecyclingSalesContent } from "@/components/pos/recycling-sales-content";
 import { getCurrentLanguage } from "@/lib/i18n";
 import { requirePosPagePermission } from "@/lib/pos-page-guard";
 import { isAuthorizedRecyclingTenant } from "@/lib/server/recycling-pos-service";
-import { redirect } from "next/navigation";
+
+export const dynamic = "force-dynamic";
 
 export default async function PosPreviewPage() {
   const posMenuScope = await requirePosSession();
   await assertPosMenuPageAllowed(posMenuScope.session.tenant_id, "/preview/pos");
   await requirePosPagePermission("sale:create", "/login/store");
-  // CUSTOM Recycling gets a dedicated scanner/cart UI. Other tenants retain the existing POS.
-  if (await isAuthorizedRecyclingTenant(posMenuScope.session.tenant_id)) redirect("/preview/pos/recycling");
-  const lang = await getCurrentLanguage();
 
+  // Recycling is the selected IT CUSTOM selling workspace, rendered at the
+  // original /preview/pos entry without routing away from the POS shell.
+  // Other tenants retain ALL original React POS controllers below unchanged.
+  if (await isAuthorizedRecyclingTenant(posMenuScope.session.tenant_id)) {
+    return <RecyclingSalesContent
+      tenantId={posMenuScope.session.tenant_id}
+      branchId={posMenuScope.session.branch_id}
+      deviceCode={posMenuScope.session.device_code ?? null}/>;
+  }
+
+  const lang = await getCurrentLanguage();
   return (
     <main className="h-full min-h-0 w-full">
       <PosCustomerDisplayV2Publisher />

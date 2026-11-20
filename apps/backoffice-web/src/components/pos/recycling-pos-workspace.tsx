@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useMemo, useRef, useState } from "react";
 import { calculateRecyclingLine, recyclingUnitLabel } from "@/lib/recycling-calculation";
 import type { RecyclingCatalogItem, RecyclingUnit } from "@/lib/server/recycling-pos-service";
+import { RecyclingSalesModeSwitcher } from "@/components/pos/recycling-sales-mode-switcher";
 
 type Direction = "buy" | "sell";
 type CartLine = {
@@ -29,9 +30,12 @@ function CatalogImage({ item }: { item: RecyclingCatalogItem }) {
     : <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-slate-100 text-xl" aria-hidden="true">♻️</div>;
 }
 
-export function RecyclingPosWorkspace({ products, branchName, transactionWritesEnabled }: {
+export function RecyclingPosWorkspace({ products, branchName, storeName, deviceCode, generalSaleEnabled, transactionWritesEnabled }: {
   products: RecyclingCatalogItem[];
   branchName: string;
+  storeName: string;
+  deviceCode: string | null;
+  generalSaleEnabled: boolean;
   transactionWritesEnabled: boolean;
 }) {
   const [direction, setDirection] = useState<Direction>("buy");
@@ -170,21 +174,23 @@ export function RecyclingPosWorkspace({ products, branchName, transactionWritesE
   const units = pending?.priceBasis === "piece" ? (["piece", "stem"] as RecyclingUnit[]) : weightUnits;
 
   return <main className="mx-auto w-full max-w-[1550px] space-y-4 px-3 pb-8 pt-4 md:px-6" data-testid="recycling-custom-pos">
-    <header className="rounded-xl border border-blue-200 bg-gradient-to-r from-blue-950 to-blue-800 p-5 text-white shadow-sm">
-      <div className="flex flex-wrap items-start justify-between gap-3">
+    <RecyclingSalesModeSwitcher storeName={storeName} branchName={branchName}
+      deviceCode={deviceCode} generalSaleEnabled={generalSaleEnabled}/>
+    <header className="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <p className="text-xs font-bold tracking-[0.16em] text-sky-200">CPIPOS · CUSTOM RECYCLING</p>
-          <h1 className="mt-1 text-2xl font-extrabold">รับซื้อ / ขายออก วัสดุรีไซเคิล</h1>
-          <p className="mt-1 text-sm text-blue-100">{branchName} · ชั่งน้ำหนักจากเครื่องชั่งภายนอก แล้วกรอกจำนวนใน POP UP</p>
+          <p className="text-xs font-extrabold tracking-wider text-blue-700">CUSTOM · RECYCLING</p>
+          <h1 className="mt-1 text-lg font-extrabold text-slate-950">รับซื้อ / ขายออก วัสดุรีไซเคิล</h1>
+          <p className="mt-1 text-xs font-medium text-slate-600">ชั่งน้ำหนักภายนอก แล้วกรอกหน่วย / น้ำหนักเมื่อยิงบาร์โค้ด</p>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <Link className="rounded-lg border border-white/30 bg-white/10 px-4 py-2 text-sm font-semibold hover:bg-white/20"
+        <nav className="flex flex-wrap gap-2" aria-label="เครื่องมือร้านรีไซเคิล">
+          <Link className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-semibold text-blue-800 hover:bg-blue-100"
             href="/preview/pos/recycling/stock">สต๊อกและราคาวัสดุ</Link>
-          <Link className="rounded-lg border border-white/30 bg-white/10 px-4 py-2 text-sm font-semibold hover:bg-white/20"
+          <Link className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
             href="/preview/pos/recycling/shifts">รายงานปิดกะ</Link>
-          <Link className="rounded-lg border border-white/30 bg-white/10 px-4 py-2 text-sm font-semibold hover:bg-white/20"
+          <Link className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
             href="/preview/pos/more">เมนูเพิ่มเติม</Link>
-        </div>
+        </nav>
       </div>
     </header>
 
