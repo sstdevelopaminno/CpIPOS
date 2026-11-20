@@ -24,10 +24,11 @@ const blank: FormState = {
   buy_price: "", sell_price: "", image_url: ""
 };
 
-export function RecyclingStockWorkspace({ items, branchName, canManage }: {
+export function RecyclingStockWorkspace({ items, branchName, canManage, canViewAccounting }: {
   items: RecyclingCatalogItem[];
   branchName: string;
   canManage: boolean;
+  canViewAccounting: boolean;
 }) {
   const router = useRouter();
   const [filter, setFilter] = useState("");
@@ -90,6 +91,8 @@ export function RecyclingStockWorkspace({ items, branchName, canManage }: {
           <h1 className="mt-1 text-2xl font-extrabold">ทะเบียนวัสดุและราคา</h1>
           <p className="mt-1 text-sm text-blue-100">{branchName} · แสดงราคาซื้อเข้าและราคาขายออกแยกกัน</p></div>
         <div className="flex flex-wrap gap-2">
+          {canViewAccounting && <Link className="rounded-lg border border-white/30 px-4 py-2 text-sm font-bold hover:bg-white/10"
+            href="/preview/pos/recycling/accounting">สมุดบัญชีย่อย</Link>}
           {canManage && <button type="button" onClick={() => edit()}
             className="rounded-lg bg-white px-4 py-2 text-sm font-bold text-blue-800 hover:bg-blue-50">+ เพิ่มวัสดุ</button>}
           <Link className="rounded-lg border border-white/30 px-4 py-2 text-sm font-bold hover:bg-white/10"
