@@ -65,6 +65,9 @@ export async function POST(request: Request) {
       if (!existing) return fail("recycling_material_missing", "Material does not belong to the current branch.", 404);
       metadata = existing.metadata && typeof existing.metadata === "object" && !Array.isArray(existing.metadata)
         ? existing.metadata as Record<string, unknown> : {};
+      if (metadata.business_mode !== "recycling") {
+        return fail("not_recycling_material", "Cannot change an unrelated POS product from Recycling catalog.", 403);
+      }
       const previousBasis = metadata.recycling_price_basis === "piece" || existing.sell_unit === "piece" ? "piece" : "kg";
       // Unit changes need a controlled stock conversion/migration workflow.
       if (previousBasis !== priceBasis) return fail("price_basis_locked", "Material price basis cannot be changed after creation.", 409);
