@@ -200,14 +200,18 @@ async function loadTenantFeatureSnapshot(tenantId: string, branchId: string, men
     if (!tenantOverrides.has("core_pos_sales") && !branchOverrides.has("core_pos_sales")) {
       features.core_pos_sales = true;
     }
-    features.barcode_scanner_mode = true;
+    if (!tenantOverrides.has("barcode_scanner_mode") && !branchOverrides.has("barcode_scanner_mode")) {
+      features.barcode_scanner_mode = true;
+    }
   }
   // Keep pre-entry cashier validation, actual server feature gates, and
   // the browser snapshot consistent for explicit IT-authorized CUSTOM modes.
   // Never override a denied tenant/branch feature.
   if (isCustom && (salesModes.general_sale || salesModes.optical_retail || salesModes.recycling)) {
     for (const feature of ["core_pos_sales", "barcode_scanner_mode", "stock_management"] as const) {
-      if (tenantOverrides.get(feature) === false || branchOverrides.get(feature) === false) continue;
+      // Match hasBranchFeature(): a branch override supersedes a tenant
+      // override. Any explicit override has already been applied above.
+      if (tenantOverrides.has(feature) || branchOverrides.has(feature)) continue;
       if (hasCustomSalesModeFeatureGrant("custom", salesModes, feature)) {
         features[feature] = true;
       }
