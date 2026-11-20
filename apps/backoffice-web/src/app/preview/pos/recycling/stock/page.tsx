@@ -21,5 +21,6 @@ export default async function RecyclingStockPage() {
   ]);
   return <RecyclingStockWorkspace items={items}
     branchName={branch.data?.name ?? "สาขาที่เข้าสู่ระบบ"}
-    canManage={scope.session.role === "owner" || scope.session.role === "manager"} />;
+    canManage={scope.session.role === "owner" || scope.session.role === "manager"}
+    canViewAccounting={scope.session.role === "owner" || scope.session.role === "accountant"} />;
 }
