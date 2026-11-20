@@ -60,6 +60,7 @@ export function renderRecyclingSharedReceipt(args: {
     sellerLabel:isBuy ? "ผู้ขายวัสดุ" : "ผู้ซื้อวัสดุ",
     orderNo:args.receiptNo,
     modeLabel:documentTitle,
+    documentHeading:documentTitle,
     paidAtIso:args.createdAt,
     items:args.lines.map(line=>({
       name:line.name_snapshot,

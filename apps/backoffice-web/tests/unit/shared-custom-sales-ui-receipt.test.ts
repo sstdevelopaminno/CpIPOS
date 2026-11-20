@@ -87,6 +87,7 @@ describe("optional CUSTOM receipt fields don't change the standard 58/80mm templ
      sellerLabel:"ผู้ขายวัสดุ",
      sellerName:"ลูกค้าทดสอบ",
      modeLabel:"หลักฐานรับซื้อวัสดุรีไซเคิล",
+     documentHeading:"หลักฐานรับซื้อวัสดุรีไซเคิล",
      paymentHeading:"จ่ายเงินผู้ขาย",
      documentNotice:"ไม่ใช่ใบกำกับภาษี",
      voidWarning:"ยกเลิก VOID <ข้อความ>",

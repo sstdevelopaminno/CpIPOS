@@ -73,6 +73,7 @@ export function RecyclingPosWorkspace({ products, branchName, storeName, deviceC
     ? calculateRecyclingLine(Number(quantity), unit, selectedPrice, pending.priceBasis) : null;
 
   function openQuantityPopup(item: RecyclingCatalogItem) {
+    if (posting || checkoutOpen) return;
     const price = direction === "buy" ? item.buyPrice : item.sellPrice;
     if (price === null) {
       setError(`กรุณากำหนดราคา${direction === "buy" ? "รับซื้อ" : "ขายออก"}ของ "${item.name}" ในสต๊อกก่อน`);
@@ -90,6 +91,7 @@ export function RecyclingPosWorkspace({ products, branchName, storeName, deviceC
     product: RecyclingCatalogItem, selectedUnit: RecyclingUnit, selectedQuantity: number,
     price: number
   ) {
+    if (posting || checkoutOpen) return;
     const calculated = calculateRecyclingLine(
       selectedQuantity, selectedUnit, price, product.priceBasis
     );
@@ -121,6 +123,7 @@ export function RecyclingPosWorkspace({ products, branchName, storeName, deviceC
   }
 
   function scanBarcode() {
+    if (posting || checkoutOpen) return;
     const result = resolveRecyclingBarcode(barcodeIndex, search);
     if (result.status !== "found") {
       setError(result.status === "duplicate"
@@ -149,7 +152,7 @@ export function RecyclingPosWorkspace({ products, branchName, storeName, deviceC
   }
 
   function addToCart() {
-    if (!pending || !preview || selectedPrice === null) return;
+    if (posting || checkoutOpen || !pending || !preview || selectedPrice === null) return;
     addLineToCart(pending, unit, Number(quantity), selectedPrice);
     setPending(null);
     setQuantity("");
@@ -159,7 +162,7 @@ export function RecyclingPosWorkspace({ products, branchName, storeName, deviceC
   }
 
   function changeDirection(next: Direction) {
-    if (posting || next === direction) return;
+    if (posting || checkoutOpen || next === direction) return;
     setDirection(next);
     setSearch("");
     setError("");
@@ -287,7 +290,7 @@ export function RecyclingPosWorkspace({ products, branchName, storeName, deviceC
           <span className="rounded-lg bg-slate-100 px-2 py-1 text-xs text-slate-600">{products.length} รายการ</span>
         </div>
         <label className="mt-3 block text-sm font-semibold text-slate-700" htmlFor="recycling-barcode">รหัสสินค้า / SKU</label>
-        <input id="recycling-barcode" ref={scannerRef} autoComplete="off" autoFocus
+        <input id="recycling-barcode" ref={scannerRef} autoComplete="off" autoFocus disabled={posting || checkoutOpen}
           className="mt-1 w-full rounded-lg border-2 border-blue-400 bg-white px-4 py-3 text-base text-slate-900 outline-none focus:border-blue-700"
           placeholder="ยิงบาร์โค้ดแล้วกด Enter" value={search}
           onChange={event => { setSearch(event.target.value); setError(""); }}
@@ -297,7 +300,7 @@ export function RecyclingPosWorkspace({ products, branchName, storeName, deviceC
         <div className="mt-4 max-h-[460px] space-y-1 overflow-y-auto">
           {filteredProducts.length ? filteredProducts.map(item => {
             const price = direction === "buy" ? item.buyPrice : item.sellPrice;
-            return <button type="button" key={item.id} onClick={() => openQuantityPopup(item)}
+            return <button type="button" key={item.id} disabled={posting || checkoutOpen} onClick={() => openQuantityPopup(item)}
               className="flex w-full items-center gap-3 rounded-lg border border-transparent p-2 text-left hover:border-blue-200 hover:bg-blue-50">
               <CatalogImage item={item} />
               <span className="min-w-0 flex-1">
@@ -317,7 +320,7 @@ export function RecyclingPosWorkspace({ products, branchName, storeName, deviceC
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 className="text-base font-extrabold text-slate-900">ตะกร้ารายการ{direction === "buy" ? "รับซื้อ" : "ขายออก"}</h2>
           <button type="button" className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-bold text-slate-700 disabled:opacity-50"
-            disabled={!visibleLines.length || posting} onClick={() => { requestIdRef.current = ""; setPosted(null); setLines(current => current.filter(line => line.direction !== direction)); }}>
+            disabled={!visibleLines.length || posting || checkoutOpen} onClick={() => { requestIdRef.current = ""; setPosted(null); setLines(current => current.filter(line => line.direction !== direction)); }}>
             ล้างตะกร้า
           </button>
         </div>
@@ -334,7 +337,7 @@ export function RecyclingPosWorkspace({ products, branchName, storeName, deviceC
               <td className="px-3 py-3 text-right">{line.quantity.toLocaleString("th-TH")} {recyclingUnitLabel(line.unit)}</td>
               <td className="px-3 py-3 text-right">{formatMoney(line.unitPrice)} /{line.product.priceBasis === "kg" ? "กก." : "ชิ้น"}</td>
               <td className="px-3 py-3 text-right font-extrabold">{formatMoney(line.total)}</td>
-              <td className="px-3 py-3"><button type="button" aria-label={`ลบ ${line.product.name}`}
+              <td className="px-3 py-3"><button type="button" disabled={posting || checkoutOpen} aria-label={`ลบ ${line.product.name}`}
                 className="rounded px-2 py-1 text-rose-700 hover:bg-rose-50"
                 onClick={() => { requestIdRef.current = ""; setPosted(null); setLines(current => current.filter(item => item.key !== line.key)); }}>ลบ</button></td>
             </tr>) : <tr><td colSpan={6} className="px-4 py-14 text-center text-slate-500">
@@ -363,10 +366,9 @@ export function RecyclingPosWorkspace({ products, branchName, storeName, deviceC
         </p>}
         <div className="mt-3 flex justify-end">
           <button type="button" onClick={() => { setCheckoutOpen(true); setPostError(""); }}
-            disabled={!transactionWritesEnabled || posting || visibleLines.length === 0}
+            disabled={posting || visibleLines.length === 0}
             className="w-auto min-w-[220px] max-w-full rounded-lg bg-blue-700 px-5 py-3 text-sm font-extrabold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-50">
-            {!transactionWritesEnabled ? "ยังไม่เปิดการบันทึกธุรกรรมจริง" :
-              direction === "buy" ? "บันทึกใบรับซื้อและเข้าสต๊อก" : "บันทึกขายออกและตัดสต๊อก"}
+            {direction === "buy" ? "บันทึกใบรับซื้อและเข้าสต๊อก" : "บันทึกขายออกและตัดสต๊อก"}
           </button>
         </div>
       </section>
@@ -419,11 +421,12 @@ export function RecyclingPosWorkspace({ products, branchName, storeName, deviceC
             <span className="text-sm font-semibold">เครดิต / ค้างชำระ <small className="block font-normal text-slate-500">ยังไม่มีการรับหรือจ่ายเงินจริง</small></span>
           </label>
         </fieldset>
+        {!transactionWritesEnabled && <p role="alert" className="mt-3 rounded-lg bg-amber-50 p-3 text-xs font-semibold text-amber-900">ตัวอย่างหน้าต่างชำระเงิน: การบันทึกธุรกรรมจริงยังปิดไว้จนกว่าจะผ่านตรวจรับบัญชีและสต๊อก</p>}
         {postError && <p role="alert" className="mt-3 rounded-lg bg-rose-50 p-3 text-sm font-semibold text-rose-800">{postError}</p>}
         <div className="mt-5 flex justify-end gap-2">
           <button type="button" disabled={posting} onClick={() => setCheckoutOpen(false)}
             className="rounded-lg border border-slate-300 px-5 py-3 text-sm font-bold text-slate-700 disabled:opacity-50">ย้อนกลับ</button>
-          <button type="submit" disabled={posting || !counterpartyName.trim() || !visibleLines.length}
+          <button type="submit" disabled={!transactionWritesEnabled || posting || !counterpartyName.trim() || !visibleLines.length}
             className="rounded-lg bg-blue-700 px-5 py-3 text-sm font-extrabold text-white disabled:cursor-not-allowed disabled:opacity-50">
             {posting ? "กำลังบันทึก..." : "ยืนยันและออกใบเสร็จ"}
           </button>

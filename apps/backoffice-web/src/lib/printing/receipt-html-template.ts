@@ -35,6 +35,7 @@ export type ReceiptHtmlInput = {
   note?: string | null;
   reprint?: boolean;
   sellerLabel?: string | null;
+  documentHeading?: string | null;
   documentNotice?: string | null;
   voidWarning?: string | null;
   footerText?: string | null;
@@ -200,6 +201,7 @@ export function renderReceiptHtml(input: ReceiptHtmlInput) {
     ${address}${phone}
     ${branchName ? `<div class="muted">${escapeHtml(branchName)}</div>` : ""}
     ${reprintLine}
+    ${input.documentHeading?.trim() ? `<div class="head-title">${escapeHtml(input.documentHeading)}</div>` : ""}
     ${input.voidWarning?.trim() ? `<div class="reprint" style="border:2px solid #111;padding:2mm;font-weight:900;">${escapeHtml(input.voidWarning)}</div>` : ""}
     ${input.documentNotice?.trim() ? `<div class="muted">${escapeHtml(input.documentNotice)}</div>` : ""}
     <div class="hr"></div>
