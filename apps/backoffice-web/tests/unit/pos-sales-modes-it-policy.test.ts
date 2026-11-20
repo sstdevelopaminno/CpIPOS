@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_POS_SALES_MODES, normalizePosSalesModes, normalizeCustomPosSalesModes, posUiModeToControlKey } from "../../src/lib/pos-sales-modes";
+import { DEFAULT_POS_SALES_MODES, normalizePosSalesModes, normalizeCustomPosSalesModes, isCustomCashierModeEnabled, posUiModeToControlKey } from "../../src/lib/pos-sales-modes";
 
 describe("IT controlled POS sales modes", () => {
   it("keeps all five customer POS modes enabled when no IT override exists", () => {
@@ -23,6 +23,16 @@ describe("IT controlled POS sales modes", () => {
     expect(normalizeCustomPosSalesModes(null).optical_retail).toBe(false);
     expect(normalizeCustomPosSalesModes({ optical_retail: true }).optical_retail).toBe(true);
     expect(normalizeCustomPosSalesModes({ general_sale: true }).optical_retail).toBe(false);
+  });
+
+  it("requires an explicit CUSTOM sales mode rather than package assignment alone", () => {
+    expect(isCustomCashierModeEnabled(null)).toBe(false);
+    expect(isCustomCashierModeEnabled({})).toBe(false);
+    expect(isCustomCashierModeEnabled({ takeaway: true })).toBe(false);
+    expect(isCustomCashierModeEnabled({ general_sale: false, optical_retail: false })).toBe(false);
+    expect(isCustomCashierModeEnabled({ general_sale: true, optical_retail: false })).toBe(true);
+    expect(isCustomCashierModeEnabled({ general_sale: false, optical_retail: true })).toBe(true);
+    expect(isCustomCashierModeEnabled({ general_sale: "true" })).toBe(false);
   });
 
   it("maps the customer selector mode ids to the canonical IT keys", () => {
