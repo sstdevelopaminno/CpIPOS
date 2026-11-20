@@ -77,7 +77,7 @@ export default async function RecyclingReceiptPage({
       <Link href="/preview/pos/recycling" className="rounded-lg border border-slate-200 px-4 py-3 text-sm font-bold text-slate-700">
         กลับหน้ารับซื้อ–ขายออก
       </Link>
-      <RecyclingPrintReceiptButton />
+      <RecyclingPrintReceiptButton receiptId={id} />
     </nav>
     <article className="recycling-receipt rounded-lg border border-slate-200 bg-white px-4 py-5 font-sans text-[12px] leading-relaxed text-black shadow-sm">
       <header className="border-b border-dashed border-slate-500 pb-3 text-center">
