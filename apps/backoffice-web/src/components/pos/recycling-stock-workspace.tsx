@@ -116,12 +116,12 @@ export function RecyclingStockWorkspace({ items, branchName, canManage }: {
             className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-600" />
         </label>
       </div>
-      <div className="overflow-x-auto"><table className="w-full min-w-[1000px] border-collapse text-sm">
+      <div className="overflow-x-auto"><table className="w-full min-w-[1100px] border-collapse text-sm">
         <thead className="bg-slate-100 text-left text-slate-700"><tr>
           <th className="px-4 py-3">ภาพ</th><th className="px-4 py-3">รหัสบาร์โค้ด</th>
           <th className="px-4 py-3">ชื่อวัสดุ</th><th className="px-4 py-3">ประเภท</th>
           <th className="px-4 py-3 text-right">ราคารับซื้อ (บาท)</th><th className="px-4 py-3 text-right">ราคาขายออก (บาท)</th>
-          <th className="px-4 py-3">หน่วยราคา</th>{canManage && <th className="px-4 py-3">จัดการ</th>}
+          <th className="px-4 py-3">หน่วยราคา</th><th className="px-4 py-3 text-right">คงเหลือ</th>{canManage && <th className="px-4 py-3">จัดการ</th>}
         </tr></thead>
         <tbody>{rows.length ? rows.map(item => <tr key={item.id} className="border-t border-slate-100">
           <td className="px-4 py-2">{item.imageUrl
@@ -133,9 +133,10 @@ export function RecyclingStockWorkspace({ items, branchName, canManage }: {
           <td className="px-4 py-3 text-right font-bold text-blue-700">{money(item.buyPrice)}</td>
           <td className="px-4 py-3 text-right font-bold text-emerald-700">{money(item.sellPrice)}</td>
           <td className="px-4 py-3 text-slate-600">{item.priceBasis === "kg" ? "บาท/กิโลกรัม" : "บาท/ชิ้น"}</td>
+          <td className="px-4 py-3 text-right font-semibold text-slate-800">{item.quantityBase === null ? "รอยืนยันสต๊อก" : `${item.quantityBase.toLocaleString("th-TH", {maximumFractionDigits:6})} ${item.priceBasis === "kg" ? "กก." : "ชิ้น"}`}</td>
           {canManage && <td className="px-4 py-3"><button type="button" onClick={() => edit(item)}
             className="rounded-lg border border-blue-200 px-3 py-2 font-semibold text-blue-700 hover:bg-blue-50">แก้ไข</button></td>}
-        </tr>) : <tr><td colSpan={canManage ? 8 : 7} className="px-4 py-16 text-center text-slate-500">
+        </tr>) : <tr><td colSpan={canManage ? 9 : 8} className="px-4 py-16 text-center text-slate-500">
           ยังไม่มีวัสดุที่ตรงกับเงื่อนไขการค้นหา
         </td></tr>}</tbody>
       </table></div>
