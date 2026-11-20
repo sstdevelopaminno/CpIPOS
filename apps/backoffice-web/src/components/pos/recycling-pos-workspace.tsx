@@ -166,7 +166,7 @@ export function RecyclingPosWorkspace({ products, branchName, transactionWritesE
     }
   }
 
-  const units = pending?.priceBasis === "piece" ? (["piece"] as RecyclingUnit[]) : weightUnits;
+  const units = pending?.priceBasis === "piece" ? (["piece", "stem"] as RecyclingUnit[]) : weightUnits;
 
   return <main className="mx-auto w-full max-w-[1550px] space-y-4 px-3 pb-8 pt-4 md:px-6" data-testid="recycling-custom-pos">
     <header className="rounded-xl border border-blue-200 bg-gradient-to-r from-blue-950 to-blue-800 p-5 text-white shadow-sm">
