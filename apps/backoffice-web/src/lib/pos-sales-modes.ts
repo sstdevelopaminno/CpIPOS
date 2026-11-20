@@ -114,6 +114,14 @@ export function isAuthorizedOpticalRetailMode(snapshot: {
   return normalizeCustomPosSalesModes(snapshot.sales_modes).optical_retail === true;
 }
 
+/** A CUSTOM package grants cashier access only when IT explicitly activates a
+ * supported sales mode in the effective contract. No implicit package access.
+ */
+export function isCustomCashierModeEnabled(rawSalesModes: unknown): boolean {
+  const modes = normalizeCustomPosSalesModes(rawSalesModes);
+  return modes.general_sale || modes.optical_retail;
+}
+
 /** Optical checkout reuses the general retail scanner only when explicitly enabled by IT. */
 export function isOpticalRetailExplicitlyEnabled(value: unknown): boolean {
   return asRecord(value).optical_retail === true;
