@@ -30,11 +30,13 @@ function CatalogImage({ item }: { item: RecyclingCatalogItem }) {
     : <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-slate-100 text-xl" aria-hidden="true">♻️</div>;
 }
 
-export function RecyclingPosWorkspace({ products, branchName, storeName, deviceCode, generalSaleEnabled, transactionWritesEnabled }: {
+export function RecyclingPosWorkspace({ products, branchName, storeName, deviceCode, sellerName, shiftStatus, generalSaleEnabled, transactionWritesEnabled }: {
   products: RecyclingCatalogItem[];
   branchName: string;
   storeName: string;
   deviceCode: string | null;
+  sellerName: string;
+  shiftStatus: string;
   generalSaleEnabled: boolean;
   transactionWritesEnabled: boolean;
 }) {
@@ -175,7 +177,8 @@ export function RecyclingPosWorkspace({ products, branchName, storeName, deviceC
 
   return <main className="mx-auto w-full max-w-[1550px] space-y-4 px-3 pb-8 pt-4 md:px-6" data-testid="recycling-custom-pos">
     <RecyclingSalesModeSwitcher storeName={storeName} branchName={branchName}
-      deviceCode={deviceCode} generalSaleEnabled={generalSaleEnabled}/>
+      deviceCode={deviceCode} sellerName={sellerName} shiftStatus={shiftStatus}
+      generalSaleEnabled={generalSaleEnabled}/>
     <header className="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
