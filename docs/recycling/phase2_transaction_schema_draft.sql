@@ -22,6 +22,7 @@ create table if not exists public.recycling_transactions (
   shift_id uuid not null references public.shifts(id),
   operator_user_id uuid not null references public.users_profiles(id),
   request_id uuid not null,
+  receipt_no text not null check (length(receipt_no) between 12 and 90),
   request_hash text not null check (length(request_hash)=32),
   finance_document_id uuid unique references public.finance_accounting_documents(id),
   direction text not null check (direction in ('buy','sell')),
@@ -31,7 +32,8 @@ create table if not exists public.recycling_transactions (
   cogs_minor bigint not null check (cogs_minor >= 0),
   status text not null default 'posted' check (status = 'posted'),
   created_at timestamptz not null default now(),
-  unique (tenant_id,branch_id,request_id)
+  unique (tenant_id,branch_id,request_id),
+  unique (tenant_id,branch_id,receipt_no)
 );
 create index if not exists recycling_transactions_tenant_branch_created_idx
   on public.recycling_transactions(tenant_id,branch_id,created_at desc);
@@ -43,6 +45,9 @@ create table if not exists public.recycling_transaction_lines (
   branch_id uuid not null references public.branches(id),
   line_no int not null check (line_no between 1 and 100),
   product_id uuid not null references public.products(id),
+  sku_snapshot text not null,
+  name_snapshot text not null,
+  category_snapshot text not null,
   original_quantity numeric(18,6) not null check (original_quantity > 0),
   original_unit text not null check (original_unit in ('kg','khid','g','ton','piece','stem')),
   base_quantity numeric(18,6) not null check (base_quantity > 0),
@@ -105,6 +110,7 @@ declare
   v_contract record;
   v_lifecycle record;
   v_id uuid;
+  v_receipt_no text;
   v_existing record;
   v_request_hash text;
   v_line jsonb;
@@ -154,14 +160,14 @@ begin
   perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtext(
     p_tenant_id::text || ':' || p_branch_id::text || ':' || p_request_id::text
   ));
-  select id,total_minor,cogs_minor,request_hash into v_existing from public.recycling_transactions
+  select id,receipt_no,total_minor,cogs_minor,request_hash into v_existing from public.recycling_transactions
     where tenant_id=p_tenant_id and branch_id=p_branch_id and request_id=p_request_id;
   if found then
     if v_existing.request_hash is distinct from v_request_hash then
       raise exception 'recycling_request_key_reused';
     end if;
-    return jsonb_build_object('id',v_existing.id,'total_minor',v_existing.total_minor,
-      'cogs_minor',v_existing.cogs_minor,'idempotent',true);
+    return jsonb_build_object('id',v_existing.id,'receipt_no',v_existing.receipt_no,
+      'total_minor',v_existing.total_minor,'cogs_minor',v_existing.cogs_minor,'idempotent',true);
   end if;
 
   select c.status,c.ended_at,c.metadata,p.code as package_code
@@ -195,12 +201,15 @@ begin
     where u.tenant_id=p_tenant_id and u.branch_id=p_branch_id and u.user_id=p_user_id)
       then raise exception 'recycling_user_not_in_branch'; end if;
 
+  v_id := pg_catalog.gen_random_uuid();
+  v_receipt_no := 'RCY-'||case p_direction when 'buy' then 'B' else 'S' end||
+    '-'||pg_catalog.to_char(now() at time zone 'Asia/Bangkok','YYYYMMDD')||
+    '-'||pg_catalog.substr(pg_catalog.replace(v_id::text,'-',''),1,12);
   insert into public.recycling_transactions
-    (tenant_id,branch_id,shift_id,operator_user_id,request_id,request_hash,direction,
-     settlement,counterparty_name,total_minor,cogs_minor)
-  values(p_tenant_id,p_branch_id,p_shift_id,p_user_id,p_request_id,v_request_hash,p_direction,
-    p_settlement,btrim(p_counterparty_name),1,0)
-  returning id into v_id;
+    (id,tenant_id,branch_id,shift_id,operator_user_id,request_id,receipt_no,
+     request_hash,direction,settlement,counterparty_name,total_minor,cogs_minor)
+  values(v_id,p_tenant_id,p_branch_id,p_shift_id,p_user_id,p_request_id,v_receipt_no,
+    v_request_hash,p_direction,p_settlement,btrim(p_counterparty_name),1,0);
 
   for v_index in 0..jsonb_array_length(p_lines)-1 loop
     v_line := p_lines -> v_index;
@@ -215,7 +224,7 @@ begin
     end if;
     v_quantity := (v_line->>'quantity')::numeric;
     if v_quantity<=0 then raise exception 'recycling_quantity_must_be_positive'; end if;
-    select id,name,price,sell_unit,metadata into v_p from public.products
+    select id,sku,name,category,price,sell_unit,metadata into v_p from public.products
       where tenant_id=p_tenant_id and branch_id=p_branch_id
         and id=(v_line->>'product_id')::uuid
         and is_active=true and deleted_at is null
@@ -271,9 +280,11 @@ begin
       quantity_base=v_new_qty,carrying_cost_minor=v_new_value,updated_at=now()
       where tenant_id=p_tenant_id and branch_id=p_branch_id and product_id=v_p.id;
     insert into public.recycling_transaction_lines
-      (transaction_id,tenant_id,branch_id,line_no,product_id,original_quantity,
-       original_unit,base_quantity,base_unit,price_per_base,amount_minor,cogs_minor)
-    values (v_id,p_tenant_id,p_branch_id,v_index+1,v_p.id,v_quantity,v_unit,
+      (transaction_id,tenant_id,branch_id,line_no,product_id,sku_snapshot,
+       name_snapshot,category_snapshot,original_quantity,original_unit,
+       base_quantity,base_unit,price_per_base,amount_minor,cogs_minor)
+    values (v_id,p_tenant_id,p_branch_id,v_index+1,v_p.id,v_p.sku,
+      v_p.name,v_p.category,v_quantity,v_unit,
       v_base_quantity,v_basis,v_price,v_line_minor,v_cost_minor);
     v_total_minor := v_total_minor+v_line_minor;
     v_cogs_minor := v_cogs_minor+v_cost_minor;
@@ -309,7 +320,8 @@ begin
     from public.recycling_accounting_entries where transaction_id=v_id) <> 0 then
     raise exception 'recycling_ledger_not_balanced';
   end if;
-  return jsonb_build_object('id',v_id,'total_minor',v_total_minor,'cogs_minor',v_cogs_minor,'idempotent',false);
+  return jsonb_build_object('id',v_id,'receipt_no',v_receipt_no,
+    'total_minor',v_total_minor,'cogs_minor',v_cogs_minor,'idempotent',false);
 end;
 $fn$;
 
