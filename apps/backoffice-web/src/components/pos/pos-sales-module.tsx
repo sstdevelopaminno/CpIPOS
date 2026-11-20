@@ -16,7 +16,7 @@ import { composePosItemNotes, formatPosItemNotesForDisplay, parsePosItemNotes } 
 import { shouldOpenPosItemDetailPopup } from "@/lib/pos-item-detail-popup-policy";
 import { PosPaymentModals } from "@/components/pos/pos-payment-modals";
 import { PosProductCatalog } from "@/components/pos/pos-product-catalog";
-import { PosRealtimeClock } from "@/components/pos/pos-realtime-clock";
+import { PosSalesMetaDetails } from "@/components/pos/pos-sales-meta-details";
 import { TableQrOrderModal } from "@/components/pos/table-qr-order-modal";
 import { buildCheckoutSubmitPayload, buildReviewOrder, getCheckoutBlockingReason, shouldSkipDineInSubmit } from "@/components/pos/features/checkout-flow";
 import { applyStagedDeliveryToHeldBills, buildNewStagedDeliveryHeldBill, getDeliveryStageBlockingReason } from "@/components/pos/features/delivery-flow";
@@ -9540,29 +9540,18 @@ export function PosSalesModule({
               </div>
               <div className="posui-filter-group posui-sales-meta-group">
                 <section className="posui-sales-meta-card" aria-label={text.salesInfoTitle}>
-                  <div className="posui-sales-meta-columns">
-                    <dl className="posui-sales-meta-list posui-sales-meta-list--left">
-                      <div className="posui-sales-meta-row">
-                        <dt>{text.sellerName}</dt>
-                        <dd>{sellerName}</dd>
-                      </div>
-                      <div className="posui-sales-meta-row">
-                        <dt>{text.shiftName}</dt>
-                        <dd>{shift?.status ?? text.noShift}</dd>
-                      </div>
-                      <div className="posui-sales-meta-row">
-                        <dt>{text.branchName}</dt>
-                        <dd>{branchName}</dd>
-                      </div>
-                    </dl>
-                    <dl className="posui-sales-meta-list posui-sales-meta-list--right">
-                      <PosRealtimeClock lang={lang==="lo"?"th":lang} dateLabel={text.date} timeLabel={text.time} />
-                      <div className="posui-sales-meta-row">
-                        <dt>{text.cashierDeviceCode}</dt>
-                        <dd>{devicePolicy?.code || devicePolicy?.name || "-"}</dd>
-                      </div>
-                    </dl>
-                  </div>
+                  <PosSalesMetaDetails
+                    sellerName={sellerName}
+                    shiftStatus={shift?.status ?? text.noShift}
+                    branchName={branchName}
+                    deviceCode={devicePolicy?.code || devicePolicy?.name || "-"}
+                    language={lang === "lo" ? "th" : lang}
+                    labels={{
+                      seller: text.sellerName, shift: text.shiftName,
+                      branch: text.branchName, date: text.date,
+                      time: text.time, device: text.cashierDeviceCode
+                    }}
+                  />
                 </section>
               </div>
               {showInlineTopbarCategories ? <div className="posui-topbar-category-slot">{renderSalesCategoryNav()}</div> : null}
