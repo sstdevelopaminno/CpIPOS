@@ -11,6 +11,9 @@ describe("recycling calculation preview", () => {
   it("accepts only whole pieces for count-based products", () => {
     expect(calculateRecyclingLine(1, "piece", 200, "piece")?.amount).toBe(200);
     expect(calculateRecyclingLine(1.5, "piece", 200, "piece")).toBeNull();
+    expect(calculateRecyclingLine(1, "stem", 200, "piece")?.amount).toBe(200);
+    expect(calculateRecyclingLine(1.5, "stem", 200, "piece")).toBeNull();
+    expect(recyclingUnitLabel("stem")).toBe("ต้น");
     expect(calculateRecyclingLine(1, "kg", 200, "piece")).toBeNull();
     expect(calculateRecyclingLine(1, "piece", 200, "kg")).toBeNull();
   });
