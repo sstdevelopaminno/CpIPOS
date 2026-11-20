@@ -7,23 +7,49 @@ const KG_MULTIPLIER: Record<Exclude<RecyclingUnit, "piece">, number> = {
   g: 0.001
 };
 
+const MICRO_KG = 1_000_000;
+const MAX_BASE_QUANTITY = 100_000_000;
+const MAX_AMOUNT_MINOR = 99_999_999_999_999n;
+
 export function recyclingUnitLabel(unit: RecyclingUnit): string {
   return { ton: "ตัน", kg: "กิโลกรัม", khid: "ขีด", g: "กรัม", piece: "ชิ้น" }[unit];
 }
 
-/** Pure UI estimate only. Final money and stock must be calculated server-side. */
+/**
+ * Exact half-up baht rounding from integer satang and micro-kilograms.
+ * Mirrors PostgreSQL round(numeric) in recycling_post_transaction so
+ * the preview never uses imprecise floating-point baht multiplication.
+ * Real validation and stock updates are always performed on the server.
+ */
 export function calculateRecyclingLine(
   quantity: number,
   unit: RecyclingUnit,
   price: number,
   priceBasis: RecyclingPriceBasis
 ): { amount: number; basisQuantity: number } | null {
-  if (!Number.isFinite(quantity) || quantity <= 0 || !Number.isFinite(price) || price < 0) return null;
+  if (!Number.isFinite(quantity) || quantity <= 0 || !Number.isFinite(price) ||
+      price < 0 || price > 99_999_999) return null;
   if ((priceBasis === "piece") !== (unit === "piece")) return null;
-  const basisQuantity = unit === "piece" ? quantity : quantity * KG_MULTIPLIER[unit];
-  if (!Number.isFinite(basisQuantity) || basisQuantity <= 0) return null;
-  if (unit === "piece" && !Number.isInteger(quantity)) return null;
-  const amount = Math.round((basisQuantity * price + Number.EPSILON) * 100) / 100;
-  if (!Number.isFinite(amount) || amount > 999999999999.99) return null;
-  return { amount, basisQuantity };
+  const priceCentsFloat = price * 100;
+  const priceCents = Math.round(priceCentsFloat);
+  if (!Number.isSafeInteger(priceCents) || Math.abs(priceCentsFloat - priceCents) > 1e-6) return null;
+
+  let basisQuantity: number;
+  let amountMinor: bigint;
+  if (unit === "piece") {
+    if (!Number.isSafeInteger(quantity) || quantity > MAX_BASE_QUANTITY) return null;
+    basisQuantity = quantity;
+    amountMinor = BigInt(priceCents) * BigInt(quantity);
+  } else {
+    const kg = quantity * KG_MULTIPLIER[unit];
+    if (!Number.isFinite(kg) || kg < 0.001 || kg > MAX_BASE_QUANTITY) return null;
+    const microKgFloat = kg * MICRO_KG;
+    const microKg = Math.round(microKgFloat);
+    if (!Number.isSafeInteger(microKg) || Math.abs(microKgFloat - microKg) > 1e-5) return null;
+    basisQuantity = microKg / MICRO_KG;
+    // All values are nonnegative. +half divisor implements numeric ROUND.
+    amountMinor = (BigInt(priceCents) * BigInt(microKg) + 500_000n) / 1_000_000n;
+  }
+  if (amountMinor <= 0n || amountMinor > MAX_AMOUNT_MINOR) return null;
+  return { amount: Number(amountMinor) / 100, basisQuantity };
 }
