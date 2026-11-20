@@ -1,7 +1,7 @@
 import "server-only";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 
-export type RecyclingUnit = "kg" | "khid" | "g" | "ton" | "piece";
+export type RecyclingUnit = "kg" | "khid" | "g" | "ton" | "piece" | "stem";
 export type RecyclingPriceBasis = "kg" | "piece";
 
 export type RecyclingCatalogItem = {
