@@ -11,6 +11,7 @@ create table if not exists public.recycling_stock_balances (
   product_id uuid not null references public.products(id),
   quantity_base numeric(18,6) not null default 0 check (quantity_base >= 0),
   carrying_cost_minor bigint not null default 0 check (carrying_cost_minor >= 0),
+  last_transaction_id uuid,
   updated_at timestamptz not null default now(),
   primary key (tenant_id,branch_id,product_id)
 );
@@ -30,10 +31,23 @@ create table if not exists public.recycling_transactions (
   counterparty_name text not null check (length(btrim(counterparty_name)) between 1 and 240),
   total_minor bigint not null check (total_minor > 0),
   cogs_minor bigint not null check (cogs_minor >= 0),
-  status text not null default 'posted' check (status = 'posted'),
+  status text not null default 'posted' check (status in ('posted','voided')),
+  voided_at timestamptz,
+  voided_by uuid references public.users_profiles(id),
+  void_reason text,
+  void_request_id uuid,
+  void_cash_confirmed boolean,
+  void_stock_confirmed boolean,
   created_at timestamptz not null default now(),
+  constraint recycling_void_audit_complete check (
+    (status='posted' and voided_at is null and voided_by is null and void_reason is null)
+    or (status='voided' and voided_at is not null and voided_by is not null
+      and length(btrim(void_reason)) between 10 and 500 and void_request_id is not null
+      and void_stock_confirmed is true)
+  ),
   unique (tenant_id,branch_id,request_id),
-  unique (tenant_id,branch_id,receipt_no)
+  unique (tenant_id,branch_id,receipt_no),
+  unique (tenant_id,branch_id,void_request_id)
 );
 create index if not exists recycling_transactions_tenant_branch_created_idx
   on public.recycling_transactions(tenant_id,branch_id,created_at desc);
@@ -55,6 +69,9 @@ create table if not exists public.recycling_transaction_lines (
   price_per_base numeric(16,2) not null check (price_per_base >= 0),
   amount_minor bigint not null check (amount_minor >= 0),
   cogs_minor bigint not null default 0 check (cogs_minor >= 0),
+  stock_qty_before numeric(18,6) not null check (stock_qty_before>=0),
+  stock_cost_before_minor bigint not null check (stock_cost_before_minor>=0),
+  stock_last_transaction_before uuid,
   unique (transaction_id,line_no)
 );
 
@@ -274,7 +291,7 @@ begin
 
     insert into public.recycling_stock_balances(tenant_id,branch_id,product_id)
       values(p_tenant_id,p_branch_id,v_p.id) on conflict do nothing;
-    select quantity_base,carrying_cost_minor into v_stock
+    select quantity_base,carrying_cost_minor,last_transaction_id into v_stock
       from public.recycling_stock_balances where tenant_id=p_tenant_id
         and branch_id=p_branch_id and product_id=v_p.id for update;
     if p_direction='buy' then
@@ -292,15 +309,18 @@ begin
       v_new_value := v_stock.carrying_cost_minor - v_cost_minor;
     end if;
     update public.recycling_stock_balances set
-      quantity_base=v_new_qty,carrying_cost_minor=v_new_value,updated_at=now()
+      quantity_base=v_new_qty,carrying_cost_minor=v_new_value,
+      last_transaction_id=v_id,updated_at=now()
       where tenant_id=p_tenant_id and branch_id=p_branch_id and product_id=v_p.id;
     insert into public.recycling_transaction_lines
       (transaction_id,tenant_id,branch_id,line_no,product_id,sku_snapshot,
        name_snapshot,category_snapshot,original_quantity,original_unit,
-       base_quantity,base_unit,price_per_base,amount_minor,cogs_minor)
+       base_quantity,base_unit,price_per_base,amount_minor,cogs_minor,
+       stock_qty_before,stock_cost_before_minor,stock_last_transaction_before)
     values (v_id,p_tenant_id,p_branch_id,v_index+1,v_p.id,v_p.sku,
       v_p.name,v_p.category,v_quantity,v_unit,
-      v_base_quantity,v_basis,v_price,v_line_minor,v_cost_minor);
+      v_base_quantity,v_basis,v_price,v_line_minor,v_cost_minor,
+      v_stock.quantity_base,v_stock.carrying_cost_minor,v_stock.last_transaction_id);
     v_total_minor := v_total_minor+v_line_minor;
     v_cogs_minor := v_cogs_minor+v_cost_minor;
   end loop;
