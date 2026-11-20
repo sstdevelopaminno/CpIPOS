@@ -46,7 +46,11 @@ export function renderRecyclingSharedReceipt(args: {
   const isBuy = args.direction === "buy";
   const isCredit = args.settlement === "credit";
   const heading = isBuy ? "รับซื้อวัสดุรีไซเคิล" : "ขายออกวัสดุรีไซเคิล";
-  const documentTitle = isBuy ? "หลักฐานรับซื้อวัสดุรีไซเคิล" : "หลักฐานขายออกวัสดุรีไซเคิล";
+  // Only settled cash or verified transfers receive "ใบเสร็จ". Historical
+  // credit documents remain evidence of outstanding payable/receivable.
+  const documentTitle = isCredit
+    ? (isBuy ? "หลักฐานรับซื้อวัสดุรีไซเคิล" : "หลักฐานขายออกวัสดุรีไซเคิล")
+    : (isBuy ? "ใบเสร็จรับซื้อวัสดุรีไซเคิล" : "ใบเสร็จขายออกวัสดุรีไซเคิล");
   return renderReceiptHtml({
     paperWidthMm:args.width,
     currencyCode:"THB",
@@ -81,7 +85,7 @@ export function renderRecyclingSharedReceipt(args: {
     // Credit records document the receivable/payable, not an actual cash movement.
     paymentHeading:isCredit
       ? (isBuy ? "ยอดค้างจ่ายผู้ขาย" : "ยอดค้างรับจากผู้ซื้อ")
-      : (isBuy ? "จ่ายเงินผู้ขาย" : "รับชำระเงิน"),
+      : (isBuy ? "จ่ายเงิน" : "รับชำระเงิน"),
     footerText:isCredit
       ? `${heading} · เครดิต/ค้างชำระ — ยังไม่มีการรับหรือจ่ายเงินจริง · CpiPOS · น้ำหนักตามเครื่องชั่งภายนอก`
       : `${heading} · CpiPOS · น้ำหนักตามเครื่องชั่งภายนอก`

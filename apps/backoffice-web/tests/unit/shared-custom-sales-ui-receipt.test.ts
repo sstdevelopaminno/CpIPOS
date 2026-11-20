@@ -34,6 +34,9 @@ describe("shared sales UI standard / CUSTOM / Recycling",()=>{
    expect(recyclerPrint).toContain('import { renderReceiptHtml }');
    expect(recyclerPrint).toContain('renderReceiptHtml({');
    expect(recyclerPrint).toContain("quantityDisplay:");
+   expect(recyclerPrint).toContain('"ใบเสร็จรับซื้อวัสดุรีไซเคิล"');
+   expect(recyclerPrint).toContain('"ใบเสร็จขายออกวัสดุรีไซเคิล"');
+   expect(recyclerPrint).toContain('"หลักฐานรับซื้อวัสดุรีไซเคิล"');
    expect(recyclerPrint).toContain("voidWarning:");
  });
 

@@ -47,9 +47,19 @@ describe("Recycling custom cashier UX", () => {
     expect(cashier).toContain('aria-labelledby="recycling-checkout-title"');
     expect(cashier).toContain('role="dialog"');
     expect(cashier).toContain('if (settlement === "bank_transfer")');
-    expect(cashier).toContain('name="recycling-settlement" disabled');
+    expect(cashier).toContain('checked={settlement==="bank_transfer"}');
+    expect(cashier).toContain('settlement === "bank_transfer" || !counterpartyName.trim()');
+    expect(cashier).not.toContain('setSettlement("credit")');
     expect(postApi).toContain('raw.settlement === "bank_transfer"');
     expect(cashier).not.toContain("void postTransaction()}");
+  });
+  it("uses payout popup for buying and customer payment popup for selling", () => {
+    expect(cashier).toContain('direction === "buy" ? "จ่ายเงิน" : "ชำระเงิน"');
+    expect(cashier).toContain('direction === "buy" ? "วิธีจ่ายเงิน" : "วิธีรับชำระเงิน"');
+    expect(cashier).toContain('direction === "buy" ? "จ่ายเงินสด" : "ชำระเงินสด"');
+    expect(cashier).toContain('direction === "buy" ? "จ่ายเงินโอน" : "ชำระเงินโอน"');
+    expect(cashier).toContain("ต้องตรวจหลักฐานธนาคารก่อนยืนยันธุรกรรม");
+    expect(postApi).toContain('raw.settlement === "bank_transfer"');
   });
   it("queues print only AFTER confirmed atomic posting with stable retry id", () => {
     expect(cashier).toContain("await queueReceiptPrint(committedId, currentRequestId)");
