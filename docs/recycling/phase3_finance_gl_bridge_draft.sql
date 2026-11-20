@@ -121,10 +121,9 @@ begin
 
   v_document_kind := case v_tx.direction
     when 'buy' then 'supplier_bill' else 'sales_invoice' end;
-  v_document_no := 'RCY-'||
-    case v_tx.direction when 'buy' then 'B' else 'S' end||'-'||
-    pg_catalog.to_char(v_document_date,'YYYYMMDD')||'-'||
-    pg_catalog.replace(v_tx.id::text,'-','');
+  -- Preserve exactly the same immutable reference printed on the
+  -- non-tax Recycling purchase/sale receipt.
+  v_document_no := v_tx.receipt_no;
   v_payment_method := case v_tx.settlement when 'bank_transfer'
     then 'transfer' when 'cash' then 'cash' else 'other' end;
 
@@ -145,10 +144,9 @@ begin
 
   -- Positive purchase/sale lines mirror source quantities and amounts.
   for v_line in
-    select l.line_no,p.name,l.original_quantity,l.original_unit,
+    select l.line_no,l.name_snapshot as name,l.original_quantity,l.original_unit,
        l.price_per_base,l.amount_minor
     from public.recycling_transaction_lines l
-      join public.products p on p.id=l.product_id
     where l.transaction_id=v_tx.id
       and l.tenant_id=p_tenant_id and l.branch_id=p_branch_id
     order by l.line_no
