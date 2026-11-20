@@ -1,0 +1,295 @@
+-- REVIEW DRAFT ONLY. DO NOT EXECUTE ON CpiPOS-001 PRODUCTION.
+-- Convert through 'supabase migration new' after staging UAT and approval.
+-- Recycling is a tenant-isolated module. No purchases are represented as negative POS sales.
+-- Stores per-material stock at a verified pricing basis and an immutable balancing subledger.
+-- IMPORTANT: Accounting subledger is NOT yet posted to finance_accounting_journals;
+-- accounting reconciliation/approval bridge is required before go-live.
+
+create table if not exists public.recycling_stock_balances (
+  tenant_id uuid not null references public.tenants(id),
+  branch_id uuid not null references public.branches(id),
+  product_id uuid not null references public.products(id),
+  quantity_base numeric(18,6) not null default 0 check (quantity_base >= 0),
+  carrying_cost_minor bigint not null default 0 check (carrying_cost_minor >= 0),
+  updated_at timestamptz not null default now(),
+  primary key (tenant_id,branch_id,product_id)
+);
+
+create table if not exists public.recycling_transactions (
+  id uuid primary key default gen_random_uuid(),
+  tenant_id uuid not null references public.tenants(id),
+  branch_id uuid not null references public.branches(id),
+  shift_id uuid not null references public.shifts(id),
+  operator_user_id uuid not null references public.users_profiles(id),
+  request_id uuid not null,
+  direction text not null check (direction in ('buy','sell')),
+  settlement text not null check (settlement in ('cash','bank_transfer','credit')),
+  counterparty_name text not null check (length(btrim(counterparty_name)) between 1 and 240),
+  total_minor bigint not null check (total_minor > 0),
+  cogs_minor bigint not null check (cogs_minor >= 0),
+  status text not null default 'posted' check (status = 'posted'),
+  created_at timestamptz not null default now(),
+  unique (tenant_id,branch_id,request_id)
+);
+create index if not exists recycling_transactions_tenant_branch_created_idx
+  on public.recycling_transactions(tenant_id,branch_id,created_at desc);
+
+create table if not exists public.recycling_transaction_lines (
+  id uuid primary key default gen_random_uuid(),
+  transaction_id uuid not null references public.recycling_transactions(id) on delete restrict,
+  tenant_id uuid not null references public.tenants(id),
+  branch_id uuid not null references public.branches(id),
+  line_no int not null check (line_no between 1 and 100),
+  product_id uuid not null references public.products(id),
+  original_quantity numeric(18,6) not null check (original_quantity > 0),
+  original_unit text not null check (original_unit in ('kg','khid','g','ton','piece')),
+  base_quantity numeric(18,6) not null check (base_quantity > 0),
+  base_unit text not null check (base_unit in ('kg','piece')),
+  price_per_base numeric(16,2) not null check (price_per_base >= 0),
+  amount_minor bigint not null check (amount_minor >= 0),
+  cogs_minor bigint not null default 0 check (cogs_minor >= 0),
+  unique (transaction_id,line_no)
+);
+
+create table if not exists public.recycling_accounting_entries (
+  id uuid primary key default gen_random_uuid(),
+  transaction_id uuid not null references public.recycling_transactions(id) on delete restrict,
+  tenant_id uuid not null references public.tenants(id),
+  branch_id uuid not null references public.branches(id),
+  line_no int not null check (line_no between 1 and 10),
+  account_code text not null check (account_code in ('1100','1110','1200','2100','1201','4100','5100')),
+  account_name text not null,
+  debit_minor bigint not null default 0 check (debit_minor >= 0),
+  credit_minor bigint not null default 0 check (credit_minor >= 0),
+  constraint recycling_entry_exactly_one_side check (
+    (debit_minor > 0 and credit_minor=0) or (debit_minor=0 and credit_minor > 0)
+  ),
+  unique(transaction_id,line_no)
+);
+
+-- Do not expose these accounting/stock internals directly through the Data API.
+alter table public.recycling_stock_balances enable row level security;
+alter table public.recycling_transactions enable row level security;
+alter table public.recycling_transaction_lines enable row level security;
+alter table public.recycling_accounting_entries enable row level security;
+revoke all on public.recycling_stock_balances from anon,authenticated;
+revoke all on public.recycling_transactions from anon,authenticated;
+revoke all on public.recycling_transaction_lines from anon,authenticated;
+revoke all on public.recycling_accounting_entries from anon,authenticated;
+
+create or replace function public.recycling_post_transaction(
+  p_tenant_id uuid,
+  p_branch_id uuid,
+  p_shift_id uuid,
+  p_user_id uuid,
+  p_request_id uuid,
+  p_direction text,
+  p_settlement text,
+  p_counterparty_name text,
+  p_lines jsonb
+) returns jsonb
+language plpgsql
+security invoker
+set search_path = ''
+as $fn$
+declare
+  v_contract record;
+  v_lifecycle record;
+  v_id uuid;
+  v_existing record;
+  v_line jsonb;
+  v_p record;
+  v_stock record;
+  v_index integer;
+  v_unit text;
+  v_basis text;
+  v_quantity numeric(18,6);
+  v_base_quantity numeric(18,6);
+  v_multiplier numeric(18,6);
+  v_price numeric(16,2);
+  v_line_minor bigint;
+  v_cost_minor bigint;
+  v_total_minor bigint := 0;
+  v_cogs_minor bigint := 0;
+  v_new_qty numeric(18,6);
+  v_new_value bigint;
+  v_cash_code text;
+  v_cash_name text;
+begin
+  if p_tenant_id is null or p_branch_id is null or p_shift_id is null or
+     p_user_id is null or p_request_id is null then
+    raise exception 'recycling_invalid_identity';
+  end if;
+  if p_direction not in ('buy','sell') or p_settlement not in ('cash','bank_transfer','credit') then
+    raise exception 'recycling_invalid_direction_or_settlement';
+  end if;
+  if length(btrim(coalesce(p_counterparty_name,''))) not between 1 and 240 then
+    raise exception 'recycling_counterparty_required';
+  end if;
+  if jsonb_typeof(p_lines) is distinct from 'array' or
+     jsonb_array_length(p_lines) not between 1 and 100 then
+    raise exception 'recycling_lines_required';
+  end if;
+
+  -- Identical request IDs serialize, preventing duplicate settlement on retry.
+  perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtext(
+    p_tenant_id::text || ':' || p_branch_id::text || ':' || p_request_id::text
+  ));
+  select id,total_minor,cogs_minor into v_existing from public.recycling_transactions
+    where tenant_id=p_tenant_id and branch_id=p_branch_id and request_id=p_request_id;
+  if found then
+    return jsonb_build_object('id',v_existing.id,'total_minor',v_existing.total_minor,
+      'cogs_minor',v_existing.cogs_minor,'idempotent',true);
+  end if;
+
+  select c.status,c.ended_at,c.metadata,p.code as package_code
+    into v_contract from public.tenant_subscription_contracts c
+    join public.subscription_packages p on p.id=c.package_id
+    where c.tenant_id=p_tenant_id order by c.created_at desc limit 1;
+  if v_contract.status not in ('active','trial') or
+     v_contract.package_code <> 'custom' or
+     coalesce(v_contract.metadata->'sales_modes'->>'recycling','') <> 'true' or
+     (v_contract.ended_at is not null and v_contract.ended_at <= now()) then
+    raise exception 'recycling_contract_not_authorized';
+  end if;
+  select lifecycle_status,access_locked,trial_expires_at into v_lifecycle
+    from public.tenant_data_lifecycle where tenant_id=p_tenant_id;
+  if not found or v_lifecycle.access_locked or
+     v_lifecycle.lifecycle_status in ('expired','cancelled') or
+     (v_lifecycle.lifecycle_status='trial' and
+      (v_lifecycle.trial_expires_at is null or v_lifecycle.trial_expires_at<=now())) then
+    raise exception 'recycling_subscription_inactive';
+  end if;
+  if not exists (select 1 from public.tenants t join public.branches b
+      on b.tenant_id=t.id where t.id=p_tenant_id and b.id=p_branch_id
+      and t.is_active and b.is_active) then raise exception 'recycling_branch_invalid'; end if;
+  if not exists (select 1 from public.shifts s where s.id=p_shift_id
+      and s.tenant_id=p_tenant_id and s.branch_id=p_branch_id and s.status='open')
+      then raise exception 'recycling_shift_closed'; end if;
+  if not exists (select 1 from public.user_branch_roles u
+    where u.tenant_id=p_tenant_id and u.branch_id=p_branch_id and u.user_id=p_user_id)
+      then raise exception 'recycling_user_not_in_branch'; end if;
+
+  insert into public.recycling_transactions
+    (tenant_id,branch_id,shift_id,operator_user_id,request_id,direction,
+     settlement,counterparty_name,total_minor,cogs_minor)
+  values(p_tenant_id,p_branch_id,p_shift_id,p_user_id,p_request_id,p_direction,
+    p_settlement,btrim(p_counterparty_name),1,0)
+  returning id into v_id;
+
+  for v_index in 0..jsonb_array_length(p_lines)-1 loop
+    v_line := p_lines -> v_index;
+    if jsonb_typeof(v_line) <> 'object' or
+       coalesce(v_line->>'product_id','') !~* '^[a-f0-9-]{36}$' or
+       coalesce(v_line->>'quantity','') !~ '^[0-9]{1,10}(\.[0-9]{1,6})?$' then
+      raise exception 'recycling_invalid_line';
+    end if;
+    v_unit := v_line->>'unit';
+    if v_unit not in ('kg','khid','g','ton','piece') then
+      raise exception 'recycling_invalid_unit';
+    end if;
+    v_quantity := (v_line->>'quantity')::numeric;
+    if v_quantity<=0 then raise exception 'recycling_quantity_must_be_positive'; end if;
+    select id,name,price,sell_unit,metadata into v_p from public.products
+      where tenant_id=p_tenant_id and branch_id=p_branch_id
+        and id=(v_line->>'product_id')::uuid
+        and is_active=true and deleted_at is null
+        and metadata->>'business_mode'='recycling'
+      for update;
+    if not found then raise exception 'recycling_product_not_found'; end if;
+    v_basis := case when v_p.metadata->>'recycling_price_basis'='piece'
+      then 'piece' else 'kg' end;
+    if (v_unit='piece') <> (v_basis='piece') then raise exception 'recycling_unit_mismatch'; end if;
+    if v_unit='piece' and v_quantity<>trunc(v_quantity) then
+      raise exception 'recycling_piece_must_be_whole'; end if;
+    v_multiplier := case v_unit when 'ton' then 1000 when 'kg' then 1
+      when 'khid' then 0.1 when 'g' then 0.001 else 1 end;
+    v_base_quantity := v_quantity * v_multiplier;
+    if v_base_quantity<0.001 and v_unit<>'piece' then raise exception 'recycling_below_gram_precision'; end if;
+    if v_base_quantity>100000000 then raise exception 'recycling_quantity_too_large'; end if;
+    v_price := case when p_direction='buy'
+      then nullif(v_p.metadata->>'recycling_buy_price','')::numeric else v_p.price end;
+    if v_price is null or v_price < 0 then raise exception 'recycling_price_missing'; end if;
+    v_line_minor := round(v_price * v_base_quantity * 100)::bigint;
+    if v_line_minor<=0 then raise exception 'recycling_line_amount_too_small'; end if;
+
+    insert into public.recycling_stock_balances(tenant_id,branch_id,product_id)
+      values(p_tenant_id,p_branch_id,v_p.id) on conflict do nothing;
+    select quantity_base,carrying_cost_minor into v_stock
+      from public.recycling_stock_balances where tenant_id=p_tenant_id
+        and branch_id=p_branch_id and product_id=v_p.id for update;
+    if p_direction='buy' then
+      v_cost_minor := 0;
+      v_new_qty := v_stock.quantity_base + v_base_quantity;
+      v_new_value := v_stock.carrying_cost_minor + v_line_minor;
+    else
+      if v_stock.quantity_base < v_base_quantity then
+        raise exception 'recycling_stock_insufficient';
+      end if;
+      v_cost_minor := case when v_stock.quantity_base=v_base_quantity
+        then v_stock.carrying_cost_minor else
+        round(v_stock.carrying_cost_minor * v_base_quantity / v_stock.quantity_base)::bigint end;
+      v_new_qty := v_stock.quantity_base - v_base_quantity;
+      v_new_value := v_stock.carrying_cost_minor - v_cost_minor;
+    end if;
+    update public.recycling_stock_balances set
+      quantity_base=v_new_qty,carrying_cost_minor=v_new_value,updated_at=now()
+      where tenant_id=p_tenant_id and branch_id=p_branch_id and product_id=v_p.id;
+    insert into public.recycling_transaction_lines
+      (transaction_id,tenant_id,branch_id,line_no,product_id,original_quantity,
+       original_unit,base_quantity,base_unit,price_per_base,amount_minor,cogs_minor)
+    values (v_id,p_tenant_id,p_branch_id,v_index+1,v_p.id,v_quantity,v_unit,
+      v_base_quantity,v_basis,v_price,v_line_minor,v_cost_minor);
+    v_total_minor := v_total_minor+v_line_minor;
+    v_cogs_minor := v_cogs_minor+v_cost_minor;
+  end loop;
+  if v_total_minor>99999999999999 then raise exception 'recycling_total_too_large'; end if;
+  update public.recycling_transactions
+    set total_minor=v_total_minor,cogs_minor=v_cogs_minor where id=v_id;
+  v_cash_code := case p_settlement when 'cash' then '1100'
+    when 'bank_transfer' then '1110'
+    else case p_direction when 'buy' then '2100' else '1201' end end;
+  v_cash_name := case p_settlement when 'cash' then 'เงินสด'
+    when 'bank_transfer' then 'เงินฝากธนาคาร'
+    else case p_direction when 'buy' then 'เจ้าหนี้รับซื้อวัสดุ' else 'ลูกหนี้การค้า' end end;
+
+  if p_direction='buy' then
+    insert into public.recycling_accounting_entries(transaction_id,tenant_id,branch_id,line_no,account_code,account_name,debit_minor)
+      values (v_id,p_tenant_id,p_branch_id,1,'1200','สินค้าคงเหลือวัสดุรีไซเคิล',v_total_minor);
+    insert into public.recycling_accounting_entries(transaction_id,tenant_id,branch_id,line_no,account_code,account_name,credit_minor)
+      values (v_id,p_tenant_id,p_branch_id,2,v_cash_code,v_cash_name,v_total_minor);
+  else
+    insert into public.recycling_accounting_entries(transaction_id,tenant_id,branch_id,line_no,account_code,account_name,debit_minor)
+      values (v_id,p_tenant_id,p_branch_id,1,v_cash_code,v_cash_name,v_total_minor);
+    insert into public.recycling_accounting_entries(transaction_id,tenant_id,branch_id,line_no,account_code,account_name,credit_minor)
+      values (v_id,p_tenant_id,p_branch_id,2,'4100','รายได้ขายวัสดุรีไซเคิล',v_total_minor);
+    if v_cogs_minor>0 then
+      insert into public.recycling_accounting_entries(transaction_id,tenant_id,branch_id,line_no,account_code,account_name,debit_minor)
+        values (v_id,p_tenant_id,p_branch_id,3,'5100','ต้นทุนขายวัสดุรีไซเคิล',v_cogs_minor);
+      insert into public.recycling_accounting_entries(transaction_id,tenant_id,branch_id,line_no,account_code,account_name,credit_minor)
+        values (v_id,p_tenant_id,p_branch_id,4,'1200','สินค้าคงเหลือวัสดุรีไซเคิล',v_cogs_minor);
+    end if;
+  end if;
+  if (select coalesce(sum(debit_minor-credit_minor),0)
+    from public.recycling_accounting_entries where transaction_id=v_id) <> 0 then
+    raise exception 'recycling_ledger_not_balanced';
+  end if;
+  return jsonb_build_object('id',v_id,'total_minor',v_total_minor,'cogs_minor',v_cogs_minor,'idempotent',false);
+end;
+$fn$;
+
+-- Security: this RPC is server-side only; grant only to service_role.
+revoke all on function public.recycling_post_transaction(
+ uuid,uuid,uuid,uuid,uuid,text,text,text,jsonb
+) from public,anon,authenticated;
+grant execute on function public.recycling_post_transaction(
+ uuid,uuid,uuid,uuid,uuid,text,text,text,jsonb
+) to service_role;
+
+-- Release plan:
+-- 1. Run draft on isolated staging and inspect RLS/function grants.
+-- 2. Test concurrent/duplicate request_id, insufficient stock and rollback.
+-- 3. Confirm staff membership, shift and trial/lock gates.
+-- 4. Map and post balanced entries to finance_accounting_* with approval and
+--    source-document audit. No VAT/invoice until legal verification.
+-- 5. Only then promote a verified migration, run advisors and allow production.
