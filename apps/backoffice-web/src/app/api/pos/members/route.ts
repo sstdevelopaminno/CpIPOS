@@ -1,4 +1,5 @@
 import { getPosApiAuthContext } from "@/lib/pos-api-auth";
+import { featureGateFail, requirePosApiFeature } from "@/lib/pos-api-feature-guard";
 import { fail, ok } from "@/lib/http";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 
@@ -76,6 +77,7 @@ function applyFallbackSearch<T>(query: T, q: string): T {
 export async function GET(request: Request) {
   try {
     const auth = await getPosApiAuthContext({ requireBranchScope: true, requiredPermission: "sales:enter" });
+    await requirePosApiFeature(auth, "core_pos_sales");
     const q = new URL(request.url).searchParams.get("q")?.trim() ?? "";
     const supabase = getSupabaseServiceClient();
     const selectFull = "id,name,phone,email,member_token,points_balance,stamp_balance,updated_at";
@@ -112,6 +114,8 @@ export async function GET(request: Request) {
     if (error) throw new Error(error.message);
     return ok({ members: ((data ?? []) as MemberRow[]).map(normalizeMember) });
   } catch (error) {
+    const featureError = featureGateFail(error);
+    if (featureError) return featureError;
     if (isMissingMemberTable(error)) return fail("members_schema_missing", "ยังไม่พบตารางสมาชิกใน Supabase กรุณารัน migration ล่าสุดก่อนใช้งานสมาชิก", 501);
     return fail("members_load_failed", getErrorMessage(error) || "ไม่สามารถโหลดสมาชิกได้", 503);
   }
@@ -120,6 +124,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     const auth = await getPosApiAuthContext({ requireBranchScope: true, requiredPermission: "sales:enter" });
+    await requirePosApiFeature(auth, "core_pos_sales");
     const body = (await request.json().catch(() => ({}))) as { name?: string; phone?: string; email?: string; points?: number; stamps?: number };
     const name = String(body.name ?? "").trim();
     const phone = digitsOnly(String(body.phone ?? ""));
@@ -182,6 +187,8 @@ export async function POST(request: Request) {
     if (!data) throw new Error("member_save_returned_no_data");
     return ok({ member: normalizeMember(data) });
   } catch (error) {
+    const featureError = featureGateFail(error);
+    if (featureError) return featureError;
     if (isMissingMemberTable(error)) return fail("members_schema_missing", "ยังไม่พบตารางสมาชิกใน Supabase กรุณารัน migration ล่าสุดก่อนบันทึกสมาชิก", 501);
     return fail("member_save_failed", getErrorMessage(error) || "ไม่สามารถบันทึกสมาชิกได้", 503);
   }
@@ -190,6 +197,7 @@ export async function POST(request: Request) {
 export async function DELETE(request: Request) {
   try {
     const auth = await getPosApiAuthContext({ requireBranchScope: true, requiredPermission: "sales:enter" });
+    await requirePosApiFeature(auth, "core_pos_sales");
     const id = new URL(request.url).searchParams.get("id")?.trim() ?? "";
     if (!id) return fail("invalid_member_id", "ไม่พบรหัสสมาชิกที่ต้องการลบ", 422);
 
@@ -208,6 +216,8 @@ export async function DELETE(request: Request) {
     if (error) throw new Error(error.message);
     return ok({ deleted: true });
   } catch (error) {
+    const featureError = featureGateFail(error);
+    if (featureError) return featureError;
     if (isMissingMemberTable(error)) return fail("members_schema_missing", "ยังไม่พบตารางสมาชิกใน Supabase กรุณารัน migration ล่าสุดก่อนลบสมาชิก", 501);
     return fail("member_delete_failed", getErrorMessage(error) || "ไม่สามารถลบสมาชิกได้", 503);
   }

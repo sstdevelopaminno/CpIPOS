@@ -3,6 +3,7 @@ import { filterBillingDocumentItems } from "@/lib/billing-document-policy";
 import { fail, ok } from "@/lib/http";
 import { validateManagerPin } from "@/lib/pin-approval";
 import { getPosApiAuthContext } from "@/lib/pos-api-auth";
+import { featureGateFail, requirePosApiFeature } from "@/lib/pos-api-feature-guard";
 import { requirePosSession } from "@/lib/pos-session-guard";
 import {
   assertThaiAddressOption,
@@ -76,6 +77,7 @@ function text(value: unknown) {
 
 async function requireTaxScope() {
   const auth = await getPosApiAuthContext({ requireBranchScope: true, requiredPermission: "receipts:view" });
+  await requirePosApiFeature(auth, "core_pos_sales");
   const scope = await requirePosSession();
   if (scope.session.tenant_id !== auth.tenantId || scope.session.branch_id !== auth.branchId) {
     throw new Error("pos_scope_mismatch");
@@ -287,6 +289,8 @@ export async function GET(request: Request) {
       }))
     });
   } catch (error) {
+    const featureError = featureGateFail(error);
+    if (featureError) return featureError;
     const message = error instanceof Error ? error.message : "Unknown error";
     if (message.startsWith("thai_address_source_")) return fail("thai_address_unavailable", "ระบบค้นหาที่อยู่ไทยไม่พร้อมใช้งาน กรุณาลองใหม่", 503);
     if (message === "pos_scope_mismatch") return fail("pos_scope_mismatch", "POS session scope mismatch", 403);
@@ -352,6 +356,65 @@ export async function POST(request: Request) {
         metadata: { tax_id_last4: taxId.slice(-4), entity_type: entityType }
       });
       return ok({ profile: data, message: "บันทึกข้อมูลผู้เสียภาษีสำเร็จ" });
+    }
+
+    if (action === "delete_profile") {
+      const profileId = text(body?.profile_id);
+      const managerPin = text(body?.manager_pin);
+      if (!profileId) return fail("tax_profile_id_required", "ไม่พบรายการผู้เสียภาษีที่ต้องการลบ", 422);
+      if (auth.branchRole !== "owner" && auth.branchRole !== "manager") {
+        return fail("forbidden_role", "เฉพาะ Owner หรือ Manager สามารถลบทะเบียนผู้เสียภาษีได้", 403);
+      }
+      if (managerPin.length < 4) {
+        return fail("pin_required", "กรุณากรอก PIN Owner/Manager เพื่อยืนยันการลบ", 422);
+      }
+      const approval = await validateManagerPin("sales_record_edit", managerPin, {
+        tenantId,
+        branchId
+      });
+      if (!approval.approved || !approval.approverUserId || !approval.approverRole || approval.approverRole === "it_admin") {
+        return fail("pin_rejected", "PIN Owner/Manager ไม่ถูกต้อง", 403);
+      }
+
+      const existing = await supabase
+        .from("pos_tax_invoice_profiles")
+        .select("id,display_name,tax_id,is_active")
+        .eq("tenant_id", tenantId)
+        .eq("branch_id", branchId)
+        .eq("id", profileId)
+        .maybeSingle<{ id: string; display_name: string; tax_id: string; is_active: boolean }>();
+      if (existing.error) return fail("tax_profile_query_failed", existing.error.message, 500);
+      if (!existing.data || existing.data.is_active === false) {
+        return fail("tax_profile_not_found", "ไม่พบทะเบียนผู้เสียภาษีในสาขานี้", 404);
+      }
+
+      const updated = await supabase
+        .from("pos_tax_invoice_profiles")
+        .update({
+          is_active: false,
+          updated_by: approval.approverUserId,
+          updated_at: new Date().toISOString()
+        })
+        .eq("tenant_id", tenantId)
+        .eq("branch_id", branchId)
+        .eq("id", profileId);
+      if (updated.error) return fail("tax_profile_delete_failed", updated.error.message, 500);
+
+      await appendAuditLog({
+        tenantId,
+        branchId,
+        actorUserId: approval.approverUserId,
+        actorRole: approval.approverRole,
+        action: "tax_invoice_profile_deactivated",
+        targetTable: "pos_tax_invoice_profiles",
+        targetId: profileId,
+        metadata: {
+          requested_by: auth.userId,
+          display_name: existing.data.display_name,
+          tax_id_last4: normalizeDigits(existing.data.tax_id).slice(-4)
+        }
+      });
+      return ok({ deleted: true, profile_id: profileId });
     }
 
     if (action === "save_seller") {
@@ -536,6 +599,8 @@ export async function POST(request: Request) {
 
     return fail("tax_invoice_action_invalid", "Unknown tax invoice action", 422);
   } catch (error) {
+    const featureError = featureGateFail(error);
+    if (featureError) return featureError;
     const message = error instanceof Error ? error.message : "Unknown error";
     if (message === "thai_address_selection_invalid") return fail("thai_address_selection_invalid", "ตำบล/อำเภอ/จังหวัดไม่ตรงกับรหัสไปรษณีย์ที่เลือก", 422);
     if (message.startsWith("thai_address_source_")) return fail("thai_address_unavailable", "ระบบค้นหาที่อยู่ไทยไม่พร้อมใช้งาน กรุณาลองใหม่", 503);

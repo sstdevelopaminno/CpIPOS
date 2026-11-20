@@ -1,5 +1,6 @@
 import { fail, ok } from "@/lib/http";
 import { getPosApiAuthContext } from "@/lib/pos-api-auth";
+import { featureGateFail, requirePosApiFeature } from "@/lib/pos-api-feature-guard";
 import {
   deletePaymentAccount,
   loadPosSettingsSnapshot,
@@ -52,6 +53,7 @@ async function verifyPaymentAccountDeleteApproval(args: { approvalId: string; te
 export async function GET() {
   try {
     const auth = await getPosApiAuthContext({ requireBranchScope: true, requiredPermission: "settings:view" });
+    await requirePosApiFeature(auth, "core_pos_sales");
     const snapshot = await loadPosSettingsSnapshot(auth);
     return ok({
       payment_accounts: snapshot.payment_accounts,
@@ -59,6 +61,8 @@ export async function GET() {
       metadata: snapshot.metadata
     });
   } catch (error) {
+    const featureError = featureGateFail(error);
+    if (featureError) return featureError;
     const resolved = statusFromError(error);
     return fail(resolved.code, resolved.message, resolved.status);
   }
@@ -67,10 +71,13 @@ export async function GET() {
 export async function POST(request: Request) {
   try {
     const auth = await getPosApiAuthContext({ requireBranchScope: true, requiredPermission: "settings:view" });
+    await requirePosApiFeature(auth, "core_pos_sales");
     const body = (await request.json()) as PaymentAccountInput;
     const account = await savePaymentAccount(auth, body);
     return ok({ account }, 201);
   } catch (error) {
+    const featureError = featureGateFail(error);
+    if (featureError) return featureError;
     const resolved = statusFromError(error);
     return fail(resolved.code, resolved.message, resolved.status);
   }
@@ -79,10 +86,13 @@ export async function POST(request: Request) {
 export async function PATCH(request: Request) {
   try {
     const auth = await getPosApiAuthContext({ requireBranchScope: true, requiredPermission: "settings:view" });
+    await requirePosApiFeature(auth, "core_pos_sales");
     const body = (await request.json()) as PaymentAccountInput;
     const account = await savePaymentAccount(auth, body);
     return ok({ account });
   } catch (error) {
+    const featureError = featureGateFail(error);
+    if (featureError) return featureError;
     const resolved = statusFromError(error);
     return fail(resolved.code, resolved.message, resolved.status);
   }
@@ -91,6 +101,7 @@ export async function PATCH(request: Request) {
 export async function DELETE(request: Request) {
   try {
     const auth = await getPosApiAuthContext({ requireBranchScope: true, requiredPermission: "settings:view" });
+    await requirePosApiFeature(auth, "core_pos_sales");
     const { searchParams } = new URL(request.url);
     const accountId = searchParams.get("account_id") ?? "";
     const approvalId = String(searchParams.get("approval_id") ?? "").trim();
@@ -118,6 +129,8 @@ export async function DELETE(request: Request) {
     const result = await deletePaymentAccount(auth, accountId);
     return ok(result);
   } catch (error) {
+    const featureError = featureGateFail(error);
+    if (featureError) return featureError;
     const resolved = statusFromError(error);
     return fail(resolved.code, resolved.message, resolved.status);
   }
