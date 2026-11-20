@@ -19,7 +19,9 @@ describe("CUSTOM Recycling uses original POS shell without grocery mode dependen
    expect(main).toContain("await isAuthorizedRecyclingTenant");
    expect(main).toContain("<RecyclingSalesContent");
    expect(main).not.toContain('redirect("/preview/pos/recycling")');
-   expect(main).toContain("<PosLegacySalesContent");
+   expect(main).toContain("<PosEntryGate");
+   expect(main).toContain("<PosGeneralSaleTableController lang={lang}");
+   expect(main).toContain("<PosCustomerDisplayV2Publisher />");
    expect(direct).toContain("<RecyclingSalesContent");
  });
  it("reuses all original POS modules without replacing or overlapping their React cashier",()=>{
