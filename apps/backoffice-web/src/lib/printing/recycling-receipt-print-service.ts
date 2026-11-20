@@ -5,6 +5,7 @@ import { readEnv } from "@/lib/env";
 import { enqueuePrintJob, processPrintJob } from "@/lib/printing/print-service";
 import { resolvePrinterRoutes } from "@/lib/printing/printer-routing-service";
 import { loadReceiptStoreProfile } from "@/lib/services/store-profile-service";
+import { renderReceiptHtml } from "@/lib/printing/receipt-html-template";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 
 type MaterialLine = {
@@ -18,16 +19,14 @@ type MaterialLine = {
   amount_minor: number;
 };
 
-const escapeHtml = (v: unknown) => String(v ?? "").replaceAll("&", "&amp;")
-  .replaceAll("<", "&lt;").replaceAll(">", "&gt;")
-  .replaceAll('"', "&quot;").replaceAll("'", "&#39;");
-
 const thaiMoney = (minor: number) => (minor / 100).toLocaleString("th-TH", {
   minimumFractionDigits: 2, maximumFractionDigits: 2
 });
 const unitNames: Record<string,string> = { kg:"กก.",khid:"ขีด",g:"กรัม",ton:"ตัน",stem:"ต้น",piece:"ชิ้น" };
 
-function renderRecyclingThermalReceipt(args: {
+/** The same 58/80mm thermal template as every standard CpiPOS checkout.
+ * Only labels, weight units, settlement direction and VOID language differ. */
+export function renderRecyclingSharedReceipt(args: {
   width: 58 | 80;
   shop: string;
   branch: string;
@@ -35,60 +34,51 @@ function renderRecyclingThermalReceipt(args: {
   direction: string;
   status: string;
   voidReason?: string | null;
-  date: string;
+  createdAt: string;
   counterparty: string;
   settlement: string;
   totalMinor: number;
   lines: MaterialLine[];
+  storeAddress?: string | null;
+  storePhone?: string | null;
+  logoUrl?: string | null;
 }) {
-  const label = args.direction === "buy" ? "หลักฐานรับซื้อวัสดุรีไซเคิล" : "หลักฐานขายออกวัสดุรีไซเคิล";
-  const settle = { cash:"เงินสด",bank_transfer:"เงินโอน",credit:"เครดิต/ค้างชำระ" }[args.settlement] ?? args.settlement;
-  const voidNotice = args.status === "voided"
-    ? `<aside style="border:2px solid #111;padding:6px;text-align:center;margin:5px 0;font-weight:bold;">
-       เอกสารยกเลิก VOID<br/>ใช้เป็นหลักฐานรายการที่ยังมีผลไม่ได้<br/>
-       <small>${escapeHtml(args.voidReason ?? "ยกเลิก")}</small></aside>` : "";
-  const items = args.lines.map(l => `<tr>
-    <td class="item"><strong>${escapeHtml(l.name_snapshot)}</strong>
-      <span>${escapeHtml(l.sku_snapshot)}</span>
-      <span>${escapeHtml(l.original_quantity)} ${escapeHtml(unitNames[l.original_unit] ?? l.original_unit)}
-       × ${escapeHtml(Number(l.price_per_base).toFixed(2))}/${l.base_unit==="kg"?"กก.":"ชิ้น"}</span></td>
-    <td class="value">${escapeHtml(thaiMoney(Number(l.amount_minor)))}</td>
-  </tr>`).join("");
-  const margin = args.width === 58 ? 2 : 3;
-  const contentWidth = args.width === 58 ? 45 : 56;
-  return `<!doctype html><html lang="th"><head><meta charset="utf-8"/>
-  <style>
-    @page {size:${args.width}mm auto; margin:${margin}mm;}
-    html,body{font-family:Tahoma,Arial,sans-serif!important;color:#000;background:#fff;
-      font-size:12px;line-height:1.45;margin:0;padding:0;}
-    .ticket{max-width:${contentWidth}mm;margin:0 auto;overflow-wrap:anywhere;box-sizing:border-box;}
-    .head{text-align:center;border-bottom:1px dashed #777;padding-bottom:7px;}
-    .head strong{display:block;font-size:15px;}
-    .head h1{font-size:12.5px;line-height:1.3;margin:7px 0 2px;}
-    .meta{padding:7px 0;border-bottom:1px dashed #888;}
-    .meta div{margin-bottom:3px;}
-    table{width:100%;border-collapse:collapse;table-layout:fixed;}
-    .item{width:66%;padding:6px 4px 6px 0;vertical-align:top;}
-    .item span{display:block;font-size:10px;}
-    .value{width:34%;text-align:right;vertical-align:top;padding:6px 0;font-weight:700;}
-    td{border-bottom:1px dashed #ddd;}
-    .total{border-top:1px solid #222;padding:10px 0;font-weight:700;
-      font-size:15px;display:flex;justify-content:space-between;}
-    .foot{text-align:center;border-top:1px dashed #999;padding-top:7px;font-size:10px;}
-  </style></head><body><article class="ticket">
-    <header class="head"><strong>${escapeHtml(args.shop)}</strong>
-      <div>${escapeHtml(args.branch)}</div>
-      <h1>${label}</h1><div>เอกสารซื้อขายทั่วไป ไม่ใช่ใบกำกับภาษี</div></header>
-    ${voidNotice}
-    <section class="meta"><div>เลขที่ ${escapeHtml(args.receiptNo)}</div>
-      <div>วันที่ ${escapeHtml(args.date)}</div>
-      <div>${args.direction==="buy"?"ผู้ขายวัสดุ":"ผู้ซื้อวัสดุ"}: ${escapeHtml(args.counterparty)}</div>
-      <div>ชำระ: ${escapeHtml(settle)}</div></section>
-    <table><tbody>${items}</tbody></table>
-    <div class="total"><span>รวมทั้งสิ้น</span><span>${escapeHtml(thaiMoney(args.totalMinor))} บาท</span></div>
-    <footer class="foot">สำเนา/พิมพ์ย้อนหลัง • CpiPOS CUSTOM Recycling
-      <div>น้ำหนักตามการชั่งภายนอก</div></footer>
-  </article></body></html>`;
+  const isBuy = args.direction === "buy";
+  const heading = isBuy ? "รับซื้อวัสดุรีไซเคิล" : "ขายออกวัสดุรีไซเคิล";
+  const documentTitle = isBuy ? "หลักฐานรับซื้อวัสดุรีไซเคิล" : "หลักฐานขายออกวัสดุรีไซเคิล";
+  return renderReceiptHtml({
+    paperWidthMm:args.width,
+    currencyCode:"THB",
+    languageCode:"th",
+    storeName:args.shop,
+    branchName:args.branch,
+    storeAddress:args.storeAddress,
+    storePhone:args.storePhone,
+    logoUrl:args.logoUrl,
+    sellerName:args.counterparty,
+    sellerLabel:isBuy ? "ผู้ขายวัสดุ" : "ผู้ซื้อวัสดุ",
+    orderNo:args.receiptNo,
+    modeLabel:documentTitle,
+    paidAtIso:args.createdAt,
+    items:args.lines.map(line=>({
+      name:line.name_snapshot,
+      sku:line.sku_snapshot,
+      quantity:Number(line.original_quantity),
+      quantityDisplay:`${line.original_quantity} ${unitNames[line.original_unit] ?? line.original_unit}`,
+      unitPrice:Number(line.price_per_base),
+      unitPriceSuffix:`/${line.base_unit === "kg" ? "กก." : "ชิ้น"}`,
+      lineTotal:Number(line.amount_minor) / 100
+    })),
+    discountAmount:0,
+    taxAmount:0,
+    totalAmount:Number(args.totalMinor) / 100,
+    paymentMethod:args.settlement,
+    documentNotice:"เอกสารซื้อขายทั่วไป ไม่ใช่ใบกำกับภาษี",
+    voidWarning:args.status === "voided"
+      ? `เอกสารยกเลิก VOID — ไม่ใช้ยืนยันธุรกรรมที่ยังมีผล (${args.voidReason ?? "ยกเลิก"})` : null,
+    paymentHeading:isBuy ? "จ่ายเงินผู้ขาย" : "รับชำระเงิน",
+    footerText:`${heading} · CpiPOS · น้ำหนักตามเครื่องชั่งภายนอก`
+  });
 }
 
 export async function queueRoutedRecyclingReceipt(args: {
@@ -132,12 +122,16 @@ export async function queueRoutedRecyclingReceipt(args: {
   const jobs = [];
   for (const route of routes) {
     for (let copy=1;copy<=route.copies;copy+=1) {
-      const html=renderRecyclingThermalReceipt({
+      const html=renderRecyclingSharedReceipt({
         width:route.printer.paper_width_mm,shop,branch:branchName,
         receiptNo:tx.data.receipt_no,direction:tx.data.direction,
         status:tx.data.status,voidReason:tx.data.void_reason,
-        date,counterparty:tx.data.counterparty_name,settlement:tx.data.settlement,
-        totalMinor:Number(tx.data.total_minor),lines:lines.data as MaterialLine[]
+        createdAt:tx.data.created_at,
+        counterparty:tx.data.counterparty_name,settlement:tx.data.settlement,
+        totalMinor:Number(tx.data.total_minor),lines:lines.data as MaterialLine[],
+        storeAddress:storeProfile?.company_address??null,
+        storePhone:storeProfile?.contact_phone??null,
+        logoUrl:storeProfile?.logo_url??null
       });
       const textReceipt = [shop,branchName,tx.data.receipt_no,date,
         ...(tx.data.status==="voided"
