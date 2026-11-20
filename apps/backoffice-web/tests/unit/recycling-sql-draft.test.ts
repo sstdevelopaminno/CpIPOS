@@ -9,6 +9,9 @@ const phase2 = readFileSync(
 const phase3 = readFileSync(
   new URL("../../../../docs/recycling/phase3_finance_gl_bridge_draft.sql", import.meta.url), "utf8"
 );
+const phase4 = readFileSync(
+  new URL("../../../../docs/recycling/phase4_void_unposted_transaction_draft.sql", import.meta.url), "utf8"
+);
 
 describe("Recycling SQL development drafts (not production migrations)", () => {
   it("keeps a single complete atomic transaction function", () => {
@@ -38,6 +41,24 @@ describe("Recycling SQL development drafts (not production migrations)", () => {
     expect(phase3).toContain("revoke all on function public.recycling_finance_post_transaction(");
     expect(phase3).toContain("recycling_finance_self_approval_forbidden");
     expect(phase3).toContain("finance_accounting_check_actor");
+  });
+
+  it("guards supervised VOID against self-approval, later stock changes and posted GL", () => {
+    expect(phase2).toContain("status in ('posted','voided')");
+    expect(phase2).toContain("last_transaction_id=v_id");
+    expect(phase2).toContain("stock_last_transaction_before");
+    expect(phase2).toContain("voided_by uuid references public.users_profiles");
+    expect(phase4).toContain("recycling_void_self_approval_forbidden");
+    expect(phase4).toContain("recycling_void_material_has_later_movement");
+    expect(phase4).toContain("recycling_void_finance_already_posted");
+    expect(phase4).toContain("recycling_void_bank_reversal_requires_finance");
+    expect(phase4).toContain("recycling_void_shift_already_closed");
+    expect(phase4).toContain("recycling_void_cash_confirmation_required");
+    expect(phase4).toContain("recycling_void_cash_drawer_insufficient");
+    expect(phase4).toContain("recycling_void_approver_forbidden");
+    expect(phase4).toContain("from public,anon,authenticated");
+    expect(phase4).toContain("grant execute on function public.recycling_void_unposted_transaction");
+    expect(phase3).toContain("v_tx.status <> 'posted'");
   });
 
   it("records immutable receipt snapshots and double-entry inventory COGS", () => {
