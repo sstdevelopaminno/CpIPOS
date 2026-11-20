@@ -42,9 +42,20 @@ export async function isAuthorizedRecyclingTenant(tenantId: string): Promise<boo
   const modes = (metadata as Record<string, unknown>).sales_modes;
   if (!modes || typeof modes !== "object" || Array.isArray(modes) ||
       (modes as Record<string, unknown>).recycling !== true) return false;
-  const { data: plan, error: planError } = await db.from("subscription_packages")
-    .select("code").eq("id", contract.package_id).maybeSingle();
-  return !planError && String(plan?.code ?? "").toLowerCase() === "custom";
+  const [plan, lifecycle, tenantStatus] = await Promise.all([
+    db.from("subscription_packages").select("code").eq("id", contract.package_id).maybeSingle(),
+    db.from("tenant_data_lifecycle")
+      .select("access_locked,lifecycle_status,trial_expires_at,subscription_expires_at")
+      .eq("tenant_id", tenantId).maybeSingle(),
+    db.from("tenants").select("is_active").eq("id", tenantId).maybeSingle()
+  ]);
+  if (plan.error || lifecycle.error || tenantStatus.error) return false;
+  if (String(plan.data?.code ?? "").toLowerCase() !== "custom") return false;
+  if (tenantStatus.data?.is_active !== true || !lifecycle.data || lifecycle.data.access_locked === true) return false;
+  if (lifecycle.data.lifecycle_status === "trial" &&
+      (!lifecycle.data.trial_expires_at || Date.parse(lifecycle.data.trial_expires_at) <= now)) return false;
+  if (lifecycle.data.lifecycle_status === "expired" || lifecycle.data.lifecycle_status === "cancelled") return false;
+  return true;
 }
 
 /**
