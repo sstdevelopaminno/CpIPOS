@@ -181,6 +181,8 @@ export function RecyclingPosWorkspace({ products, branchName, transactionWritesE
           <Link className="rounded-lg border border-white/30 bg-white/10 px-4 py-2 text-sm font-semibold hover:bg-white/20"
             href="/preview/pos/recycling/stock">สต๊อกและราคาวัสดุ</Link>
           <Link className="rounded-lg border border-white/30 bg-white/10 px-4 py-2 text-sm font-semibold hover:bg-white/20"
+            href="/preview/pos/recycling/shifts">รายงานปิดกะ</Link>
+          <Link className="rounded-lg border border-white/30 bg-white/10 px-4 py-2 text-sm font-semibold hover:bg-white/20"
             href="/preview/pos/more">เมนูเพิ่มเติม</Link>
         </div>
       </div>
