@@ -24,20 +24,18 @@ export type RecyclingCatalogItem = {
  */
 export async function isAuthorizedRecyclingTenant(tenantId: string): Promise<boolean> {
   const db = getSupabaseServiceClient();
-  const { data, error } = await db.from("tenant_subscription_contracts")
+  const { data: contract, error } = await db.from("tenant_subscription_contracts")
     .select("package_id,status,ended_at,metadata")
     .eq("tenant_id", tenantId)
-    .in("status", ["active", "trial"])
     .order("created_at", { ascending: false })
-    .limit(4);
-  if (error) return false;
+    .limit(1).maybeSingle();
+  // The latest contract is authoritative. Never reactivate a previous trial
+  // merely because it still exists after IT replaced it with an inactive plan.
+  if (error || !contract || !["active", "trial"].includes(contract.status)) return false;
 
   const now = Date.now();
-  const effective = (data ?? []).filter((contract) =>
-    !contract.ended_at || (Number.isFinite(Date.parse(contract.ended_at)) && Date.parse(contract.ended_at) > now)
-  );
-  if (effective.length !== 1) return false;
-  const contract = effective[0];
+  if (contract.ended_at && (!Number.isFinite(Date.parse(contract.ended_at)) ||
+      Date.parse(contract.ended_at) <= now)) return false;
   const metadata = contract.metadata;
   if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return false;
   const modes = (metadata as Record<string, unknown>).sales_modes;
