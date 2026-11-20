@@ -3,6 +3,7 @@ on:
   pull_request:
     paths:
       - "docs/recycling/**"
+      - "supabase/migrations/20261120040000_custom_recycling_atomic_finance.sql"
       - "tests/recycling/**"
       - "apps/backoffice-web/src/app/api/pos/recycling/**"
       - "apps/backoffice-web/src/lib/recycling-**"
@@ -52,24 +53,12 @@ jobs:
         run: |
           set -euo pipefail
           docker exec -i "$PG_CONTAINER" psql -U postgres -d recycling_uat -v ON_ERROR_STOP=1 < tests/recycling/ephemeral_pg_schema.sql
-      - name: Compile and install draft purchase/sale stock RPC on disposable DB
+      - name: Install exact release migration on isolated PostgreSQL (no Supabase credentials)
         env:
           PG_CONTAINER: ${{ job.services.postgres.id }}
         run: |
           set -euo pipefail
-          docker exec -i "$PG_CONTAINER" psql -U postgres -d recycling_uat -v ON_ERROR_STOP=1 < docs/recycling/phase2_transaction_schema_draft.sql
-      - name: Compile and install Finance GL approval bridge on disposable DB
-        env:
-          PG_CONTAINER: ${{ job.services.postgres.id }}
-        run: |
-          set -euo pipefail
-          docker exec -i "$PG_CONTAINER" psql -U postgres -d recycling_uat -v ON_ERROR_STOP=1 < docs/recycling/phase3_finance_gl_bridge_draft.sql
-      - name: Compile and install supervised VOID function on disposable DB
-        env:
-          PG_CONTAINER: ${{ job.services.postgres.id }}
-        run: |
-          set -euo pipefail
-          docker exec -i "$PG_CONTAINER" psql -U postgres -d recycling_uat -v ON_ERROR_STOP=1 < docs/recycling/phase4_void_unposted_transaction_draft.sql
+          docker exec -i "$PG_CONTAINER" psql -U postgres -d recycling_uat -v ON_ERROR_STOP=1 < supabase/migrations/20261120040000_custom_recycling_atomic_finance.sql
       - name: Exercise real SQL with fake identities, fake materials and fake payments
         env:
           PG_CONTAINER: ${{ job.services.postgres.id }}
