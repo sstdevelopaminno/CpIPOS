@@ -23,6 +23,7 @@ create table if not exists public.recycling_transactions (
   operator_user_id uuid not null references public.users_profiles(id),
   request_id uuid not null,
   request_hash text not null check (length(request_hash)=32),
+  finance_document_id uuid unique references public.finance_accounting_documents(id),
   direction text not null check (direction in ('buy','sell')),
   settlement text not null check (settlement in ('cash','bank_transfer','credit')),
   counterparty_name text not null check (length(btrim(counterparty_name)) between 1 and 240),
@@ -77,6 +78,13 @@ revoke all on public.recycling_stock_balances from anon,authenticated;
 revoke all on public.recycling_transactions from anon,authenticated;
 revoke all on public.recycling_transaction_lines from anon,authenticated;
 revoke all on public.recycling_accounting_entries from anon,authenticated;
+
+-- Restrict all new tables to trusted server role. End-user routes use
+-- authenticated Next.js session checks and service_role only server-side.
+grant select,insert,update,delete on public.recycling_stock_balances to service_role;
+grant select,insert,update,delete on public.recycling_transactions to service_role;
+grant select,insert,update,delete on public.recycling_transaction_lines to service_role;
+grant select,insert,update,delete on public.recycling_accounting_entries to service_role;
 
 create or replace function public.recycling_post_transaction(
   p_tenant_id uuid,
