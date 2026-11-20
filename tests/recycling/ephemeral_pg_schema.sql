@@ -42,7 +42,14 @@ create table public.shifts (
   id uuid primary key,
   tenant_id uuid not null references public.tenants(id),
   branch_id uuid not null references public.branches(id),
+  opening_cash numeric,
   status text not null check(status in ('open','closed'))
+);
+create table public.orders (
+  id uuid primary key,
+  tenant_id uuid not null references public.tenants(id),
+  branch_id uuid not null references public.branches(id),
+  shift_id uuid references public.shifts(id)
 );
 create table public.products (
   id uuid primary key, tenant_id uuid not null references public.tenants(id),
@@ -203,9 +210,9 @@ insert into public.tenant_data_lifecycle
   (tenant_id,lifecycle_status,trial_expires_at)
 values
   ('11111111-1111-4111-8111-111111111111','trial',now()+interval '7 days');
-insert into public.shifts(id,tenant_id,branch_id,status) values
+insert into public.shifts(id,tenant_id,branch_id,opening_cash,status) values
   ('88888888-8888-4888-8888-888888888888','11111111-1111-4111-8111-111111111111',
-   '22222222-2222-4222-8222-222222222222','open');
+   '22222222-2222-4222-8222-222222222222',100.00,'open');
 insert into public.products
   (id,tenant_id,branch_id,sku,name,category,price,sell_unit,metadata)
 values
