@@ -244,3 +244,19 @@ $uat$;
 select 'PASS' as result,
   (select count(*) from public.recycling_transactions) as posted_receipts,
   (select count(*) from public.finance_accounting_journals) as approved_gl_journals;
+
+-- Simulate an authenticated old POS client that cannot read the Recycling
+-- tables. The trigger runs as its own fixed-path trusted owner, enforces
+-- Recycler shifts, and must leave this unrelated shift entirely unaffected.
+begin;
+set local role authenticated;
+update public.shifts set status='closed'
+  where id='cccccccc-0000-4000-8000-000000000000';
+commit;
+do $unrelated$
+begin
+  if (select status from public.shifts
+    where id='cccccccc-0000-4000-8000-000000000000') <> 'closed'
+  then raise exception 'UAT_UNRELATED_SHIFT_BLOCKED'; end if;
+end;
+$unrelated$;
