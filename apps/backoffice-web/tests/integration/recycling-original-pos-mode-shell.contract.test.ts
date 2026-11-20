@@ -57,7 +57,8 @@ describe("CUSTOM Recycling uses original POS shell without grocery mode dependen
  });
  it("keeps the native three-column topbar grid aligned on Windows",()=>{
    const css=source("src/app/globals.css");
-   expect(css).toMatch(/\\.posui-mode-header-row\\s*\\{[^}]*grid-template-columns:\\s*34px minmax\\(160px, 184px\\) minmax\\(0, 1fr\\)/);
+   expect(css).toContain(".posui-mode-header-row {");
+   expect(css).toContain("grid-template-columns: 34px minmax(160px, 184px) minmax(0, 1fr);");
    const row=toolbar.slice(toolbar.indexOf('className="posui-mode-header-row"'));
    const toggle=row.indexOf('className="posui-topbar-collapse-toggle"');
    const actions=row.indexOf('className="posui-filter-group"');
