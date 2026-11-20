@@ -3,7 +3,7 @@ on:
   pull_request:
     paths:
       - "docs/recycling/**"
-      - "supabase/migrations/20261120040000_custom_recycling_atomic_finance.sql"
+      - "supabase/migrations/20261120050419_custom_recycling_atomic_finance_20261120.sql"
       - "tests/recycling/**"
       - "apps/backoffice-web/src/app/api/pos/recycling/**"
       - "apps/backoffice-web/src/lib/recycling-**"
@@ -58,7 +58,7 @@ jobs:
           PG_CONTAINER: ${{ job.services.postgres.id }}
         run: |
           set -euo pipefail
-          docker exec -i "$PG_CONTAINER" psql -U postgres -d recycling_uat -v ON_ERROR_STOP=1 < supabase/migrations/20261120040000_custom_recycling_atomic_finance.sql
+          docker exec -i "$PG_CONTAINER" psql -U postgres -d recycling_uat -v ON_ERROR_STOP=1 < supabase/migrations/20261120050419_custom_recycling_atomic_finance_20261120.sql
       - name: Exercise real SQL with fake identities, fake materials and fake payments
         env:
           PG_CONTAINER: ${{ job.services.postgres.id }}

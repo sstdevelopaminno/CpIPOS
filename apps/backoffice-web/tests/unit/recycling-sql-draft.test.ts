@@ -13,7 +13,7 @@ const phase4 = readFileSync(
   new URL("../../../../docs/recycling/phase4_void_unposted_transaction_draft.sql", import.meta.url), "utf8"
 );
 const releaseMigration = readFileSync(
-  new URL("../../../../supabase/migrations/20261120040000_custom_recycling_atomic_finance.sql", import.meta.url), "utf8"
+  new URL("../../../../supabase/migrations/20261120050419_custom_recycling_atomic_finance_20261120.sql", import.meta.url), "utf8"
 );
 
 describe("Recycling staged database migration (not yet applied to production)", () => {
