@@ -42,7 +42,7 @@ describe("Recycling custom cashier UX", () => {
   });
   it("opens payment dialog before post, never enables unverified bank transfer", () => {
     expect(cashier).toContain('setCheckoutOpen(true)');
-    expect(cashier).toContain('disabled={!transactionWritesEnabled || posting || !counterpartyName.trim()');
+    expect(cashier).toContain('disabled={!transactionWritesEnabled || posting || settlement === "bank_transfer" || !counterpartyName.trim()');
     expect(cashier).toContain('disabled={posting || checkoutOpen}');
     expect(cashier).toContain('aria-labelledby="recycling-checkout-title"');
     expect(cashier).toContain('role="dialog"');
