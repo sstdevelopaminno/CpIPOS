@@ -430,7 +430,7 @@ export async function POST(request: Request) {
       .eq("tenant_id", sessionScope.tenantId)
       .eq("branch_id", sessionScope.branchId)
       .eq("status", "open")
-      .select("id")
+      .select("id,expected_cash,metadata")
       .maybeSingle();
 
     if (closeError) {
@@ -451,6 +451,27 @@ export async function POST(request: Request) {
         { data: null, error: { code: "shift_already_closed", message: "This shift was already closed by another request." } },
         { status: 409 }
       );
+    }
+    // The database trigger executed while the shift row lock was held.
+    // It is authoritative if a sale arrived between the read-only preflight
+    // and status=CLOSED. Never overwrite its recalculated totals afterward.
+    if (recyclingShift) {
+      const confirmed=(closedShift.metadata??{}) as Record<string,unknown>;
+      const readConfirmed=(key:string,fallback:number) => {
+        const value=Number(confirmed[key]);
+        return Number.isSafeInteger(value)?value:fallback;
+      };
+      recyclingShift={
+        ...recyclingShift,
+        buyCount:readConfirmed("recycling_buy_count",recyclingShift.buyCount),
+        sellCount:readConfirmed("recycling_sell_count",recyclingShift.sellCount),
+        cashInMinor:readConfirmed("recycling_cash_in_minor",recyclingShift.cashInMinor),
+        cashOutMinor:readConfirmed("recycling_cash_out_minor",recyclingShift.cashOutMinor),
+        cashNetMinor:readConfirmed("recycling_cash_net_minor",recyclingShift.cashNetMinor),
+        transferInMinor:readConfirmed("recycling_transfer_in_minor",recyclingShift.transferInMinor),
+        transferOutMinor:readConfirmed("recycling_transfer_out_minor",recyclingShift.transferOutMinor),
+        expectedCashMinor:readConfirmed("recycling_expected_cash_minor",recyclingShift.expectedCashMinor)
+      };
     }
 
     const sessionShiftClear = await supabase
@@ -545,7 +566,7 @@ export async function POST(request: Request) {
       ? recyclingShift.expectedCashMinor/100 : opticalPolicy.enabled
       ? opticalExpectedCash : Number((openingCashValue + cashTotal).toFixed(2));
     const finalActualCash = autoCloseWithoutCashCount ? null : closingCash ?? 0;
-    const closeTotalsUpdate = await supabase
+    const closeTotalsUpdate = recyclingShift ? {error:null} : await supabase
       .from("shifts")
       .update({
         expected_cash: finalExpectedCash,
