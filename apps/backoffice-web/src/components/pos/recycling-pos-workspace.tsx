@@ -425,7 +425,7 @@ export function RecyclingPosWorkspace({ products, branchName, storeName, deviceC
         {settlement === "bank_transfer" && <p role="alert" className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs font-semibold text-amber-900">
           ยังไม่เปิดการตรวจสอบหลักฐานโอนเงินสำหรับ Recycling จึงไม่อนุญาตให้ยืนยันการ{direction === "buy" ? "จ่ายเงิน" : "รับชำระเงิน"}หรือสร้างบิลสำเร็จ
         </p>}
-        {!transactionWritesEnabled && <p role="alert" className="mt-3 rounded-lg bg-amber-50 p-3 text-xs font-semibold text-amber-900">ตัวอย่างหน้าต่างชำระเงิน: การบันทึกธุรกรรมจริงยังปิดไว้จนกว่าจะผ่านตรวจรับบัญชีและสต๊อก</p>
+        {!transactionWritesEnabled && <p role="alert" className="mt-3 rounded-lg bg-amber-50 p-3 text-xs font-semibold text-amber-900">ตัวอย่างหน้าต่างชำระเงิน: การบันทึกธุรกรรมจริงยังปิดไว้จนกว่าจะผ่านตรวจรับบัญชีและสต๊อก</p>}
         {postError && <p role="alert" className="mt-3 rounded-lg bg-rose-50 p-3 text-sm font-semibold text-rose-800">{postError}</p>}
         <div className="mt-5 flex justify-end gap-2">
           <button type="button" disabled={posting} onClick={() => setCheckoutOpen(false)}
