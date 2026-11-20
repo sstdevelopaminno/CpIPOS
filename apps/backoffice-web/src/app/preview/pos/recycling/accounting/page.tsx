@@ -28,6 +28,16 @@ export default async function RecyclingAccountingPage() {
   const branchId = scope.session.branch_id;
   if (!await isAuthorizedRecyclingTenant(tenantId)) notFound();
 
+  if (process.env.RECYCLING_STOCK_SCHEMA_READY !== "1") {
+    return <main className="mx-auto max-w-5xl space-y-4 p-5">
+      <h1 className="text-xl font-extrabold">บัญชีวัสดุรีไซเคิล</h1>
+      <p className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-amber-900">
+        ยังไม่ได้ติดตั้งฐานข้อมูลธุรกรรม Recycling บนเซิร์ฟเวอร์ รายการบัญชีและยอดคงเหลือจึงยังไม่พร้อมแสดง
+      </p>
+      <Link className="font-semibold text-blue-700" href="/preview/pos/recycling/stock">กลับตารางสต๊อก</Link>
+    </main>;
+  }
+
   const db = getSupabaseServiceClient();
   const { data, error } = await db.from("recycling_accounting_entries")
     .select("id,transaction_id,account_code,account_name,debit_minor,credit_minor,line_no")
