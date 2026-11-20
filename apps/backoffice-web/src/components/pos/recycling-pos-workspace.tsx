@@ -275,7 +275,7 @@ export function RecyclingPosWorkspace({ products, branchName, storeName, deviceC
 
   const units = pending?.priceBasis === "piece" ? (["piece", "stem"] as RecyclingUnit[]) : weightUnits;
 
-  return <main className="flex h-full min-h-0 w-full flex-col gap-2 overflow-y-auto bg-slate-50 px-2 py-2 md:px-3" data-testid="recycling-custom-pos">
+  return <main className="recycling-pos-layout flex h-full min-h-0 w-full flex-col overflow-hidden bg-white" data-testid="recycling-custom-pos">
     <RecyclingSalesModeSwitcher storeName={storeName} branchName={branchName}
       deviceCode={deviceCode} sellerName={sellerName} shiftStatus={shiftStatus}
       generalSaleEnabled={generalSaleEnabled} direction={direction}
@@ -284,8 +284,8 @@ export function RecyclingPosWorkspace({ products, branchName, storeName, deviceC
       ระบบรับซื้อ–ขายออกยังปิดการบันทึกธุรกรรมจริงระหว่างตรวจสอบ Backend ไม่มีรายการสต๊อกหรือบัญชีถูกบันทึก
     </div>}
 
-    <div className="grid min-h-[560px] w-full flex-1 gap-2 lg:grid-cols-[minmax(290px,0.42fr)_minmax(0,0.58fr)]">
-      <section className="min-w-0 rounded-lg border border-slate-200 bg-white p-3">
+    <div className="recycling-pos-panels min-h-0 w-full flex-1 overflow-hidden" data-testid="recycling-unified-sales-body">
+      <section className="recycling-scanner-panel flex min-h-0 min-w-0 flex-col bg-white p-3">
         <div className="flex items-center justify-between gap-3">
           <h2 className="text-base font-extrabold text-slate-900">ยิงบาร์โค้ด / ค้นหาวัสดุ</h2>
           <span className="rounded-lg bg-slate-100 px-2 py-1 text-xs text-slate-600">{products.length} รายการ</span>
@@ -298,7 +298,7 @@ export function RecyclingPosWorkspace({ products, branchName, storeName, deviceC
           onKeyDown={event => { if (event.key === "Enter") { event.preventDefault(); scanBarcode(); } }} />
         {error && <p role="alert" className="mt-2 rounded-lg bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700">{error}</p>}
         <p className="mt-2 text-xs text-slate-500">ยิงบาร์โค้ดแล้ว Enter: สินค้านับชิ้นเข้าตะกร้าทันที · สินค้าชั่งน้ำหนักให้ยืนยันค่าชั่งก่อน</p>
-        <div className="mt-4 max-h-[460px] space-y-1 overflow-y-auto">
+        <div className="recycling-catalog-scroll mt-3 min-h-0 flex-1 space-y-1 overflow-y-auto">
           {filteredProducts.length ? filteredProducts.map(item => {
             const price = direction === "buy" ? item.buyPrice : item.sellPrice;
             return <button type="button" key={item.id} disabled={posting || checkoutOpen} onClick={() => openQuantityPopup(item)}
@@ -317,7 +317,7 @@ export function RecyclingPosWorkspace({ products, branchName, storeName, deviceC
         </div>
       </section>
 
-      <section className="min-w-0 rounded-lg border border-slate-200 bg-white p-3">
+      <section className="recycling-cart-panel flex min-h-0 min-w-0 flex-col bg-white p-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 className="text-base font-extrabold text-slate-900">ตะกร้ารายการ{direction === "buy" ? "รับซื้อ" : "ขายออก"}</h2>
           <button type="button" className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-bold text-slate-700 disabled:opacity-50"
@@ -325,7 +325,7 @@ export function RecyclingPosWorkspace({ products, branchName, storeName, deviceC
             ล้างตะกร้า
           </button>
         </div>
-        <div className="mt-3 overflow-x-auto rounded-lg border border-slate-200">
+        <div className="recycling-cart-scroll mt-3 min-h-0 flex-1 overflow-auto rounded-lg border border-slate-200" data-testid="recycling-scrollable-cart">
           <table className="w-full min-w-[630px] border-collapse text-sm">
             <thead className="bg-slate-100 text-left text-slate-700"><tr>
               <th className="px-3 py-3">#</th><th className="px-3 py-3">รหัส / รายการ</th>
@@ -346,7 +346,8 @@ export function RecyclingPosWorkspace({ products, branchName, storeName, deviceC
             </td></tr>}</tbody>
           </table>
         </div>
-        <div className="mt-4 flex items-center justify-between rounded-xl bg-blue-50 p-4">
+        <div className="recycling-summary-dock mt-auto shrink-0 border-t border-slate-200 bg-white pt-3" data-testid="recycling-anchored-summary">
+          <div className="flex items-center justify-between rounded-lg bg-blue-50 p-4">
           <div><span className="text-sm font-semibold text-slate-600">{direction === "buy" ? "ยอดเงินจ่ายผู้ขาย" : "ยอดรับเงินจากผู้ซื้อ"}</span>
             <small className="block text-xs text-slate-500">{visibleLines.length} รายการ (ยังไม่บันทึก)</small></div>
           <strong className="text-2xl font-extrabold tabular-nums text-blue-900">{formatMoney(total)} ฿</strong>
@@ -371,6 +372,7 @@ export function RecyclingPosWorkspace({ products, branchName, storeName, deviceC
             className="w-auto min-w-[220px] max-w-full rounded-lg bg-blue-700 px-5 py-3 text-sm font-extrabold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-50">
             {direction === "buy" ? "บันทึกใบรับซื้อและเข้าสต๊อก" : "บันทึกขายออกและตัดสต๊อก"}
           </button>
+        </div>
         </div>
       </section>
     </div>

@@ -37,21 +37,9 @@ export function RecyclingSalesModeSwitcher({
 }) {
   const [open, setOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
-  const compactMetaCss = [
-    '[data-pos-react-sales-mode="recycling"] .posui-mode-header-row{display:grid!important;grid-template-columns:34px max-content minmax(0,1fr)!important;align-items:center;gap:8px;}',
-    '[data-pos-react-sales-mode="recycling"] .posui-filter-group{min-width:0;}',
-    '@media(max-width:1100px){[data-pos-react-sales-mode="recycling"] .posui-mode-header-row{grid-template-columns:34px minmax(0,1fr)!important;}[data-pos-react-sales-mode="recycling"] .posui-sales-meta-group{grid-column:1/-1;}}',
-    '[data-pos-react-sales-mode="recycling"] .posui-sales-meta-card{border:0!important;background:transparent!important;box-shadow:none!important;padding:0!important;}',
-    '[data-pos-react-sales-mode="recycling"] .posui-sales-meta-columns{display:flex!important;flex-wrap:wrap!important;align-items:center;justify-content:flex-end;gap:6px 13px;width:100%;}',
-    '[data-pos-react-sales-mode="recycling"] .posui-sales-meta-list{display:contents!important;}',
-    '[data-pos-react-sales-mode="recycling"] .posui-sales-meta-row{display:inline-flex!important;align-items:baseline;gap:5px;white-space:nowrap;font-size:11px;line-height:1.3;}',
-    '[data-pos-react-sales-mode="recycling"] .posui-sales-meta-row dt{color:#64748b;font-weight:600;}',
-    '[data-pos-react-sales-mode="recycling"] .posui-sales-meta-row dd{color:#0f172a;font-weight:700;margin:0;}'
-  ].join("");
   return <>
-    <section className={"posui-sales-topbar min-w-0 rounded-lg border border-slate-200 bg-white px-2 py-2 shadow-sm " + (collapsed ? "is-collapsed" : "")}
+    <section className={"recycling-pos-toolbar posui-sales-topbar min-w-0 border-b border-slate-200 bg-white px-2 py-2 " + (collapsed ? "is-collapsed" : "")}
       data-pos-react-sales-mode="recycling" data-testid="recycling-original-sales-toolbar">
-      <style>{compactMetaCss}</style>
       <div className="posui-mode-header-row" data-testid="recycling-compact-toolbar">
         <button type="button" className="posui-topbar-collapse-toggle"
           onClick={() => setCollapsed(current => !current)}
@@ -60,7 +48,7 @@ export function RecyclingSalesModeSwitcher({
           <span className="posui-topbar-collapse-toggle__chevron" aria-hidden="true"/>
         </button>
         <div className="posui-filter-group">
-          <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <div className="recycling-topbar-actions flex min-w-0 flex-wrap items-center gap-2">
         <button type="button" className="posui-mode-switch-button"
           onClick={() => setOpen(true)} aria-haspopup="dialog"
           aria-label="สลับโหมดขาย: ร้านค้าของเก่า Recycling">
