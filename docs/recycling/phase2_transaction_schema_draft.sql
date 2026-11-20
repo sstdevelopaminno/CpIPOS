@@ -231,91 +231,10 @@ begin
       raise exception 'recycling_amount_too_large';
     end if;
     -- Client price is an assertion only, never the server authority.
-    if coalesce(v_line->>'expected_price','') !~ '^[0-9]{1,10}(\.[0-9]{1,2})?
-    if v_line_minor<=0 then raise exception 'recycling_line_amount_too_small'; end if;
-
-    insert into public.recycling_stock_balances(tenant_id,branch_id,product_id)
-      values(p_tenant_id,p_branch_id,v_p.id) on conflict do nothing;
-    select quantity_base,carrying_cost_minor into v_stock
-      from public.recycling_stock_balances where tenant_id=p_tenant_id
-        and branch_id=p_branch_id and product_id=v_p.id for update;
-    if p_direction='buy' then
-      v_cost_minor := 0;
-      v_new_qty := v_stock.quantity_base + v_base_quantity;
-      v_new_value := v_stock.carrying_cost_minor + v_line_minor;
-    else
-      if v_stock.quantity_base < v_base_quantity then
-        raise exception 'recycling_stock_insufficient';
-      end if;
-      v_cost_minor := case when v_stock.quantity_base=v_base_quantity
-        then v_stock.carrying_cost_minor else
-        round(v_stock.carrying_cost_minor * v_base_quantity / v_stock.quantity_base)::bigint end;
-      v_new_qty := v_stock.quantity_base - v_base_quantity;
-      v_new_value := v_stock.carrying_cost_minor - v_cost_minor;
+    if coalesce(v_line->>'expected_price','') !~ '^[0-9]{1,10}(\\.[0-9]{1,2})?$' then
+      raise exception 'recycling_invalid_expected_price';
     end if;
-    update public.recycling_stock_balances set
-      quantity_base=v_new_qty,carrying_cost_minor=v_new_value,updated_at=now()
-      where tenant_id=p_tenant_id and branch_id=p_branch_id and product_id=v_p.id;
-    insert into public.recycling_transaction_lines
-      (transaction_id,tenant_id,branch_id,line_no,product_id,original_quantity,
-       original_unit,base_quantity,base_unit,price_per_base,amount_minor,cogs_minor)
-    values (v_id,p_tenant_id,p_branch_id,v_index+1,v_p.id,v_quantity,v_unit,
-      v_base_quantity,v_basis,v_price,v_line_minor,v_cost_minor);
-    v_total_minor := v_total_minor+v_line_minor;
-    v_cogs_minor := v_cogs_minor+v_cost_minor;
-  end loop;
-  if v_total_minor>99999999999999 then raise exception 'recycling_total_too_large'; end if;
-  update public.recycling_transactions
-    set total_minor=v_total_minor,cogs_minor=v_cogs_minor where id=v_id;
-  v_cash_code := case p_settlement when 'cash' then '1100'
-    when 'bank_transfer' then '1110'
-    else case p_direction when 'buy' then '2100' else '1201' end end;
-  v_cash_name := case p_settlement when 'cash' then 'เงินสด'
-    when 'bank_transfer' then 'เงินฝากธนาคาร'
-    else case p_direction when 'buy' then 'เจ้าหนี้รับซื้อวัสดุ' else 'ลูกหนี้การค้า' end end;
-
-  if p_direction='buy' then
-    insert into public.recycling_accounting_entries(transaction_id,tenant_id,branch_id,line_no,account_code,account_name,debit_minor)
-      values (v_id,p_tenant_id,p_branch_id,1,'1200','สินค้าคงเหลือวัสดุรีไซเคิล',v_total_minor);
-    insert into public.recycling_accounting_entries(transaction_id,tenant_id,branch_id,line_no,account_code,account_name,credit_minor)
-      values (v_id,p_tenant_id,p_branch_id,2,v_cash_code,v_cash_name,v_total_minor);
-  else
-    insert into public.recycling_accounting_entries(transaction_id,tenant_id,branch_id,line_no,account_code,account_name,debit_minor)
-      values (v_id,p_tenant_id,p_branch_id,1,v_cash_code,v_cash_name,v_total_minor);
-    insert into public.recycling_accounting_entries(transaction_id,tenant_id,branch_id,line_no,account_code,account_name,credit_minor)
-      values (v_id,p_tenant_id,p_branch_id,2,'4100','รายได้ขายวัสดุรีไซเคิล',v_total_minor);
-    if v_cogs_minor>0 then
-      insert into public.recycling_accounting_entries(transaction_id,tenant_id,branch_id,line_no,account_code,account_name,debit_minor)
-        values (v_id,p_tenant_id,p_branch_id,3,'5100','ต้นทุนขายวัสดุรีไซเคิล',v_cogs_minor);
-      insert into public.recycling_accounting_entries(transaction_id,tenant_id,branch_id,line_no,account_code,account_name,credit_minor)
-        values (v_id,p_tenant_id,p_branch_id,4,'1200','สินค้าคงเหลือวัสดุรีไซเคิล',v_cogs_minor);
-    end if;
-  end if;
-  if (select coalesce(sum(debit_minor-credit_minor),0)
-    from public.recycling_accounting_entries where transaction_id=v_id) <> 0 then
-    raise exception 'recycling_ledger_not_balanced';
-  end if;
-  return jsonb_build_object('id',v_id,'total_minor',v_total_minor,'cogs_minor',v_cogs_minor,'idempotent',false);
-end;
-$fn$;
-
--- Security: this RPC is server-side only; grant only to service_role.
-revoke all on function public.recycling_post_transaction(
- uuid,uuid,uuid,uuid,uuid,text,text,text,jsonb
-) from public,anon,authenticated;
-grant execute on function public.recycling_post_transaction(
- uuid,uuid,uuid,uuid,uuid,text,text,text,jsonb
-) to service_role;
-
--- Release plan:
--- 1. Run draft on isolated staging and inspect RLS/function grants.
--- 2. Test concurrent/duplicate request_id, insufficient stock and rollback.
--- 3. Confirm staff membership, shift and trial/lock gates.
--- 4. Map and post balanced entries to finance_accounting_* with approval and
---    source-document audit. No VAT/invoice until legal verification.
--- 5. Only then promote a verified migration, run advisors and allow production.
-
-       or (v_line->>'expected_price')::numeric <> v_price then
+    if (v_line->>'expected_price')::numeric <> v_price then
       raise exception 'recycling_price_changed_refresh_cart';
     end if;
     v_line_minor := round(v_price * v_base_quantity * 100)::bigint;
@@ -401,3 +320,4 @@ grant execute on function public.recycling_post_transaction(
 -- 4. Map and post balanced entries to finance_accounting_* with approval and
 --    source-document audit. No VAT/invoice until legal verification.
 -- 5. Only then promote a verified migration, run advisors and allow production.
+
