@@ -44,6 +44,7 @@ export function renderRecyclingSharedReceipt(args: {
   logoUrl?: string | null;
 }) {
   const isBuy = args.direction === "buy";
+  const isCredit = args.settlement === "credit";
   const heading = isBuy ? "รับซื้อวัสดุรีไซเคิล" : "ขายออกวัสดุรีไซเคิล";
   const documentTitle = isBuy ? "หลักฐานรับซื้อวัสดุรีไซเคิล" : "หลักฐานขายออกวัสดุรีไซเคิล";
   return renderReceiptHtml({
@@ -76,8 +77,13 @@ export function renderRecyclingSharedReceipt(args: {
     documentNotice:"เอกสารซื้อขายทั่วไป ไม่ใช่ใบกำกับภาษี",
     voidWarning:args.status === "voided"
       ? `เอกสารยกเลิก VOID — ไม่ใช้ยืนยันธุรกรรมที่ยังมีผล (${args.voidReason ?? "ยกเลิก"})` : null,
-    paymentHeading:isBuy ? "จ่ายเงินผู้ขาย" : "รับชำระเงิน",
-    footerText:`${heading} · CpiPOS · น้ำหนักตามเครื่องชั่งภายนอก`
+    // Credit records document the receivable/payable, not an actual cash movement.
+    paymentHeading:isCredit
+      ? (isBuy ? "ยอดค้างจ่ายผู้ขาย" : "ยอดค้างรับจากผู้ซื้อ")
+      : (isBuy ? "จ่ายเงินผู้ขาย" : "รับชำระเงิน"),
+    footerText:isCredit
+      ? `${heading} · เครดิต/ค้างชำระ — ยังไม่มีการรับหรือจ่ายเงินจริง · CpiPOS · น้ำหนักตามเครื่องชั่งภายนอก`
+      : `${heading} · CpiPOS · น้ำหนักตามเครื่องชั่งภายนอก`
   });
 }
 
@@ -137,6 +143,9 @@ export async function queueRoutedRecyclingReceipt(args: {
         ...(tx.data.status==="voided"
           ? ["ยกเลิก VOID — ห้ามใช้ยืนยันธุรกรรมที่ยังมีผล",tx.data.void_reason??""] : []),
         tx.data.direction==="buy"?"รับซื้อวัสดุรีไซเคิล":"ขายออกวัสดุรีไซเคิล",
+        tx.data.settlement==="credit"
+          ? "เครดิต/ค้างชำระ — ยังไม่มีการรับหรือจ่ายเงินจริง"
+          : tx.data.settlement==="cash" ? "วิธีชำระเงิน: เงินสด" : "วิธีชำระเงิน: โอนเงิน (ตรวจสอบหลักฐาน)",
         ...lines.data.map(l=>`${l.name_snapshot} ${l.original_quantity} ${unitNames[l.original_unit]??l.original_unit} ${thaiMoney(Number(l.amount_minor))}`),
         `รวม ${thaiMoney(Number(tx.data.total_minor))} บาท`,
         "เอกสารซื้อขายทั่วไป ไม่ใช่ใบกำกับภาษี"].join("\n");
