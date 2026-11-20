@@ -29,10 +29,21 @@ export function RecyclingSalesModeSwitcher({
   generalSaleEnabled: boolean;
 }) {
   const [open, setOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
   return <>
-    <section className="posui-sales-topbar rounded-xl border border-slate-200 bg-white shadow-sm"
+    <section className={`posui-sales-topbar rounded-xl border border-slate-200 bg-white shadow-sm ${collapsed ? "is-collapsed" : ""}`}
       data-pos-react-sales-mode="recycling" data-testid="recycling-original-sales-toolbar">
       <div className="posui-mode-header-row">
+        {/* The original 3-column grid requires its first 34px toggle column.
+            Without it the mode button is squeezed into 34px and metadata
+            into the 184px column, producing the broken Windows layout. */}
+        <button type="button" className="posui-topbar-collapse-toggle"
+          onClick={() => setCollapsed(current => !current)}
+          aria-expanded={!collapsed}
+          aria-label={collapsed ? "ขยายแถบข้อมูลด้านบน" : "หุบแถบข้อมูลด้านบน"}
+          title={collapsed ? "ขยายแถบบน" : "หุบแถบบน"}>
+          <span className="posui-topbar-collapse-toggle__chevron" aria-hidden="true" />
+        </button>
         <div className="posui-filter-group">
           <div className="posui-top-actions-card">
             <button type="button" className="posui-mode-switch-button"
