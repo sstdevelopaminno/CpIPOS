@@ -83,7 +83,8 @@ function paymentLabel(method: string, lang: "th" | "en" | "lo" = "th") {
   const labels: Record<string, Record<"th" | "en" | "lo", string>> = {
     cash: { th: "เงินสด", en: "Cash", lo: "ເງິນສົດ" },
     bank_transfer: { th: "โอนเงิน", en: "Bank transfer", lo: "ໂອນເງິນ" },
-    card: { th: "บัตร", en: "Card", lo: "ບັດ" }
+    card: { th: "บัตร", en: "Card", lo: "ບັດ" },
+    credit: { th: "เครดิต/ค้างชำระ", en: "Credit / payable", lo: "ເຊື່ອ / ຄ້າງຊຳລະ" }
   };
   return labels[method]?.[lang] ?? method ?? (lang === "lo" ? "ຊຳລະເງິນ" : lang === "en" ? "Payment" : "ชำระเงิน");
 }
