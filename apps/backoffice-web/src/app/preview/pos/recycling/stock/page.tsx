@@ -19,5 +19,7 @@ export default async function RecyclingStockPage() {
     getSupabaseServiceClient().from("branches").select("name")
       .eq("tenant_id", tenantId).eq("id", branchId).maybeSingle()
   ]);
-  return <RecyclingStockWorkspace items={items} branchName={branch.data?.name ?? "สาขาที่เข้าสู่ระบบ"} />;
+  return <RecyclingStockWorkspace items={items}
+    branchName={branch.data?.name ?? "สาขาที่เข้าสู่ระบบ"}
+    canManage={scope.session.role === "owner" || scope.session.role === "manager"} />;
 }
