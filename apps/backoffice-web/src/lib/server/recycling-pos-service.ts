@@ -87,7 +87,10 @@ export async function getRecyclingCatalog(tenantId: string, branchId: string): P
     }
   }
 
-  return (data ?? []).map((product): RecyclingCatalogItem => {
+  return (data ?? []).filter((product) => product.metadata && typeof product.metadata === "object" &&
+    !Array.isArray(product.metadata) &&
+    (product.metadata as Record<string, unknown>).business_mode === "recycling")
+    .map((product): RecyclingCatalogItem => {
     const metadata = product.metadata && typeof product.metadata === "object" && !Array.isArray(product.metadata)
       ? product.metadata as Record<string, unknown> : {};
     const buy = Number(metadata.recycling_buy_price);
