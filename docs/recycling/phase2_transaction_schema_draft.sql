@@ -442,8 +442,14 @@ grant execute on function public.recycling_shift_totals(uuid,uuid,uuid)
 -- and recomputes Recycling drawer cash from committed transactions, so a
 -- concurrent buy/sell cannot be omitted from the official closed-shift total.
 -- It does nothing for a shift with zero Recycling transactions.
+-- A trigger runs on *every* shift status change, including older POS
+-- clients whose authenticated role cannot SELECT the private Recycling
+-- ledger tables. A tightly scoped SECURITY DEFINER is therefore required
+-- to enforce the same closed-shift rule without breaking unrelated tenants.
+-- It exposes no result, uses a fixed empty search_path, and EXECUTE is
+-- not granted to anon/authenticated.
 create or replace function public.recycling_guard_shift_closure()
-returns trigger language plpgsql security invoker
+returns trigger language plpgsql security definer
 set search_path='' as $shiftclose$
 declare
   v_count bigint;
