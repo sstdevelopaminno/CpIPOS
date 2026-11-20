@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
+import { RecyclingFinanceApprovalQueue, type RecyclingFinancePendingTransaction } from "@/components/pos/recycling-finance-approval-queue";
 import { requirePosSession } from "@/lib/pos-session-guard";
 import { isAuthorizedRecyclingTenant } from "@/lib/server/recycling-pos-service";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
@@ -39,12 +40,18 @@ export default async function RecyclingAccountingPage() {
   }
 
   const db = getSupabaseServiceClient();
-  const { data, error } = await db.from("recycling_accounting_entries")
-    .select("id,transaction_id,account_code,account_name,debit_minor,credit_minor,line_no")
-    .eq("tenant_id", tenantId).eq("branch_id", branchId)
-    .order("transaction_id").order("line_no").limit(500);
+  const [{ data, error }, transactionResult] = await Promise.all([
+    db.from("recycling_accounting_entries")
+      .select("id,transaction_id,account_code,account_name,debit_minor,credit_minor,line_no")
+      .eq("tenant_id", tenantId).eq("branch_id", branchId)
+      .order("transaction_id").order("line_no").limit(500),
+    db.from("recycling_transactions")
+      .select("id,receipt_no,direction,counterparty_name,total_minor,cogs_minor,created_at,finance_document_id")
+      .eq("tenant_id", tenantId).eq("branch_id", branchId)
+      .order("created_at", { ascending: false }).limit(100)
+  ]);
 
-  if (error) return <main className="mx-auto max-w-5xl space-y-4 p-5" role="alert">
+  if (error || transactionResult.error) return <main className="mx-auto max-w-5xl space-y-4 p-5" role="alert">
     <h1 className="text-xl font-extrabold text-slate-900">บัญชีวัสดุรีไซเคิล</h1>
     <p className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-amber-900">
       ยังไม่สามารถแสดงรายการบัญชีได้ กรุณาตรวจสอบการติดตั้งฐานข้อมูล Recycling และสิทธิ์การเข้าถึง
@@ -87,6 +94,11 @@ export default async function RecyclingAccountingPage() {
       <div className="rounded-xl border bg-white p-4"><p className="text-xs text-slate-500">ธุรกรรมเดบิต/เครดิตไม่สมดุล</p>
         <strong className={`text-2xl ${unbalanced ? "text-rose-700" : "text-emerald-700"}`}>{unbalanced}</strong></div>
     </div>
+    <RecyclingFinanceApprovalQueue
+      transactions={(transactionResult.data ?? []) as RecyclingFinancePendingTransaction[]}
+      canPost={role === "accountant"}
+      postingEnabled={process.env.RECYCLING_FINANCE_GL_POSTING_ENABLED === "1"}
+    />
     <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
       <table className="w-full min-w-[730px] text-sm">
         <thead className="bg-slate-100 text-left text-slate-700"><tr>
