@@ -22,7 +22,8 @@ function RecyclingModeIcon() {
  * overlapping menu or a negative ordinary POS sale.
  */
 export function RecyclingSalesModeSwitcher({
-  storeName, branchName, deviceCode, generalSaleEnabled, sellerName, shiftStatus
+  storeName, branchName, deviceCode, generalSaleEnabled, sellerName, shiftStatus,
+  direction, onDirectionChange, busy
 }: {
   storeName: string;
   branchName: string;
@@ -30,49 +31,54 @@ export function RecyclingSalesModeSwitcher({
   sellerName: string;
   shiftStatus: string;
   generalSaleEnabled: boolean;
+  direction: "buy" | "sell";
+  onDirectionChange: (next: "buy" | "sell") => void;
+  busy: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
+  const compactMetaCss = [
+    '[data-pos-react-sales-mode="recycling"] .posui-sales-meta-card{border:0!important;background:transparent!important;box-shadow:none!important;padding:0!important;}',
+    '[data-pos-react-sales-mode="recycling"] .posui-sales-meta-columns{display:flex!important;flex-wrap:wrap!important;align-items:center;justify-content:flex-end;gap:6px 13px;width:100%;}',
+    '[data-pos-react-sales-mode="recycling"] .posui-sales-meta-list{display:contents!important;}',
+    '[data-pos-react-sales-mode="recycling"] .posui-sales-meta-row{display:inline-flex!important;align-items:baseline;gap:5px;white-space:nowrap;font-size:11px;line-height:1.3;}',
+    '[data-pos-react-sales-mode="recycling"] .posui-sales-meta-row dt{color:#64748b;font-weight:600;}',
+    '[data-pos-react-sales-mode="recycling"] .posui-sales-meta-row dd{color:#0f172a;font-weight:700;margin:0;}'
+  ].join("");
   return <>
-    <section className={`posui-sales-topbar rounded-xl border border-slate-200 bg-white shadow-sm ${collapsed ? "is-collapsed" : ""}`}
+    <section className={"posui-sales-topbar min-w-0 rounded-lg border border-slate-200 bg-white px-2 py-2 shadow-sm " + (collapsed ? "is-collapsed" : "")}
       data-pos-react-sales-mode="recycling" data-testid="recycling-original-sales-toolbar">
-      <div className="posui-mode-header-row">
-        {/* The original 3-column grid requires its first 34px toggle column.
-            Without it the mode button is squeezed into 34px and metadata
-            into the 184px column, producing the broken Windows layout. */}
-        <button type="button" className="posui-topbar-collapse-toggle"
+      <style>{compactMetaCss}</style>
+      <div className="flex w-full flex-wrap items-center gap-2 xl:flex-nowrap" data-testid="recycling-compact-toolbar">
+        <button type="button" className="posui-topbar-collapse-toggle shrink-0"
           onClick={() => setCollapsed(current => !current)}
           aria-expanded={!collapsed}
-          aria-label={collapsed ? "ขยายแถบข้อมูลด้านบน" : "หุบแถบข้อมูลด้านบน"}
-          title={collapsed ? "ขยายแถบบน" : "หุบแถบบน"}>
-          <span className="posui-topbar-collapse-toggle__chevron" aria-hidden="true" />
+          aria-label={collapsed ? "ขยายแถบข้อมูลด้านบน" : "หุบแถบข้อมูลด้านบน"}>
+          <span className="posui-topbar-collapse-toggle__chevron" aria-hidden="true"/>
         </button>
-        <div className="posui-filter-group">
-          <div className="posui-top-actions-card">
-            <button type="button" className="posui-mode-switch-button"
-              onClick={() => setOpen(true)} aria-haspopup="dialog"
-              aria-label="สลับโหมดขาย: ร้านค้าของเก่า Recycling">
-              <span className="posui-mode-switch-button__icon" aria-hidden="true"><RecyclingModeIcon/></span>
-              <span className="posui-mode-switch-button__action">สลับโหมดขาย</span>
+        <button type="button" className="posui-mode-switch-button shrink-0"
+          onClick={() => setOpen(true)} aria-haspopup="dialog"
+          aria-label="สลับโหมดขาย: ร้านค้าของเก่า Recycling">
+          <span className="posui-mode-switch-button__icon" aria-hidden="true"><RecyclingModeIcon/></span>
+          <span className="posui-mode-switch-button__action">สลับโหมดขาย</span>
+        </button>
+        <div role="group" aria-label="ประเภทการทำรายการ"
+          className="flex shrink-0 items-center gap-1 rounded-lg border border-slate-200 bg-slate-50 p-1">
+          {([["buy", "รับซื้อเข้าร้าน"], ["sell", "ขายออก"]] as const).map(([value,label]) =>
+            <button key={value} type="button" disabled={busy} aria-pressed={direction===value}
+              onClick={() => onDirectionChange(value)}
+              className={"min-w-[96px] rounded-md px-3 py-2 text-xs font-extrabold transition-colors disabled:opacity-50 " +
+                (direction === value ? (value === "buy" ? "bg-blue-700 text-white" : "bg-emerald-700 text-white") :
+                  "bg-white text-slate-700 hover:bg-slate-100")}>
+              {label}
             </button>
-            <div className="posui-mode-stack-meta">
-              <span className="posui-held-bill-btn" title={storeName}>
-                ร้านค้าของเก่า · Recycling
-              </span>
-            </div>
-          </div>
+          )}
         </div>
-        <div className="posui-filter-group posui-sales-meta-group">
-          <section className="posui-sales-meta-card" aria-label="ข้อมูลหน้าขาย">
-            <PosSalesMetaDetails
-              sellerName={sellerName}
-              shiftStatus={shiftStatus}
-              branchName={branchName}
-              deviceCode={deviceCode}
-              labels={THAI_POS_SALES_META_LABELS}
-            />
-          </section>
-        </div>
+        {!collapsed && <div className="min-w-[290px] flex-1" title={storeName}>
+          <PosSalesMetaDetails sellerName={sellerName} shiftStatus={shiftStatus}
+            branchName={branchName} deviceCode={deviceCode}
+            labels={THAI_POS_SALES_META_LABELS}/>
+        </div>}
       </div>
     </section>
     {open && <div role="dialog" aria-modal="true" aria-labelledby="recycling-mode-picker-title"
