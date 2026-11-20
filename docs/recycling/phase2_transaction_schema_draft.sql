@@ -22,6 +22,7 @@ create table if not exists public.recycling_transactions (
   shift_id uuid not null references public.shifts(id),
   operator_user_id uuid not null references public.users_profiles(id),
   request_id uuid not null,
+  request_hash text not null check (length(request_hash)=32),
   direction text not null check (direction in ('buy','sell')),
   settlement text not null check (settlement in ('cash','bank_transfer','credit')),
   counterparty_name text not null check (length(btrim(counterparty_name)) between 1 and 240),
@@ -97,6 +98,7 @@ declare
   v_lifecycle record;
   v_id uuid;
   v_existing record;
+  v_request_hash text;
   v_line jsonb;
   v_p record;
   v_stock record;
@@ -120,7 +122,8 @@ begin
      p_user_id is null or p_request_id is null then
     raise exception 'recycling_invalid_identity';
   end if;
-  if p_direction not in ('buy','sell') or p_settlement not in ('cash','bank_transfer','credit') then
+  if coalesce(p_direction,'') not in ('buy','sell') or
+     coalesce(p_settlement,'') not in ('cash','bank_transfer','credit') then
     raise exception 'recycling_invalid_direction_or_settlement';
   end if;
   if length(btrim(coalesce(p_counterparty_name,''))) not between 1 and 240 then
@@ -134,12 +137,21 @@ begin
   end if;
 
   -- Identical request IDs serialize, preventing duplicate settlement on retry.
+  -- A reused idempotency key with a changed payload must never be accepted.
+  v_request_hash := pg_catalog.md5(pg_catalog.jsonb_build_object(
+    'shift_id',p_shift_id,'user_id',p_user_id,'direction',p_direction,
+    'settlement',p_settlement,'counterparty',btrim(p_counterparty_name),
+    'lines',p_lines
+  )::text);
   perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtext(
     p_tenant_id::text || ':' || p_branch_id::text || ':' || p_request_id::text
   ));
-  select id,total_minor,cogs_minor into v_existing from public.recycling_transactions
+  select id,total_minor,cogs_minor,request_hash into v_existing from public.recycling_transactions
     where tenant_id=p_tenant_id and branch_id=p_branch_id and request_id=p_request_id;
   if found then
+    if v_existing.request_hash is distinct from v_request_hash then
+      raise exception 'recycling_request_key_reused';
+    end if;
     return jsonb_build_object('id',v_existing.id,'total_minor',v_existing.total_minor,
       'cogs_minor',v_existing.cogs_minor,'idempotent',true);
   end if;
@@ -148,16 +160,16 @@ begin
     into v_contract from public.tenant_subscription_contracts c
     join public.subscription_packages p on p.id=c.package_id
     where c.tenant_id=p_tenant_id order by c.created_at desc limit 1;
-  if v_contract.status not in ('active','trial') or
-     v_contract.package_code <> 'custom' or
+  if not found or coalesce(v_contract.status,'') not in ('active','trial') or
+     coalesce(v_contract.package_code,'') <> 'custom' or
      coalesce(v_contract.metadata->'sales_modes'->>'recycling','') <> 'true' or
      (v_contract.ended_at is not null and v_contract.ended_at <= now()) then
     raise exception 'recycling_contract_not_authorized';
   end if;
   select lifecycle_status,access_locked,trial_expires_at into v_lifecycle
     from public.tenant_data_lifecycle where tenant_id=p_tenant_id;
-  if not found or v_lifecycle.access_locked or
-     v_lifecycle.lifecycle_status in ('expired','cancelled') or
+  if not found or coalesce(v_lifecycle.access_locked,true) or
+     coalesce(v_lifecycle.lifecycle_status,'') not in ('trial','active') or
      (v_lifecycle.lifecycle_status='trial' and
       (v_lifecycle.trial_expires_at is null or v_lifecycle.trial_expires_at<=now())) then
     raise exception 'recycling_subscription_inactive';
@@ -173,21 +185,21 @@ begin
       then raise exception 'recycling_user_not_in_branch'; end if;
 
   insert into public.recycling_transactions
-    (tenant_id,branch_id,shift_id,operator_user_id,request_id,direction,
+    (tenant_id,branch_id,shift_id,operator_user_id,request_id,request_hash,direction,
      settlement,counterparty_name,total_minor,cogs_minor)
-  values(p_tenant_id,p_branch_id,p_shift_id,p_user_id,p_request_id,p_direction,
+  values(p_tenant_id,p_branch_id,p_shift_id,p_user_id,p_request_id,v_request_hash,p_direction,
     p_settlement,btrim(p_counterparty_name),1,0)
   returning id into v_id;
 
   for v_index in 0..jsonb_array_length(p_lines)-1 loop
     v_line := p_lines -> v_index;
-    if jsonb_typeof(v_line) <> 'object' or
+    if jsonb_typeof(v_line) is distinct from 'object' or
        coalesce(v_line->>'product_id','') !~* '^[a-f0-9-]{36}$' or
        coalesce(v_line->>'quantity','') !~ '^[0-9]{1,10}(\.[0-9]{1,6})?$' then
       raise exception 'recycling_invalid_line';
     end if;
     v_unit := v_line->>'unit';
-    if v_unit not in ('kg','khid','g','ton','piece') then
+    if coalesce(v_unit,'') not in ('kg','khid','g','ton','piece') then
       raise exception 'recycling_invalid_unit';
     end if;
     v_quantity := (v_line->>'quantity')::numeric;
@@ -212,6 +224,9 @@ begin
     v_price := case when p_direction='buy'
       then nullif(v_p.metadata->>'recycling_buy_price','')::numeric else v_p.price end;
     if v_price is null or v_price < 0 then raise exception 'recycling_price_missing'; end if;
+    if v_price > 99999999 or v_price * v_base_quantity * 100 > 99999999999999 then
+      raise exception 'recycling_amount_too_large';
+    end if;
     -- Client price is an assertion only, never the server authority.
     if coalesce(v_line->>'expected_price','') !~ '^[0-9]{1,10}(\.[0-9]{1,2})?
     if v_line_minor<=0 then raise exception 'recycling_line_amount_too_small'; end if;
