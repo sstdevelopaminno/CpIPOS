@@ -543,11 +543,11 @@ function LoginDevicesPageContent() {
                   !
                 </div>
                 <p className="store-v2-popup-title !text-slate-800" id="pos-device-entry-error-title">
-                   {T(paymentReview && popup.code && PACKAGE_ENTRY_REASONS.has(popup.code) && !["subscription_review_timeout","subscription_payment_rejected"].includes(popup.code)
+                   {T(paymentReview && popup.code && PACKAGE_ENTRY_REASONS.has(popup.code) && !["subscription_review_timeout","subscription_payment_rejected","feature_not_enabled","feature_verification_unavailable"].includes(popup.code)
                      ? "อยู่ระหว่างรอตรวจสอบการชำระเงิน" : entryErrorTitle(popup.code))}
                  </p>
                  <p className="store-v2-popup-text !text-slate-600">
-                   {T(paymentReview && popup.code && PACKAGE_ENTRY_REASONS.has(popup.code) && !["subscription_review_timeout","subscription_payment_rejected"].includes(popup.code)
+                   {T(paymentReview && popup.code && PACKAGE_ENTRY_REASONS.has(popup.code) && !["subscription_review_timeout","subscription_payment_rejected","feature_not_enabled","feature_verification_unavailable"].includes(popup.code)
                      ? "ฝ่าย IT กำลังตรวจสอบหลักฐานการชำระ หากสิทธิ์ชั่วคราวหมดอายุหรือไม่ได้รับการยืนยัน กรุณาติดต่อ Support"
                      : popup.message)}
                  </p>
@@ -557,7 +557,11 @@ function LoginDevicesPageContent() {
                        <p>{T("วันสิ้นสุดสิทธิ์")}: <strong>{entryExpiryDate(lang,popup.expiresAt)}</strong></p>
                      ):null}
                      <p className="mt-1">
-                       {T(popup.code==="subscription_review_timeout"||popup.code==="subscription_payment_rejected"
+                       {T(popup.code==="feature_not_enabled"
+                       ? "ร้านนี้ยังไม่มีสิทธิ์เข้าหน้าขายตามโหมดที่กำหนด ฝ่าย IT ต้องตรวจสอบ Feature Gate และแพ็กเกจ ไม่ควรชำระเงินซ้ำเพื่อแก้ปัญหานี้"
+                       : popup.code==="feature_verification_unavailable"
+                       ? "ระบบตรวจสอบสิทธิ์ขัดข้องชั่วคราว โปรดลองตรวจสอบอีกครั้ง หรือติดต่อ Support พร้อมรหัสร้าน"
+                       : popup.code==="subscription_review_timeout"||popup.code==="subscription_payment_rejected"
                        ? "การชำระแพ็กเกจของคุณไม่ผ่านการอนุมัติ โปรดติดต่อ Support"
                        : paymentReview ? "ฝ่าย IT จะตรวจสอบภายหลัง หากไม่อนุมัติ ระบบจะล็อกและแจ้งให้ติดต่อ Support"
                        : "ชำระเงินและแนบสลิป ระบบจะตรวจวันที่ ยอดเงิน และบัญชีผู้รับ ก่อนเปิดใช้ POS ได้ทันทีเมื่อผ่านการตรวจสอบ")}
