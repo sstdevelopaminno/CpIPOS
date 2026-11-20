@@ -14,6 +14,26 @@ describe("recycling calculation preview", () => {
     expect(calculateRecyclingLine(1, "kg", 200, "piece")).toBeNull();
     expect(calculateRecyclingLine(1, "piece", 200, "kg")).toBeNull();
   });
+  it("rounds to satang exactly the same way as PostgreSQL numeric", () => {
+    // 0.5 kg x 3.01 THB/kg = 1.505 THB => 1.51 (half-up).
+    expect(calculateRecyclingLine(0.5, "kg", 3.01, "kg")).toEqual({
+      amount: 1.51, basisQuantity: 0.5
+    });
+    // 1500 grams, total 30.00 THB at 20 THB/kg.
+    expect(calculateRecyclingLine(1500, "g", 20, "kg")).toEqual({
+      amount: 30, basisQuantity: 1.5
+    });
+    expect(calculateRecyclingLine(0.001, "kg", 10, "kg")).toEqual({
+      amount: 0.01, basisQuantity: 0.001
+    });
+  });
+  it("does not silently round weight below the supported precision", () => {
+    expect(calculateRecyclingLine(0.5, "g", 20, "kg")).toBeNull();
+    expect(calculateRecyclingLine(0.0001, "kg", 20, "kg")).toBeNull();
+    expect(calculateRecyclingLine(1, "g", 0.01, "kg")).toBeNull();
+    expect(calculateRecyclingLine(1, "kg", 0.001, "kg")).toBeNull();
+  });
+
   it("rejects zero, negative, nonfinite amounts and quantities", () => {
     expect(calculateRecyclingLine(0, "kg", 8, "kg")).toBeNull();
     expect(calculateRecyclingLine(-2, "kg", 8, "kg")).toBeNull();
