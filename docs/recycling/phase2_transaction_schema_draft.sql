@@ -407,6 +407,58 @@ revoke all on function public.recycling_shift_totals(uuid,uuid,uuid)
 grant execute on function public.recycling_shift_totals(uuid,uuid,uuid)
   to service_role;
 
+-- Final transactional safeguard: the existing POS close service updates the
+-- shift in multiple steps. This trigger executes under the shift row lock
+-- and recomputes Recycling drawer cash from committed transactions, so a
+-- concurrent buy/sell cannot be omitted from the official closed-shift total.
+-- It does nothing for a shift with zero Recycling transactions.
+create or replace function public.recycling_guard_shift_closure()
+returns trigger language plpgsql security invoker
+set search_path='' as $shiftclose$
+declare
+  v_count bigint;
+  v_cash_net bigint;
+  v_expected bigint;
+begin
+  if new.status <> 'closed' or old.status <> 'open' then return new; end if;
+  select count(*),coalesce(sum(
+    case when settlement='cash' then
+      case when direction='sell' then total_minor else -total_minor end
+    else 0 end
+  ),0)
+  into v_count,v_cash_net from public.recycling_transactions
+  where tenant_id=new.tenant_id and branch_id=new.branch_id
+    and shift_id=new.id and status='posted';
+  if v_count=0 then return new; end if;
+  if exists (select 1 from public.orders
+    where tenant_id=new.tenant_id and branch_id=new.branch_id
+      and shift_id=new.id limit 1) then
+    raise exception 'recycling_mixed_legacy_shift_requires_reconciliation';
+  end if;
+  if new.actual_cash is null or new.actual_cash<0 then
+    raise exception 'recycling_shift_cash_count_required';
+  end if;
+  v_expected := pg_catalog.round(coalesce(old.opening_cash,0)*100)::bigint+v_cash_net;
+  if v_expected<0 then raise exception 'recycling_shift_negative_expected_cash'; end if;
+  new.expected_cash := v_expected::numeric/100;
+  new.metadata := coalesce(new.metadata,'{}'::jsonb) ||
+    pg_catalog.jsonb_build_object(
+      'recycling_cash_net_minor',v_cash_net,
+      'recycling_expected_cash_minor',v_expected,
+      'recycling_cash_count_reconciled',
+        pg_catalog.round(new.actual_cash*100)::bigint=v_expected
+    );
+  return new;
+end;
+$shiftclose$;
+revoke all on function public.recycling_guard_shift_closure()
+  from public,anon,authenticated;
+grant execute on function public.recycling_guard_shift_closure() to service_role;
+create trigger recycling_cash_shift_close_guard
+before update of status on public.shifts
+for each row
+execute function public.recycling_guard_shift_closure();
+
 -- Release plan:
 -- 1. Run draft on isolated staging and inspect RLS/function grants.
 -- 2. Test concurrent/duplicate request_id, insufficient stock and rollback.
