@@ -1,4 +1,5 @@
 import { isFeatureUnlockEnabled } from "@/lib/feature-unlock";
+import { hasCustomSalesModeFeatureGrant } from "@/lib/custom-sales-entitlements";
 import { fail, ok } from "@/lib/http";
 import { allPosMenuFeatureCodes } from "@/lib/pos-feature-map";
 import { requirePosSession, PosGuardError } from "@/lib/pos-session-guard";
@@ -200,6 +201,17 @@ async function loadTenantFeatureSnapshot(tenantId: string, branchId: string, men
       features.core_pos_sales = true;
     }
     features.barcode_scanner_mode = true;
+  }
+  // Keep pre-entry cashier validation, actual server feature gates, and
+  // the browser snapshot consistent for explicit IT-authorized CUSTOM modes.
+  // Never override a denied tenant/branch feature.
+  if (isCustom && (salesModes.general_sale || salesModes.optical_retail || salesModes.recycling)) {
+    for (const feature of ["core_pos_sales", "barcode_scanner_mode", "stock_management"] as const) {
+      if (tenantOverrides.get(feature) === false || branchOverrides.get(feature) === false) continue;
+      if (hasCustomSalesModeFeatureGrant("custom", salesModes, feature)) {
+        features[feature] = true;
+      }
+    }
   }
   const opticalMoreAccess = Object.fromEntries(
     Object.entries(OPTICAL_MORE_FEATURES).map(([key, cfg]) => [
