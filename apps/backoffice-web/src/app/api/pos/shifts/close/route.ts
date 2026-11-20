@@ -14,6 +14,7 @@ import {
 } from "@/lib/pos-session-guard";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 import { calculateShiftSalesSummary } from "@/lib/pos-shift-sales-summary";
+import { getRecyclingShiftReconciliation, type RecyclingShiftSettlement } from "@/lib/server/recycling-shift-reconciliation";
 import { collectPagedShiftRows, collectShiftRowsForIds } from "@/lib/pos-shift-query-pagination";
 
 function isMissingSessionShiftColumnError(error: { code?: string; message?: string } | null | undefined) {
@@ -341,6 +342,24 @@ export async function POST(request: Request) {
           message:"Opening cash must be reconciled before shift close."}},{status:409});
       opticalExpectedCash=Number((openingCash+opticalCashReceived).toFixed(2));
     }
+    let recyclingShift:RecyclingShiftSettlement|null=null;
+    try {
+      recyclingShift=await getRecyclingShiftReconciliation({
+        tenantId:sessionScope.tenantId,branchId:sessionScope.branchId,shiftId:shift.id
+      });
+    } catch(error) {
+      const code=error instanceof Error ? error.message : "recycling_shift_reconciliation_unavailable";
+      return NextResponse.json({data:null,error:{code,
+        message:"Unable to safely reconcile Recycling cash purchases and outgoing sales before closing this shift. Contact IT."}},{status:503});
+    }
+    if(recyclingShift&&opticalPolicy.enabled) {
+      return NextResponse.json({data:null,error:{code:"recycling_optical_mixed_shift_forbidden",
+        message:"Optical and Recycling ledgers cannot share a cash shift."}},{status:409});
+    }
+    if(recyclingShift&&closingCash===null) {
+      return NextResponse.json({data:null,error:{code:"recycling_shift_cash_count_required",
+        message:"Count physical cash before closing a Recycling shift; cash payouts reduce the drawer balance."}},{status:409});
+    }
     const closedAtIso = new Date().toISOString();
     const closedByDifferentUser = shift.opened_by !== sessionScope.userId;
     const autoCloseWithoutCashCount = overdueAutoClose && closingCash === null;
@@ -358,7 +377,8 @@ export async function POST(request: Request) {
       quickClose
     });
 
-    const initialExpectedCash = autoCloseWithoutCashCount ? null : opticalPolicy.enabled ? opticalExpectedCash : closingCash ?? 0;
+    const initialExpectedCash = autoCloseWithoutCashCount ? null : recyclingShift
+      ? recyclingShift.expectedCashMinor/100 : opticalPolicy.enabled ? opticalExpectedCash : closingCash ?? 0;
     const initialActualCash = autoCloseWithoutCashCount ? null : closingCash ?? 0;
     const { data: closedShift, error: closeError } = await supabase
       .from("shifts")
@@ -373,6 +393,18 @@ export async function POST(request: Request) {
         metadata: {
           ...(opticalPolicy.enabled ? priorShiftMetadata : {}),
           ...(typeof shift === "object" ? { closed_via: "pos_session_gate" } : {}),
+          ...(recyclingShift ? {
+            recycling_buy_count:recyclingShift.buyCount,
+            recycling_sell_count:recyclingShift.sellCount,
+            recycling_cash_in_minor:recyclingShift.cashInMinor,
+            recycling_cash_out_minor:recyclingShift.cashOutMinor,
+            recycling_cash_net_minor:recyclingShift.cashNetMinor,
+            recycling_transfer_in_minor:recyclingShift.transferInMinor,
+            recycling_transfer_out_minor:recyclingShift.transferOutMinor,
+            recycling_expected_cash_minor:recyclingShift.expectedCashMinor,
+            recycling_cash_count_reconciled:closingCash!==null &&
+              Math.abs(Math.round(closingCash*100)-recyclingShift.expectedCashMinor)<=0
+          } : {}),
           ...(opticalPolicy.enabled ? {
             optical_cash_received:opticalCashReceived,
             optical_transfer_received:opticalTransferReceived,
@@ -398,7 +430,7 @@ export async function POST(request: Request) {
       .eq("tenant_id", sessionScope.tenantId)
       .eq("branch_id", sessionScope.branchId)
       .eq("status", "open")
-      .select("id")
+      .select("id,expected_cash,metadata")
       .maybeSingle();
 
     if (closeError) {
@@ -419,6 +451,27 @@ export async function POST(request: Request) {
         { data: null, error: { code: "shift_already_closed", message: "This shift was already closed by another request." } },
         { status: 409 }
       );
+    }
+    // The database trigger executed while the shift row lock was held.
+    // It is authoritative if a sale arrived between the read-only preflight
+    // and status=CLOSED. Never overwrite its recalculated totals afterward.
+    if (recyclingShift) {
+      const confirmed=(closedShift.metadata??{}) as Record<string,unknown>;
+      const readConfirmed=(key:string,fallback:number) => {
+        const value=Number(confirmed[key]);
+        return Number.isSafeInteger(value)?value:fallback;
+      };
+      recyclingShift={
+        ...recyclingShift,
+        buyCount:readConfirmed("recycling_buy_count",recyclingShift.buyCount),
+        sellCount:readConfirmed("recycling_sell_count",recyclingShift.sellCount),
+        cashInMinor:readConfirmed("recycling_cash_in_minor",recyclingShift.cashInMinor),
+        cashOutMinor:readConfirmed("recycling_cash_out_minor",recyclingShift.cashOutMinor),
+        cashNetMinor:readConfirmed("recycling_cash_net_minor",recyclingShift.cashNetMinor),
+        transferInMinor:readConfirmed("recycling_transfer_in_minor",recyclingShift.transferInMinor),
+        transferOutMinor:readConfirmed("recycling_transfer_out_minor",recyclingShift.transferOutMinor),
+        expectedCashMinor:readConfirmed("recycling_expected_cash_minor",recyclingShift.expectedCashMinor)
+      };
     }
 
     const sessionShiftClear = await supabase
@@ -509,10 +562,11 @@ export async function POST(request: Request) {
       endAt: shiftSummaryEndAt
     });
 
-    const finalExpectedCash = autoCloseWithoutCashCount ? null : opticalPolicy.enabled
+    const finalExpectedCash = autoCloseWithoutCashCount ? null : recyclingShift
+      ? recyclingShift.expectedCashMinor/100 : opticalPolicy.enabled
       ? opticalExpectedCash : Number((openingCashValue + cashTotal).toFixed(2));
     const finalActualCash = autoCloseWithoutCashCount ? null : closingCash ?? 0;
-    const closeTotalsUpdate = await supabase
+    const closeTotalsUpdate = recyclingShift ? {error:null} : await supabase
       .from("shifts")
       .update({
         expected_cash: finalExpectedCash,
@@ -566,7 +620,16 @@ export async function POST(request: Request) {
           cancelled_order_count: cancelledOrderCount,
           sales_total: salesTotal,
           cash_total: cashTotal,
-          transfer_total: transferTotal
+          transfer_total: transferTotal,
+          ...(recyclingShift ? {
+            recycling_buy_count:recyclingShift.buyCount,
+            recycling_sell_count:recyclingShift.sellCount,
+            recycling_cash_in:recyclingShift.cashInMinor/100,
+            recycling_cash_out:recyclingShift.cashOutMinor/100,
+            recycling_cash_net:recyclingShift.cashNetMinor/100,
+            recycling_transfer_in:recyclingShift.transferInMinor/100,
+            recycling_transfer_out:recyclingShift.transferOutMinor/100
+          } : {})
         },
         receipt: {
           tenant_name: scope.tenant?.name ?? scope.tenant?.code ?? sessionScope.tenantId,
@@ -578,7 +641,14 @@ export async function POST(request: Request) {
           closing_cash: closingCash ?? 0,
           expected_cash: finalExpectedCash,
           actual_cash: finalActualCash,
-          auto_closed_without_cash_count: autoCloseWithoutCashCount
+          auto_closed_without_cash_count: autoCloseWithoutCashCount,
+          ...(recyclingShift ? {
+            recycling_cash_in:recyclingShift.cashInMinor/100,
+            recycling_cash_out:recyclingShift.cashOutMinor/100,
+            recycling_cash_net:recyclingShift.cashNetMinor/100,
+            recycling_transfer_in:recyclingShift.transferInMinor/100,
+            recycling_transfer_out:recyclingShift.transferOutMinor/100
+          } : {})
         }
       },
       error: null

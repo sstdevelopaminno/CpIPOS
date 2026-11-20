@@ -1,4 +1,5 @@
 import { isFeatureUnlockEnabled } from "@/lib/feature-unlock";
+import { hasCustomSalesModeFeatureGrant } from "@/lib/custom-sales-entitlements";
 import { fail, ok } from "@/lib/http";
 import { allPosMenuFeatureCodes } from "@/lib/pos-feature-map";
 import { requirePosSession, PosGuardError } from "@/lib/pos-session-guard";
@@ -203,12 +204,18 @@ async function loadTenantFeatureSnapshot(tenantId: string, branchId: string, men
       features.barcode_scanner_mode = true;
     }
   }
-  // Match the secure POS entry gate for an explicitly IT-authorized CUSTOM
-  // General Sale contract. Explicit tenant/branch decisions already applied
-  // above are authoritative, including denials.
-  if (isCustom && salesModes.general_sale &&
-      !tenantOverrides.has("core_pos_sales") && !branchOverrides.has("core_pos_sales")) {
-    features.core_pos_sales = true;
+  // Keep pre-entry cashier validation, actual server feature gates, and
+  // the browser snapshot consistent for explicit IT-authorized CUSTOM modes.
+  // Never override a denied tenant/branch feature.
+  if (isCustom && (salesModes.general_sale || salesModes.optical_retail || salesModes.recycling)) {
+    for (const feature of ["core_pos_sales", "barcode_scanner_mode", "stock_management"] as const) {
+      // Match hasBranchFeature(): a branch override supersedes a tenant
+      // override. Any explicit override has already been applied above.
+      if (tenantOverrides.has(feature) || branchOverrides.has(feature)) continue;
+      if (hasCustomSalesModeFeatureGrant("custom", salesModes, feature)) {
+        features[feature] = true;
+      }
+    }
   }
   const opticalMoreAccess = Object.fromEntries(
     Object.entries(OPTICAL_MORE_FEATURES).map(([key, cfg]) => [

@@ -1,0 +1,75 @@
+name: Recycling PostgreSQL UAT (synthetic)
+on:
+  pull_request:
+    paths:
+      - "docs/recycling/**"
+      - "supabase/migrations/20261120040000_custom_recycling_atomic_finance.sql"
+      - "tests/recycling/**"
+      - "apps/backoffice-web/src/app/api/pos/recycling/**"
+      - "apps/backoffice-web/src/lib/recycling-**"
+      - ".github/workflows/recycling-postgres-uat.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: recycling-postgres-uat-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  isolated-sql-integration:
+    name: PostgreSQL 16 • atomic stock and Finance GL
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: only-synthetic-ci-fixture
+          POSTGRES_DB: recycling_uat
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d recycling_uat"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - name: Checkout untrusted source without credentials
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Confirm disposable PostgreSQL instance
+        env:
+          PG_CONTAINER: ${{ job.services.postgres.id }}
+        run: |
+          set -euo pipefail
+          docker exec "$PG_CONTAINER" psql -U postgres -d recycling_uat -v ON_ERROR_STOP=1 -c 'select current_database(),version();'
+      - name: Create synthetic production-shaped schema
+        env:
+          PG_CONTAINER: ${{ job.services.postgres.id }}
+        run: |
+          set -euo pipefail
+          docker exec -i "$PG_CONTAINER" psql -U postgres -d recycling_uat -v ON_ERROR_STOP=1 < tests/recycling/ephemeral_pg_schema.sql
+      - name: Install exact release migration on isolated PostgreSQL (no Supabase credentials)
+        env:
+          PG_CONTAINER: ${{ job.services.postgres.id }}
+        run: |
+          set -euo pipefail
+          docker exec -i "$PG_CONTAINER" psql -U postgres -d recycling_uat -v ON_ERROR_STOP=1 < supabase/migrations/20261120040000_custom_recycling_atomic_finance.sql
+      - name: Exercise real SQL with fake identities, fake materials and fake payments
+        env:
+          PG_CONTAINER: ${{ job.services.postgres.id }}
+        run: |
+          set -euo pipefail
+          docker exec -i "$PG_CONTAINER" psql -U postgres -d recycling_uat -v ON_ERROR_STOP=1 < tests/recycling/ephemeral_pg_acceptance.sql
+      - name: Verify supervised VOID on disposable database
+        env:
+          PG_CONTAINER: ${{ job.services.postgres.id }}
+        run: |
+          set -euo pipefail
+          docker exec -i "$PG_CONTAINER" psql -U postgres -d recycling_uat -v ON_ERROR_STOP=1 < tests/recycling/ephemeral_pg_void_acceptance.sql
+      # No production secrets, URLs or accounts are provided to this job.
+      # Successful CI is necessary but not sufficient for a Supabase release.

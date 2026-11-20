@@ -558,9 +558,9 @@ function LoginDevicesPageContent() {
                      ):null}
                      <p className="mt-1">
                        {T(popup.code==="feature_not_enabled"
-                       ? "ไม่พบสิทธิ์เข้า POS ตามโหมดที่ฝ่าย IT กำหนด โปรดให้ฝ่าย IT ตรวจสิทธิ์ของร้านและสาขา โดยไม่ต้องส่งชำระเงินซ้ำ"
+                       ? "ร้านนี้ยังไม่มีสิทธิ์เข้าหน้าขายตามโหมดที่กำหนด ฝ่าย IT ต้องตรวจสอบ Feature Gate และแพ็กเกจ ไม่ควรชำระเงินซ้ำเพื่อแก้ปัญหานี้"
                        : popup.code==="feature_verification_unavailable"
-                       ? "ระบบตรวจสอบสิทธิ์ขัดข้องชั่วคราว โปรดลองใหม่หรือติดต่อ Support"
+                       ? "ระบบตรวจสอบสิทธิ์ขัดข้องชั่วคราว โปรดลองตรวจสอบอีกครั้ง หรือติดต่อ Support พร้อมรหัสร้าน"
                        : popup.code==="subscription_review_timeout"||popup.code==="subscription_payment_rejected"
                        ? "การชำระแพ็กเกจของคุณไม่ผ่านการอนุมัติ โปรดติดต่อ Support"
                        : paymentReview ? "ฝ่าย IT จะตรวจสอบภายหลัง หากไม่อนุมัติ ระบบจะล็อกและแจ้งให้ติดต่อ Support"

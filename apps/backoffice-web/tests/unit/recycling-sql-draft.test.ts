@@ -1,0 +1,98 @@
+import { readFileSync } from "node:fs";
+import { describe, expect, it } from "vitest";
+
+// These are static release guards, NOT a substitute for executing the migrations
+// on a separate PostgreSQL staging environment with transaction/concurrency UAT.
+const phase2 = readFileSync(
+  new URL("../../../../docs/recycling/phase2_transaction_schema_draft.sql", import.meta.url), "utf8"
+);
+const phase3 = readFileSync(
+  new URL("../../../../docs/recycling/phase3_finance_gl_bridge_draft.sql", import.meta.url), "utf8"
+);
+const phase4 = readFileSync(
+  new URL("../../../../docs/recycling/phase4_void_unposted_transaction_draft.sql", import.meta.url), "utf8"
+);
+const releaseMigration = readFileSync(
+  new URL("../../../../supabase/migrations/20261120040000_custom_recycling_atomic_finance.sql", import.meta.url), "utf8"
+);
+
+describe("Recycling staged database migration (not yet applied to production)", () => {
+  it("locks down the actual migration and prevents divergence from reviewed drafts", () => {
+    expect(releaseMigration).toContain("BEGIN;");
+    expect(releaseMigration.trimEnd().endsWith("COMMIT;")).toBe(true);
+    expect(releaseMigration).toContain("recycling_v1_schema_already_exists_review_required");
+    const p2 = phase2.slice(phase2.indexOf("create table if not exists public.recycling_stock_balances"))
+      .replace(/create table if not exists public\.recycling_/g, "create table public.recycling_")
+      .replace(/create index if not exists recycling_/g, "create index recycling_").trim();
+    const p3 = phase3.slice(phase3.indexOf("create or replace function public.recycling_finance_post_transaction")).trim();
+    const p4 = phase4.slice(phase4.indexOf("create or replace function public.recycling_void_unposted_transaction")).trim();
+    expect(releaseMigration).toContain(p2);
+    expect(releaseMigration).toContain(p3);
+    expect(releaseMigration).toContain(p4);
+    expect(releaseMigration.match(/create table public\.recycling_/g)).toHaveLength(4);
+    expect(releaseMigration).toContain("security definer");
+  });
+
+  it("keeps a single complete atomic transaction function", () => {
+    expect(phase2.match(/create table if not exists public\.recycling_/g)).toHaveLength(4);
+    expect(phase2.match(/create or replace function public\.recycling_post_transaction\(/g)).toHaveLength(1);
+    expect(phase2.match(/\$fn\$;/g)).toHaveLength(1);
+    expect(phase2).toContain("v_line_minor := round(v_price * v_base_quantity * 100)::bigint;");
+    expect(phase2).toContain("recycling_price_changed_refresh_cart");
+    expect(phase2).toContain("recycling_request_key_reused");
+    expect(phase2.indexOf("v_line_minor := round(")).toBeLessThan(phase2.indexOf("if v_line_minor<=0"));
+    // Catch the accidental duplicated SQL tail that previously followed
+    // the release plan comments and broke PostgreSQL parsing.
+    const afterReleasePlan = phase2.slice(phase2.indexOf("-- Release plan:")).trim();
+    expect(afterReleasePlan.split("\n").every(line => line.startsWith("--") || line.length === 0)).toBe(true);
+  });
+
+  it("isolates tables by tenant and branch, and service-role protects both RPCs", () => {
+    for (const table of [
+      "recycling_stock_balances","recycling_transactions",
+      "recycling_transaction_lines","recycling_accounting_entries"
+    ]) {
+      expect(phase2).toContain("alter table public." + table + " enable row level security");
+      expect(phase2).toContain("revoke all on public." + table + " from anon,authenticated");
+    }
+    expect(phase2).toContain("revoke all on function public.recycling_post_transaction(");
+    expect(phase2).toContain("to service_role;");
+    expect(phase3).toContain("revoke all on function public.recycling_finance_post_transaction(");
+    expect(phase3).toContain("recycling_finance_self_approval_forbidden");
+    expect(phase3).toContain("finance_accounting_check_actor");
+  });
+
+  it("guards supervised VOID against self-approval, later stock changes and posted GL", () => {
+    expect(phase2).toContain("status in ('posted','voided')");
+    expect(phase2).toContain("last_transaction_id=v_id");
+    expect(phase2).toContain("stock_last_transaction_before");
+    expect(phase2).toContain("voided_by uuid references public.users_profiles");
+    expect(phase4).toContain("recycling_void_self_approval_forbidden");
+    expect(phase4).toContain("recycling_void_material_has_later_movement");
+    expect(phase4).toContain("recycling_void_finance_already_posted");
+    expect(phase4).toContain("recycling_void_bank_reversal_requires_finance");
+    expect(phase4).toContain("recycling_void_shift_already_closed");
+    expect(phase4).toContain("recycling_void_cash_confirmation_required");
+    expect(phase4).toContain("recycling_void_cash_drawer_insufficient");
+    expect(phase4).toContain("recycling_void_approver_forbidden");
+    expect(phase4).toContain("from public,anon,authenticated");
+    expect(phase4).toContain("grant execute on function public.recycling_void_unposted_transaction");
+    expect(phase3).toContain("v_tx.status <> 'posted'");
+  });
+
+  it("records immutable receipt snapshots and double-entry inventory COGS", () => {
+    for (const field of [
+      "receipt_no", "sku_snapshot", "name_snapshot", "category_snapshot",
+      "cogs_minor", "carrying_cost_minor", "recycling_stock_insufficient",
+      "recycling_ledger_not_balanced"
+    ]) expect(phase2).toContain(field);
+    for (const code of ["'1100'","'1110'","'1200'","'1201'","'2100'","'4100'","'5100'"]) {
+      expect(phase2).toContain(code);
+      expect(phase3).toContain(code);
+    }
+    expect(phase3).toContain("finance_accounting_journal_lines");
+    expect(phase3).toContain("finance_accounting_document_events");
+    expect(phase3).toContain("finance_accounting_periods");
+    expect(phase3).toContain("v_document_no := v_tx.receipt_no;");
+  });
+});
