@@ -62,6 +62,10 @@ export async function POST(request: Request) {
         !["cash", "bank_transfer", "credit"].includes(String(raw.settlement))) {
       return fail("invalid_recycling_transaction", "Invalid transaction request.", 422);
     }
+    if (raw.settlement === "bank_transfer") {
+      return fail("recycling_bank_transfer_verification_required",
+        "Bank transfers require a verified transfer record and independent reconciliation; no transaction was posted.", 409);
+    }
     const counterparty = typeof raw.counterparty_name === "string" ? raw.counterparty_name.trim() : "";
     if (!counterparty || counterparty.length > 240) {
       return fail("counterparty_required", "Please enter the customer/supplier name.", 422);
