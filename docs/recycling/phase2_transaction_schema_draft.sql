@@ -417,18 +417,29 @@ returns trigger language plpgsql security invoker
 set search_path='' as $shiftclose$
 declare
   v_count bigint;
+  v_buy_count bigint;
+  v_sell_count bigint;
+  v_cash_in bigint;
+  v_cash_out bigint;
+  v_transfer_in bigint;
+  v_transfer_out bigint;
   v_cash_net bigint;
   v_expected bigint;
 begin
   if new.status <> 'closed' or old.status <> 'open' then return new; end if;
-  select count(*),coalesce(sum(
-    case when settlement='cash' then
-      case when direction='sell' then total_minor else -total_minor end
-    else 0 end
-  ),0)
-  into v_count,v_cash_net from public.recycling_transactions
+  select count(*),
+    count(*) filter (where direction='buy'),
+    count(*) filter (where direction='sell'),
+    coalesce(sum(total_minor) filter(where direction='sell' and settlement='cash'),0),
+    coalesce(sum(total_minor) filter(where direction='buy' and settlement='cash'),0),
+    coalesce(sum(total_minor) filter(where direction='sell' and settlement='bank_transfer'),0),
+    coalesce(sum(total_minor) filter(where direction='buy' and settlement='bank_transfer'),0)
+  into v_count,v_buy_count,v_sell_count,v_cash_in,v_cash_out,
+    v_transfer_in,v_transfer_out
+  from public.recycling_transactions
   where tenant_id=new.tenant_id and branch_id=new.branch_id
     and shift_id=new.id and status='posted';
+  v_cash_net := v_cash_in-v_cash_out;
   if v_count=0 then return new; end if;
   if exists (select 1 from public.orders
     where tenant_id=new.tenant_id and branch_id=new.branch_id
@@ -443,7 +454,13 @@ begin
   new.expected_cash := v_expected::numeric/100;
   new.metadata := coalesce(new.metadata,'{}'::jsonb) ||
     pg_catalog.jsonb_build_object(
+      'recycling_buy_count',v_buy_count,
+      'recycling_sell_count',v_sell_count,
+      'recycling_cash_in_minor',v_cash_in,
+      'recycling_cash_out_minor',v_cash_out,
       'recycling_cash_net_minor',v_cash_net,
+      'recycling_transfer_in_minor',v_transfer_in,
+      'recycling_transfer_out_minor',v_transfer_out,
       'recycling_expected_cash_minor',v_expected,
       'recycling_cash_count_reconciled',
         pg_catalog.round(new.actual_cash*100)::bigint=v_expected
