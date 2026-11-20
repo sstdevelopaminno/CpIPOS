@@ -12,7 +12,8 @@ Shop 155858, ส.เจริญทรัพย์รุ่งเรื่อง
 - `RECYCLING_STOCK_SCHEMA_READY=1` only in a verified staging schema.
 - `RECYCLING_TRANSACTION_WRITES_ENABLED=1` **only** in staging and only after the atomic RPC and finance reconciler have passed validation.
 - `RECYCLING_FINANCE_GL_POSTING_ENABLED=1` only in staging after Finance chart-of-accounts and independent-approver UAT. Default must remain OFF.
-- Staging must install and check `docs/recycling/phase3_finance_gl_bridge_draft.sql` **after** the phase2 schema; the two draft files are not production migrations.
+- `RECYCLING_VOID_ENABLED=1` only after separate supervisor/physical-stock/cash-return UAT; off by default. Only an open shift, unposted-to-Finance transaction, and most-recent stock movement may be voided.
+- Staging must install and check `docs/recycling/phase3_finance_gl_bridge_draft.sql` **after** phase2, then `docs/recycling/phase4_void_unposted_transaction_draft.sql` **after** phase3. All three are review drafts, not production migrations.
 - Synthetic owner, manager, cashier, accountant, kitchen, and unauthorized user; test devices, open/closed shifts and trial expirations.
 - Synthetic material records with independent buy/sell prices; no production data.
 - IT enables `sales_modes.recycling=true` explicitly for the synthetic CUSTOM tenant; General Sale alone must not allow Recycling.
@@ -50,15 +51,20 @@ Shop 155858, ส.เจริญทรัพย์รุ่งเรื่อง
 | FIN-01 | Per-transaction entry sum | **sum(debit_minor) = sum(credit_minor)**, for purchase and sale. |
 | FIN-02 | Settlement = credit | Purchase booked as payable; sale booked as receivable; no fictional cash movement. |
 | FIN-03 | Finance GL bridge | Review `phase3_finance_gl_bridge_draft.sql`. Require a *different* active branch accountant than the source cashier; create linked Finance document and two-to-four-line GL journal with source snapshot, posting key and audit events. Reconcile all totals; **staging UAT not yet completed**. |
-| FIN-04 | Cancellation/refund/void | Still blocked: do not manually delete transactions, edit stock, or backdate posted GL. Require an approved reversal, original receipt cross-reference and shift adjustment workflow. **Not implemented yet.** |
+| FIN-04 | Cancellation/refund/void | **Restricted same-shift VOID implemented and tested in isolated PostgreSQL**: approved by a different owner/manager/accountant, stock reconfirmed, cash refund acknowledged, no later stock movement, not yet posted GL, with immutable original receipt and status VOID. **Bank transfer refunds, closed shifts and already-posted Finance documents remain blocked** pending formal accounting adjustment/credit-note workflow. |
 | SHIFT-01 | 100 THB opening cash, buy 20.63 THB cash, sell 10 THB cash | Expected cash is **89.37 THB**. Bank transfers and credit must not inflate drawer cash. |
 | SHIFT-02 | Two concurrent purchases attempt to overdraw cash float | Shift row lock and cash movement calculation prevent negative drawer balance. |
 | SHIFT-03 | Ordinary POS order and recycling transaction in one shift | Reject mixed ledger, require documented cross-ledger reconciliation before close. |
 | SHIFT-04 | A new transaction arrives during cashier close | DB close trigger recalculates and stores final shift cash/bank totals under the row lock, avoiding stale client results. |
 | SHIFT-05 | Close a shift without physical cash count | Reject when Recycling contains posted records. |
 | SHIFT-06 | Trial expires after a valid transaction | Cash/shift reconciliation for historical records still required even if new writes are disabled. |
+| VOID-01 | Cash sale/purchase error before shift closes and before Finance GL posting | Independent supervisor/accountant approves with evidence that stock physically matches and cash was returned/refunded. Original receipt persists with VOID watermark. |
+| VOID-02 | Credit transaction before GL, no later movement | Reverse inventory exactly to the immutable pre-transaction snapshots, mark VOID, exclude from live subledger/shift totals, retain original journal audit evidence. |
+| VOID-03 | Same request ID retried after success | Original VOID approval returned idempotently; conflicting new approval rejected. |
+| VOID-04 | Same actor as original cashier, settled bank transfer, later inventory movement, locked shift or posted GL | Refuse unsafe VOID, no stock or account write. |
+| VOID-05 | Receipt already marked VOID | Clearly show VOID on printable 58/80mm copies and historical detail. |
 | FIN-05 | VAT/tax invoice | Disabled until merchant VAT status, numbering, legal invoice fields and tax policies verified. |
-| PRINT-01 | Material purchase/sale receipts | Implemented draft: immutable SKU/name/price/quantity snapshots, unique `RCY-B/S-...` purchase/sale reference, original/reprint route and browser print. Must test 58/80mm drivers and Android/Windows; **not a tax invoice**. |
+| PRINT-01 | Material purchase/sale receipts | Implemented draft: immutable SKU/name/price/quantity snapshots, unique `RCY-B/S-...` purchase/sale reference, Print Agent queue/browser print and visible VOID watermark on cancelled copies. Must physically test 58/80mm drivers and Android/Windows; **not a tax invoice**. |
 
 ## Read-only staging verification SQL
 
@@ -90,8 +96,8 @@ having coalesce(sum(e.debit_minor),0) <> coalesce(sum(e.credit_minor),0);
 
 1. Supabase staging branch requires separate cost approval; do **not** create without confirmation.
 2. Run and review draft `docs/recycling/phase2_transaction_schema_draft.sql` on a cost-approved staging branch, fix SQL/API discrepancies, and generate an ordered canonical migration.
-3. Finish the review/UAT of the drafted Finance GL bridge and immutable purchase/sale receipts. **Cancellation/reversal** and policy for locked shifts/posted GL remain unfinished release blockers; do not enable live transactions without them.
-4. Pass all cases above, with audit logs and authorized role/branch testing. GitHub Actions has an **ephemeral PostgreSQL 16 synthetic UAT** (`.github/workflows/recycling-postgres-uat.yml`) which executes both SQL drafts. This is not a substitute for Supabase staging, role/session UAT or live printer tests.
+3. Finish real Supabase staging review of the drafted Finance GL bridge and immutable purchase/sale receipts. The restricted same-shift VOID implementation is tested in synthetic PostgreSQL, but formal refund/credit-note workflows for **bank transfers, closed shifts and already-posted GL**, plus tax/legal policy, remain release restrictions. Do not treat SQL UAT as final financial acceptance.
+4. Pass all cases above, with audit logs and authorized role/branch testing. GitHub Actions has an **ephemeral PostgreSQL 16 synthetic UAT** (`.github/workflows/recycling-postgres-uat.yml`) which executes the three draft SQL files, tests cash/credit VOID and Finance GL with fake data. This is not a substitute for Supabase staging, production-like RLS/device/session UAT or live printer tests.
 5. Verify POS PR #492 and IT PR #217 together before a coordinated, limited Production rollout. Enable Recycling only after passing UAT, and deploy in a single planned batch where feasible.
 
 Shop 155858 remains on its previously recorded CUSTOM trial settings until IT explicitly changes the mode. The General Sale login hotfix was merged via PR #493 and deployed to production, but Recycling itself remains disabled.
