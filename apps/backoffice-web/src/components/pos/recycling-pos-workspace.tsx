@@ -140,6 +140,7 @@ export function RecyclingPosWorkspace({ products, branchName }: {
         const code = body?.error?.code ?? "recycling_post_failed";
         const reasons: Record<string,string> = {
           recycling_migration_required: "ระบบบันทึกธุรกรรม Recycling ยังไม่ได้ติดตั้งที่เซิร์ฟเวอร์ ไม่มีรายการถูกบันทึก",
+          recycling_uat_only: "ระบบยังปิดการบันทึกรับซื้อ–ขายออกจริงระหว่างทดสอบบัญชีและสต๊อก ไม่มีรายการถูกบันทึก",
           recycling_stock_insufficient: "จำนวนสินค้าในสต๊อกไม่เพียงพอ โปรดตรวจสอบยอดคงเหลือ",
           recycling_price_changed_refresh_cart: "ราคาวัสดุมีการเปลี่ยนแปลง กรุณาเริ่มบิลใหม่ด้วยราคาล่าสุด",
           missing_active_shift: "กรุณาเปิดกะก่อนบันทึกรับซื้อหรือขายออก",
