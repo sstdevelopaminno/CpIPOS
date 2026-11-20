@@ -333,7 +333,7 @@ export async function hasBranchFeature(tenantId: string, branchId: string | null
   // Optical retail uses the existing secured SKU/scanner workflow.
   // This additional grant exists ONLY for a CUSTOM contract explicitly
   // enabled by IT; fixed packages retain their normal barcode entitlements.
-  if (featureCode === "barcode_scanner_mode" && !enabled
+  if (featureCode === "barcode_scanner_mode" && !enabled && !tenantOverride && !branchOverride
     && isOpticalRetailExplicitlyEnabled(contract?.metadata?.sales_modes)) {
     const currentPackage = await supabase.from("subscription_packages")
       .select("code").eq("id", contract!.package_id)
