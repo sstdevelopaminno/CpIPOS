@@ -52,7 +52,7 @@ export function RecyclingPosWorkspace({ products, branchName, storeName, deviceC
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [printNotice, setPrintNotice] = useState<{ok:boolean; message:string} | null>(null);
   const [printing, setPrinting] = useState(false);
-  const [settlement, setSettlement] = useState<"cash" | "bank_transfer" | "credit">("cash");
+  const [settlement, setSettlement] = useState<"cash" | "bank_transfer">("cash");
   const [posting, setPosting] = useState(false);
   const [postError, setPostError] = useState("");
   const [posted, setPosted] = useState<{ id: string; receipt_no?: string; total_minor: number; printRequestId: string } | null>(null);
@@ -168,6 +168,7 @@ export function RecyclingPosWorkspace({ products, branchName, storeName, deviceC
     setError("");
     setPending(null);
     setCheckoutOpen(false);
+    setSettlement("cash");
     setPostError("");
   }
 
@@ -209,7 +210,7 @@ export function RecyclingPosWorkspace({ products, branchName, storeName, deviceC
   async function postTransaction() {
     if (posting || !transactionWritesEnabled || !checkoutOpen || !visibleLines.length || !counterpartyName.trim()) return;
     if (settlement === "bank_transfer") {
-      setPostError("ต้องตรวจสอบหลักฐานการโอนผ่านระบบก่อน จึงยังไม่สามารถบันทึกเงินโอนได้");
+      setPostError("ต้องตรวจหลักฐานธนาคารก่อนจึงจะยืนยันการจ่ายหรือรับเงินโอนได้");
       return;
     }
     setPosting(true);
@@ -382,9 +383,11 @@ export function RecyclingPosWorkspace({ products, branchName, storeName, deviceC
         <div className="flex items-start justify-between gap-3">
           <div>
             <h2 id="recycling-checkout-title" className="text-lg font-extrabold text-slate-900">
-              {direction === "buy" ? "ยืนยันใบรับซื้อวัสดุ" : "ยืนยันใบขายออกวัสดุ"}
+              {direction === "buy" ? "จ่ายเงิน" : "ชำระเงิน"}
             </h2>
-            <p className="mt-1 text-xs text-slate-500">ตรวจสอบคู่ค้าและวิธีรับ / จ่ายเงินก่อนบันทึกลงสต๊อก</p>
+            <p className="mt-1 text-xs text-slate-500">{direction === "buy"
+              ? "รับซื้อเข้าร้าน · ร้านจ่ายเงินให้ผู้ขายวัสดุ"
+              : "ขายออก · ร้านรับชำระเงินจากผู้ซื้อวัสดุ"}</p>
           </div>
           <button type="button" disabled={posting} aria-label="ปิดหน้าต่างชำระเงิน"
             onClick={() => setCheckoutOpen(false)}
@@ -405,30 +408,31 @@ export function RecyclingPosWorkspace({ products, branchName, storeName, deviceC
           placeholder="ระบุชื่อคู่ค้า"
           className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-3 text-sm text-slate-900 focus:border-blue-600 focus:outline-none"/>
         <fieldset className="mt-4 space-y-2">
-          <legend className="text-sm font-extrabold text-slate-800">วิธีรับ / จ่ายเงิน</legend>
+          <legend className="text-sm font-extrabold text-slate-800">{direction === "buy" ? "วิธีจ่ายเงิน" : "วิธีรับชำระเงิน"}</legend>
           <label className={"flex cursor-pointer items-center gap-3 rounded-lg border p-3 " + (settlement === "cash" ? "border-blue-600 bg-blue-50" : "border-slate-200")}>
             <input type="radio" name="recycling-settlement" checked={settlement==="cash"}
               disabled={posting} onChange={() => setSettlement("cash")} />
-            <span className="text-sm font-semibold">เงินสด</span>
+            <span className="text-sm font-semibold">{direction === "buy" ? "จ่ายเงินสด" : "ชำระเงินสด"}</span>
           </label>
-          <label className="flex items-center gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3 text-slate-500">
-            <input type="radio" name="recycling-settlement" disabled />
-            <span className="text-sm">เงินโอน <small className="block">รอตรวจสอบหลักฐานธนาคาร จึงยังไม่สามารถยืนยันการชำระได้</small></span>
-          </label>
-          <label className={"flex cursor-pointer items-center gap-3 rounded-lg border p-3 " + (settlement === "credit" ? "border-blue-600 bg-blue-50" : "border-slate-200")}>
-            <input type="radio" name="recycling-settlement" checked={settlement==="credit"}
-              disabled={posting} onChange={() => setSettlement("credit")} />
-            <span className="text-sm font-semibold">เครดิต / ค้างชำระ <small className="block font-normal text-slate-500">ยังไม่มีการรับหรือจ่ายเงินจริง</small></span>
+          <label className={"flex cursor-pointer items-center gap-3 rounded-lg border p-3 " + (settlement === "bank_transfer" ? "border-blue-600 bg-blue-50" : "border-slate-200")}>
+            <input type="radio" name="recycling-settlement" checked={settlement==="bank_transfer"}
+              disabled={posting} onChange={() => { setSettlement("bank_transfer"); setPostError(""); }} />
+            <span className="text-sm font-semibold">{direction === "buy" ? "จ่ายเงินโอน" : "ชำระเงินโอน"}
+              <small className="block font-normal text-slate-500">ต้องตรวจหลักฐานธนาคารก่อนยืนยันธุรกรรม</small>
+            </span>
           </label>
         </fieldset>
-        {!transactionWritesEnabled && <p role="alert" className="mt-3 rounded-lg bg-amber-50 p-3 text-xs font-semibold text-amber-900">ตัวอย่างหน้าต่างชำระเงิน: การบันทึกธุรกรรมจริงยังปิดไว้จนกว่าจะผ่านตรวจรับบัญชีและสต๊อก</p>}
+        {settlement === "bank_transfer" && <p role="alert" className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs font-semibold text-amber-900">
+          ยังไม่เปิดการตรวจสอบหลักฐานโอนเงินสำหรับ Recycling จึงไม่อนุญาตให้ยืนยันการ{direction === "buy" ? "จ่ายเงิน" : "รับชำระเงิน"}หรือสร้างบิลสำเร็จ
+        </p>}
+        {!transactionWritesEnabled && <p role="alert" className="mt-3 rounded-lg bg-amber-50 p-3 text-xs font-semibold text-amber-900">ตัวอย่างหน้าต่างชำระเงิน: การบันทึกธุรกรรมจริงยังปิดไว้จนกว่าจะผ่านตรวจรับบัญชีและสต๊อก</p>
         {postError && <p role="alert" className="mt-3 rounded-lg bg-rose-50 p-3 text-sm font-semibold text-rose-800">{postError}</p>}
         <div className="mt-5 flex justify-end gap-2">
           <button type="button" disabled={posting} onClick={() => setCheckoutOpen(false)}
             className="rounded-lg border border-slate-300 px-5 py-3 text-sm font-bold text-slate-700 disabled:opacity-50">ย้อนกลับ</button>
-          <button type="submit" disabled={!transactionWritesEnabled || posting || !counterpartyName.trim() || !visibleLines.length}
+          <button type="submit" disabled={!transactionWritesEnabled || posting || settlement === "bank_transfer" || !counterpartyName.trim() || !visibleLines.length}
             className="rounded-lg bg-blue-700 px-5 py-3 text-sm font-extrabold text-white disabled:cursor-not-allowed disabled:opacity-50">
-            {posting ? "กำลังบันทึก..." : "ยืนยันและออกใบเสร็จ"}
+            {posting ? "กำลังบันทึก..." : direction === "buy" ? "ยืนยันจ่ายเงินและออกใบรับซื้อ" : "ยืนยันรับชำระและออกใบเสร็จขายออก"}
           </button>
         </div>
       </form>
