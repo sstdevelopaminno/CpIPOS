@@ -179,28 +179,20 @@ export function RecyclingPosWorkspace({ products, branchName, storeName, deviceC
     <RecyclingSalesModeSwitcher storeName={storeName} branchName={branchName}
       deviceCode={deviceCode} sellerName={sellerName} shiftStatus={shiftStatus}
       generalSaleEnabled={generalSaleEnabled}/>
-    <header className="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <p className="text-xs font-extrabold tracking-wider text-blue-700">CUSTOM · RECYCLING</p>
-          <h1 className="mt-1 text-lg font-extrabold text-slate-950">รับซื้อ / ขายออก วัสดุรีไซเคิล</h1>
-          <p className="mt-1 text-xs font-medium text-slate-600">ชั่งน้ำหนักภายนอก แล้วกรอกหน่วย / น้ำหนักเมื่อยิงบาร์โค้ด</p>
-        </div>
-        <nav className="flex flex-wrap gap-2" aria-label="เครื่องมือร้านรีไซเคิล">
-          <Link className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-semibold text-blue-800 hover:bg-blue-100"
-            href="/preview/pos/recycling/stock">สต๊อกและราคาวัสดุ</Link>
-          <Link className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-            href="/preview/pos/recycling/shifts">รายงานปิดกะ</Link>
-          <Link className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-            href="/preview/pos/more">เมนูเพิ่มเติม</Link>
-        </nav>
-      </div>
-    </header>
-
-    <div role="note" className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-900">
-      ระบบรับซื้อ–ขายออกจะบันทึกผ่าน RPC แบบ Atomic เท่านั้น ถ้า Backend ยังไม่ได้ติดตั้ง ระบบจะแจ้งและไม่บันทึกบิล
-      ทุกครั้งต้องเปิดกะและยืนยันข้อมูลคู่ค้าก่อนรับหรือจ่ายเงินจริง
+    <div className="flex flex-wrap items-center justify-between gap-2" data-testid="recycling-sales-actions">
+      <p className="text-sm font-semibold text-slate-700">รับซื้อ / ขายออก · ยิงบาร์โค้ดและกรอกน้ำหนักจากเครื่องชั่งภายนอก</p>
+      <nav className="flex flex-wrap gap-2" aria-label="เครื่องมือร้านรีไซเคิล">
+        <Link className="rounded-full border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-blue-50"
+          href="/preview/pos/recycling/stock">สต๊อกและราคาวัสดุ</Link>
+        <Link className="rounded-full border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-blue-50"
+          href="/preview/pos/recycling/shifts">รายงานปิดกะ</Link>
+        <Link className="rounded-full border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-blue-50"
+          href="/preview/pos/more">เมนูเพิ่มเติม</Link>
+      </nav>
     </div>
+    {!transactionWritesEnabled && <div role="alert" className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-900">
+      ระบบรับซื้อ–ขายออกยังปิดการบันทึกธุรกรรมจริงระหว่างตรวจสอบ Backend ไม่มีรายการสต๊อกหรือบัญชีถูกบันทึก
+    </div>}
 
     <div className="grid grid-cols-2 gap-2 rounded-xl border border-slate-200 bg-white p-1.5" role="group" aria-label="ประเภทการทำรายการ">
       {([["buy", "รับซื้อเข้าร้าน"], ["sell", "ขายออก"]] as const).map(([value, label]) =>
