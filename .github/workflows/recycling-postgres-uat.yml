@@ -64,11 +64,23 @@ jobs:
         run: |
           set -euo pipefail
           docker exec -i "$PG_CONTAINER" psql -U postgres -d recycling_uat -v ON_ERROR_STOP=1 < docs/recycling/phase3_finance_gl_bridge_draft.sql
+      - name: Compile and install supervised VOID function on disposable DB
+        env:
+          PG_CONTAINER: ${{ job.services.postgres.id }}
+        run: |
+          set -euo pipefail
+          docker exec -i "$PG_CONTAINER" psql -U postgres -d recycling_uat -v ON_ERROR_STOP=1 < docs/recycling/phase4_void_unposted_transaction_draft.sql
       - name: Exercise real SQL with fake identities, fake materials and fake payments
         env:
           PG_CONTAINER: ${{ job.services.postgres.id }}
         run: |
           set -euo pipefail
           docker exec -i "$PG_CONTAINER" psql -U postgres -d recycling_uat -v ON_ERROR_STOP=1 < tests/recycling/ephemeral_pg_acceptance.sql
+      - name: Verify supervised VOID on disposable database
+        env:
+          PG_CONTAINER: ${{ job.services.postgres.id }}
+        run: |
+          set -euo pipefail
+          docker exec -i "$PG_CONTAINER" psql -U postgres -d recycling_uat -v ON_ERROR_STOP=1 < tests/recycling/ephemeral_pg_void_acceptance.sql
       # No production secrets, URLs or accounts are provided to this job.
       # Successful CI is necessary but not sufficient for a Supabase release.
