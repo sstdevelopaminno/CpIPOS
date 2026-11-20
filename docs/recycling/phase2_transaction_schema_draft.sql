@@ -43,7 +43,7 @@ create table if not exists public.recycling_transaction_lines (
   line_no int not null check (line_no between 1 and 100),
   product_id uuid not null references public.products(id),
   original_quantity numeric(18,6) not null check (original_quantity > 0),
-  original_unit text not null check (original_unit in ('kg','khid','g','ton','piece')),
+  original_unit text not null check (original_unit in ('kg','khid','g','ton','piece','stem')),
   base_quantity numeric(18,6) not null check (base_quantity > 0),
   base_unit text not null check (base_unit in ('kg','piece')),
   price_per_base numeric(16,2) not null check (price_per_base >= 0),
@@ -202,7 +202,7 @@ begin
       raise exception 'recycling_invalid_line';
     end if;
     v_unit := v_line->>'unit';
-    if coalesce(v_unit,'') not in ('kg','khid','g','ton','piece') then
+    if coalesce(v_unit,'') not in ('kg','khid','g','ton','piece','stem') then
       raise exception 'recycling_invalid_unit';
     end if;
     v_quantity := (v_line->>'quantity')::numeric;
@@ -216,13 +216,13 @@ begin
     if not found then raise exception 'recycling_product_not_found'; end if;
     v_basis := case when v_p.metadata->>'recycling_price_basis'='piece'
       then 'piece' else 'kg' end;
-    if (v_unit='piece') <> (v_basis='piece') then raise exception 'recycling_unit_mismatch'; end if;
-    if v_unit='piece' and v_quantity<>trunc(v_quantity) then
+    if (v_unit in ('piece','stem')) <> (v_basis='piece') then raise exception 'recycling_unit_mismatch'; end if;
+    if v_unit in ('piece','stem') and v_quantity<>trunc(v_quantity) then
       raise exception 'recycling_piece_must_be_whole'; end if;
     v_multiplier := case v_unit when 'ton' then 1000 when 'kg' then 1
       when 'khid' then 0.1 when 'g' then 0.001 else 1 end;
     v_base_quantity := v_quantity * v_multiplier;
-    if v_base_quantity<0.001 and v_unit<>'piece' then raise exception 'recycling_below_gram_precision'; end if;
+    if v_base_quantity<0.001 and v_unit not in ('piece','stem') then raise exception 'recycling_below_gram_precision'; end if;
     if v_base_quantity>100000000 then raise exception 'recycling_quantity_too_large'; end if;
     v_price := case when p_direction='buy'
       then nullif(v_p.metadata->>'recycling_buy_price','')::numeric else v_p.price end;
