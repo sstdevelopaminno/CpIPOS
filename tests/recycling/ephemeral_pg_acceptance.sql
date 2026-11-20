@@ -15,6 +15,7 @@ declare
   v_third_id uuid;
   v_res jsonb;
   v_ledger jsonb;
+  v_shift_totals jsonb;
   v_qty numeric;
   v_value bigint;
   v_cogs bigint;
@@ -95,6 +96,38 @@ begin
     from public.recycling_stock_balances where product_id=v_product;
   if v_qty<>1.5 or v_value<>1238 then
     raise exception 'UAT_FAILED_SALE_COGS_INVENTORY: qty % value %',v_qty,v_value; end if;
+  v_shift_totals := public.recycling_shift_totals(v_t,v_b,v_shift);
+  if (v_shift_totals->>'buy_count')::bigint<>1 or
+     (v_shift_totals->>'sell_count')::bigint<>1 or
+     (v_shift_totals->>'cash_in_minor')::bigint<>1000 or
+     (v_shift_totals->>'cash_out_minor')::bigint<>2063 or
+     (v_shift_totals->>'cash_net_minor')::bigint<>-1063 then
+    raise exception 'UAT_FAILED_SHIFT_CASH_RECONCILIATION: %',v_shift_totals;
+  end if;
+
+  begin
+    perform public.recycling_post_transaction(v_t,v_b,v_shift,v_cashier,
+      'aaaaaaaa-bbbb-4aaa-8aaa-aaaaaaaaaaaa','buy','cash','Overdrawn drawer',
+      pg_catalog.jsonb_build_array(pg_catalog.jsonb_build_object(
+        'product_id',v_product,'quantity',20,'unit','kg','expected_price',8.25)));
+    raise exception 'UAT_MISSING_CASH_DRAWER_INSUFFICIENT';
+  exception when others then
+    if position('recycling_cash_drawer_insufficient' in sqlerrm)=0 then raise; end if;
+  end;
+
+  -- Ordinary POS receipts must not silently mix with the Recycling ledger.
+  insert into public.orders(id,tenant_id,branch_id,shift_id)
+    values('bbbbbbbb-cccc-4bbb-8bbb-bbbbbbbbbbbb',v_t,v_b,v_shift);
+  begin
+    perform public.recycling_post_transaction(v_t,v_b,v_shift,v_cashier,
+      'dddddddd-eeee-4ddd-8ddd-dddddddddddd','buy','credit','Mixed POS',
+      pg_catalog.jsonb_build_array(pg_catalog.jsonb_build_object(
+        'product_id',v_product,'quantity',1,'unit','kg','expected_price',8.25)));
+    raise exception 'UAT_MISSING_MIXED_SHIFT_GUARD';
+  exception when others then
+    if position('recycling_mixed_legacy_shift_requires_reconciliation' in sqlerrm)=0 then raise; end if;
+  end;
+  delete from public.orders where id='bbbbbbbb-cccc-4bbb-8bbb-bbbbbbbbbbbb';
 
   -- Enforce strict atomicity: invalid or unstocked sale may not change
   -- inventory, create a new receipt or append accounting ledger rows.
