@@ -10195,3 +10195,177 @@ body:has(.pos-app-root) {
 .pos-shell-sidebar[data-custom-branded="true"] a:hover:not([aria-disabled="true"]){
  background-color:color-mix(in srgb, var(--pos-custom-accent),transparent 70%);
 }
+
+/* Recycling CUSTOM: flush desktop UI in the existing POS shell.
+   Scope to this route only; other package/mode layouts stay untouched. */
+.pos-app-content-area:has(> .recycling-pos-layout) {
+  justify-content: stretch;
+  padding: 0 !important;
+}
+.pos-app-content-area:has(> .recycling-pos-layout) > .recycling-pos-layout {
+  max-width: none;
+}
+.recycling-pos-layout {
+  min-width: 0;
+  min-height: 0;
+  border: 1px solid #e2e8f0;
+}
+.recycling-pos-toolbar {
+  flex: 0 0 auto;
+  border-radius: 0;
+  box-shadow: none;
+}
+.recycling-pos-toolbar .posui-mode-header-row {
+  display: grid !important;
+  grid-template-columns: 34px max-content minmax(0, 1fr) !important;
+  align-items: center;
+  column-gap: 10px;
+  min-height: 78px;
+}
+.recycling-pos-toolbar .posui-mode-header-row > .posui-filter-group {
+  display: flex;
+  min-width: 0;
+  height: 100%;
+  align-items: center;
+  padding: 0 0 0 12px;
+}
+.recycling-pos-toolbar .recycling-topbar-actions { flex-wrap: nowrap; }
+.recycling-pos-toolbar .posui-mode-switch-button {
+  width: auto;
+  min-height: 42px;
+  grid-template-columns: 30px max-content;
+  gap: 6px;
+  padding: 4px 10px;
+  flex-shrink: 0;
+}
+.recycling-pos-toolbar .posui-mode-switch-button__icon { width: 30px; height: 30px; }
+.recycling-pos-toolbar .posui-mode-switch-button__action { font-size: 12px; }
+.recycling-pos-toolbar .posui-sales-meta-group {
+  min-width: 0;
+  width: 100%;
+  padding-left: 16px !important;
+}
+.recycling-pos-toolbar .posui-sales-meta-card {
+  min-height: 0;
+  width: 100%;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.recycling-pos-toolbar .posui-sales-meta-columns {
+  display: grid !important;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  align-items: center;
+  gap: clamp(12px, 2vw, 26px) !important;
+  height: auto;
+  width: 100%;
+}
+.recycling-pos-toolbar .posui-sales-meta-list {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr);
+  grid-auto-rows: minmax(19px, auto);
+  gap: 4px !important;
+  min-width: 0;
+  padding: 0 !important;
+  border: 0 !important;
+}
+.recycling-pos-toolbar .posui-sales-meta-row {
+  display: grid !important;
+  align-items: baseline;
+  min-width: 0;
+  gap: 7px;
+  line-height: 1.4;
+}
+.recycling-pos-toolbar .posui-sales-meta-list--left .posui-sales-meta-row {
+  grid-template-columns: 66px minmax(0, 1fr) !important;
+}
+.recycling-pos-toolbar .posui-sales-meta-list--right .posui-sales-meta-row {
+  grid-template-columns: 115px minmax(0, 1fr) !important;
+}
+.recycling-pos-toolbar .posui-sales-meta-row dt {
+  white-space: nowrap;
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 700;
+}
+.recycling-pos-toolbar .posui-sales-meta-row dd {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: #0f172a;
+  font-weight: 750;
+}
+.recycling-pos-panels {
+  display: grid;
+  grid-template-columns: minmax(310px, 42%) minmax(0, 1fr);
+  gap: 0;
+  min-height: 0;
+}
+.recycling-pos-panels > section {
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+.recycling-cart-panel { border-left: 1px solid #e2e8f0 !important; }
+.recycling-catalog-scroll,
+.recycling-cart-scroll {
+  scrollbar-gutter: stable;
+  overscroll-behavior: contain;
+}
+.recycling-cart-scroll { min-height: 0; }
+.recycling-cart-scroll thead {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+.recycling-summary-dock {
+  flex: 0 0 auto;
+  margin-top: auto;
+  min-width: 0;
+}
+.recycling-summary-dock [role="status"] {
+  max-height: min(26vh, 210px);
+  overflow-y: auto;
+}
+@media (max-width: 1150px) {
+  .recycling-pos-toolbar .posui-mode-header-row {
+    grid-template-columns: 34px minmax(0, 1fr) !important;
+    row-gap: 8px;
+  }
+  .recycling-pos-toolbar .posui-sales-meta-group {
+    grid-column: 2 / -1;
+    padding-top: 6px;
+    border-top: 1px solid #e2e8f0;
+  }
+  .recycling-pos-toolbar .recycling-topbar-actions { flex-wrap: wrap; }
+}
+@media (max-width: 850px) {
+  .recycling-pos-layout { overflow-y: auto; }
+  .recycling-pos-panels {
+    display: flex;
+    flex-direction: column;
+    overflow: visible;
+  }
+  .recycling-pos-panels > section {
+    min-height: 330px;
+    overflow: visible;
+  }
+  .recycling-cart-panel {
+    border-left: 0 !important;
+    border-top: 1px solid #e2e8f0 !important;
+  }
+  .recycling-cart-scroll {
+    min-height: 180px;
+    max-height: 50vh;
+  }
+  .recycling-pos-toolbar .posui-sales-meta-columns {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+}

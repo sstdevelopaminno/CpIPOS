@@ -40,6 +40,30 @@ describe("Recycling custom cashier UX", () => {
     expect(cashier).not.toContain('max-w-[1550px]');
     expect(cashier).not.toContain('grid grid-cols-2 gap-2 rounded-xl');
   });
+  it("keeps Recycling flush to the viewport, with unified panels and a bottom summary dock", () => {
+    const css=src("src/app/globals.css");
+    expect(cashier).toContain('className="recycling-pos-layout flex h-full min-h-0 w-full flex-col');
+    expect(cashier).toContain('data-testid="recycling-unified-sales-body"');
+    expect(cashier).toContain('data-testid="recycling-anchored-summary"');
+    expect(cashier).toContain('recycling-cart-scroll mt-3 min-h-0 flex-1 overflow-auto');
+    expect(cashier).toContain('recycling-summary-dock mt-auto shrink-0');
+    expect(css).toContain(".pos-app-content-area:has(> .recycling-pos-layout)");
+    expect(css).toContain("padding: 0 !important");
+    expect(css).toContain("grid-template-columns: minmax(310px, 42%) minmax(0, 1fr)");
+    expect(css).toContain("border-left: 1px solid #e2e8f0 !important");
+    expect(css).toContain("margin-top: auto");
+    expect(cashier).not.toContain('min-h-[560px]');
+  });
+  it("aligns shared header labels and values in stable grid rows", () => {
+    const css=src("src/app/globals.css");
+    expect(toolbar).toContain("recycling-pos-toolbar posui-sales-topbar");
+    expect(toolbar).toContain("<PosSalesMetaDetails");
+    expect(toolbar).not.toContain("compactMetaCss");
+    expect(css).toContain(".recycling-pos-toolbar .posui-sales-meta-columns");
+    expect(css).toContain("grid-template-columns: repeat(2, minmax(0, 1fr)) !important");
+    expect(css).toContain(".recycling-pos-toolbar .posui-sales-meta-row");
+    expect(css).toContain("display: grid !important");
+  });
   it("opens payment dialog before post, never enables unverified bank transfer", () => {
     expect(cashier).toContain('setCheckoutOpen(true)');
     expect(cashier).toContain('disabled={!transactionWritesEnabled || posting || settlement === "bank_transfer" || !counterpartyName.trim()');
