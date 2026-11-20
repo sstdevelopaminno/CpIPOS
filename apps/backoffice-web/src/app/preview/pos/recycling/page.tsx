@@ -21,5 +21,7 @@ export default async function RecyclingPosPage() {
   ]);
   // Session and permission checks must precede data reads.
   void auth;
-  return <RecyclingPosWorkspace products={products} branchName={branch.data?.name ?? "สาขาที่เข้าสู่ระบบ"} />;
+  return <RecyclingPosWorkspace products={products}
+    branchName={branch.data?.name ?? "สาขาที่เข้าสู่ระบบ"}
+    transactionWritesEnabled={process.env.RECYCLING_TRANSACTION_WRITES_ENABLED === "1"} />;
 }
