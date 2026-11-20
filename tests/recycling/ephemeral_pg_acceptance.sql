@@ -218,6 +218,25 @@ begin
   update public.tenant_data_lifecycle set trial_expires_at=now()+interval '7 days'
     where tenant_id=v_t;
 
+  -- The database trigger is authoritative under the shift row lock.
+  -- A stale application-supplied expected_cash must be overwritten.
+  update public.shifts set status='closed',actual_cash=89.37,
+    expected_cash=999.99,metadata='{}'::jsonb where id=v_shift;
+  select expected_cash,metadata->>'recycling_cash_net_minor'
+    into v_qty,v_check from public.shifts where id=v_shift;
+  if v_qty<>89.37 or v_check<>'-1063' then
+    raise exception 'UAT_FAILED_ATOMIC_SHIFT_CLOSE: expected % net %',v_qty,v_check;
+  end if;
+  begin
+    perform public.recycling_post_transaction(v_t,v_b,v_shift,v_cashier,
+      'ffffffff-ffff-4fff-8fff-ffffffffffff','buy','credit','Closed shift',
+      pg_catalog.jsonb_build_array(pg_catalog.jsonb_build_object(
+        'product_id',v_product,'quantity',1,'unit','kg','expected_price',8.25)));
+    raise exception 'UAT_MISSING_CLOSED_SHIFT_GATE';
+  exception when others then
+    if position('recycling_shift_closed' in sqlerrm)=0 then raise; end if;
+  end;
+
   raise notice 'RECYCLING_POSTGRES_ACCEPTANCE_SUCCESS: stock, satang, GL, finance approval, permissions, audit, receipts, idempotency, locked period';
 end;
 $uat$;
