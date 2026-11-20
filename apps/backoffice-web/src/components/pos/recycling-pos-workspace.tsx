@@ -40,6 +40,12 @@ export function RecyclingPosWorkspace({ products, branchName }: {
   const [unit, setUnit] = useState<RecyclingUnit>("kg");
   const [quantity, setQuantity] = useState("1");
   const [lines, setLines] = useState<CartLine[]>([]);
+  const [counterpartyName, setCounterpartyName] = useState("");
+  const [settlement, setSettlement] = useState<"cash" | "bank_transfer" | "credit">("cash");
+  const [posting, setPosting] = useState(false);
+  const [postError, setPostError] = useState("");
+  const [posted, setPosted] = useState<{ id: string; total_minor: number } | null>(null);
+  const requestIdRef = useRef("");
   const nextKey = useRef(0);
   const scannerRef = useRef<HTMLInputElement>(null);
 
@@ -86,6 +92,8 @@ export function RecyclingPosWorkspace({ products, branchName }: {
   function addToCart() {
     if (!pending || !preview || selectedPrice === null) return;
     nextKey.current += 1;
+    requestIdRef.current = "";
+    setPosted(null);
     setLines(current => [...current, {
       key: nextKey.current,
       direction,
@@ -101,6 +109,59 @@ export function RecyclingPosWorkspace({ products, branchName }: {
     setSearch("");
     setError("");
     window.setTimeout(() => scannerRef.current?.focus(), 0);
+  }
+
+  async function postTransaction() {
+    if (posting || !visibleLines.length || !counterpartyName.trim()) return;
+    setPosting(true);
+    setPostError("");
+    setPosted(null);
+    if (!requestIdRef.current) requestIdRef.current = window.crypto.randomUUID();
+    try {
+      const response = await fetch("/api/pos/recycling/transactions", {
+        method: "POST", credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          request_id: requestIdRef.current, direction, settlement,
+          counterparty_name: counterpartyName.trim(),
+          lines: visibleLines.map(line => ({
+            product_id: line.product.id,
+            quantity: line.quantity,
+            unit: line.unit,
+            expected_price: line.unitPrice
+          }))
+        })
+      });
+      const body = await response.json().catch(() => null) as {
+        data?: { transaction?: { id?: string; total_minor?: number } };
+        error?: { code?: string; message?: string };
+      } | null;
+      if (!response.ok || !body?.data?.transaction?.id) {
+        const code = body?.error?.code ?? "recycling_post_failed";
+        const reasons: Record<string,string> = {
+          recycling_migration_required: "ระบบบันทึกธุรกรรม Recycling ยังไม่ได้ติดตั้งที่เซิร์ฟเวอร์ ไม่มีรายการถูกบันทึก",
+          recycling_stock_insufficient: "จำนวนสินค้าในสต๊อกไม่เพียงพอ โปรดตรวจสอบยอดคงเหลือ",
+          recycling_price_changed_refresh_cart: "ราคาวัสดุมีการเปลี่ยนแปลง กรุณาเริ่มบิลใหม่ด้วยราคาล่าสุด",
+          missing_active_shift: "กรุณาเปิดกะก่อนบันทึกรับซื้อหรือขายออก",
+          recycling_subscription_inactive: "สัญญา CUSTOM Recycling ยังไม่พร้อมใช้งาน"
+        };
+        setPostError(reasons[code] ?? body?.error?.message ?? "บันทึกไม่สำเร็จ ยังไม่ควรจ่ายหรือรับเงิน");
+        return;
+      }
+      setPosted({
+        id: body.data.transaction.id,
+        total_minor: Number(body.data.transaction.total_minor ?? 0)
+      });
+      requestIdRef.current = "";
+      setLines(current => current.filter(line => line.direction !== direction));
+      setCounterpartyName("");
+    } catch {
+      // Keep the same request_id on retry to avoid double posting after a
+      // connection error. The backend returns the original transaction.
+      setPostError("การเชื่อมต่อขัดข้อง กรุณาลองบันทึกซ้ำด้วยรายการเดิม ห้ามจ่าย/รับเงินซ้ำก่อนตรวจสอบบิล");
+    } finally {
+      setPosting(false);
+    }
   }
 
   const units = pending?.priceBasis === "piece" ? (["piece"] as RecyclingUnit[]) : weightUnits;
@@ -123,7 +184,8 @@ export function RecyclingPosWorkspace({ products, branchName }: {
     </header>
 
     <div role="note" className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-900">
-      อยู่ระหว่างพัฒนาระบบธุรกรรม: ตะกร้านี้ใช้ทดลองยิงบาร์โค้ดและคำนวณเท่านั้น ยังไม่บันทึกใบรับซื้อ บิลขาย สต๊อก หรือบัญชีจริง
+      ระบบรับซื้อ–ขายออกจะบันทึกผ่าน RPC แบบ Atomic เท่านั้น ถ้า Backend ยังไม่ได้ติดตั้ง ระบบจะแจ้งและไม่บันทึกบิล
+      ทุกครั้งต้องเปิดกะและยืนยันข้อมูลคู่ค้าก่อนรับหรือจ่ายเงินจริง
     </div>
 
     <div className="grid grid-cols-2 gap-2 rounded-xl border border-slate-200 bg-white p-1.5" role="group" aria-label="ประเภทการทำรายการ">
@@ -174,7 +236,7 @@ export function RecyclingPosWorkspace({ products, branchName }: {
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 className="text-base font-extrabold text-slate-900">ตะกร้ารายการ{direction === "buy" ? "รับซื้อ" : "ขายออก"}</h2>
           <button type="button" className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-bold text-slate-700 disabled:opacity-50"
-            disabled={!visibleLines.length} onClick={() => setLines(current => current.filter(line => line.direction !== direction))}>
+            disabled={!visibleLines.length || posting} onClick={() => { requestIdRef.current = ""; setPosted(null); setLines(current => current.filter(line => line.direction !== direction)); }}>
             ล้างตะกร้า
           </button>
         </div>
@@ -193,7 +255,7 @@ export function RecyclingPosWorkspace({ products, branchName }: {
               <td className="px-3 py-3 text-right font-extrabold">{formatMoney(line.total)}</td>
               <td className="px-3 py-3"><button type="button" aria-label={`ลบ ${line.product.name}`}
                 className="rounded px-2 py-1 text-rose-700 hover:bg-rose-50"
-                onClick={() => setLines(current => current.filter(item => item.key !== line.key))}>ลบ</button></td>
+                onClick={() => { requestIdRef.current = ""; setPosted(null); setLines(current => current.filter(item => item.key !== line.key)); }}>ลบ</button></td>
             </tr>) : <tr><td colSpan={6} className="px-4 py-14 text-center text-slate-500">
               ยังไม่มีสินค้าในตะกร้า · ยิงบาร์โค้ดเพื่อเริ่มรายการ
             </td></tr>}</tbody>
@@ -204,6 +266,32 @@ export function RecyclingPosWorkspace({ products, branchName }: {
             <small className="block text-xs text-slate-500">{visibleLines.length} รายการ (ยังไม่บันทึก)</small></div>
           <strong className="text-2xl font-extrabold tabular-nums text-blue-900">{formatMoney(total)} ฿</strong>
         </div>
+        <div className="mt-4 grid gap-3 sm:grid-cols-2">
+          <label className="text-sm font-semibold text-slate-700">
+            {direction === "buy" ? "ชื่อผู้ขายวัสดุ" : "ชื่อผู้ซื้อวัสดุ"}
+            <input value={counterpartyName} maxLength={240} onChange={event => setCounterpartyName(event.target.value)}
+              placeholder={direction === "buy" ? "กรอกชื่อผู้ขายวัสดุ" : "กรอกชื่อผู้ซื้อวัสดุ"}
+              className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-3 text-slate-900 focus:border-blue-600 focus:outline-none" />
+          </label>
+          <label className="text-sm font-semibold text-slate-700">
+            วิธีรับ / จ่ายเงิน
+            <select value={settlement} onChange={event => setSettlement(event.target.value as typeof settlement)}
+              className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-3 text-slate-900">
+              <option value="cash">เงินสด</option>
+              <option value="bank_transfer">โอนเงิน</option>
+              <option value="credit">ค้างชำระ / เครดิต</option>
+            </select>
+          </label>
+        </div>
+        {postError && <p role="alert" className="mt-3 rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm font-semibold text-rose-800">{postError}</p>}
+        {posted && <p role="status" className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm font-semibold text-emerald-900">
+          บันทึกรายการสำเร็จ หมายเลขอ้างอิง {posted.id} · ยอดที่บันทึก {formatMoney(posted.total_minor / 100)} บาท
+        </p>}
+        <button type="button" onClick={() => void postTransaction()}
+          disabled={posting || visibleLines.length === 0 || !counterpartyName.trim()}
+          className="mt-4 w-full rounded-lg bg-blue-700 px-4 py-4 text-base font-extrabold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-50">
+          {posting ? "กำลังตรวจสอบและบันทึก..." : direction === "buy" ? "บันทึกใบรับซื้อและรับเข้าสต๊อก" : "บันทึกขายออกและตัดสต๊อก"}
+        </button>
       </section>
     </div>
 
