@@ -199,7 +199,16 @@ async function loadTenantFeatureSnapshot(tenantId: string, branchId: string, men
     if (!tenantOverrides.has("core_pos_sales") && !branchOverrides.has("core_pos_sales")) {
       features.core_pos_sales = true;
     }
-    features.barcode_scanner_mode = true;
+    if (!tenantOverrides.has("barcode_scanner_mode") && !branchOverrides.has("barcode_scanner_mode")) {
+      features.barcode_scanner_mode = true;
+    }
+  }
+  // Match the secure POS entry gate for an explicitly IT-authorized CUSTOM
+  // General Sale contract. Explicit tenant/branch decisions already applied
+  // above are authoritative, including denials.
+  if (isCustom && salesModes.general_sale &&
+      !tenantOverrides.has("core_pos_sales") && !branchOverrides.has("core_pos_sales")) {
+    features.core_pos_sales = true;
   }
   const opticalMoreAccess = Object.fromEntries(
     Object.entries(OPTICAL_MORE_FEATURES).map(([key, cfg]) => [
