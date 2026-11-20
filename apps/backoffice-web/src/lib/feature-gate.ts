@@ -1,6 +1,7 @@
 import "server-only";
 
 import { isFeatureUnlockEnabled } from "@/lib/feature-unlock";
+import { hasCustomSalesModeFeatureGrant } from "@/lib/custom-sales-entitlements";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 import { getInternalItTestMode } from "@/lib/server/internal-it-test-store";
 import { isDineInExplicitlyEnabled, isDineInLinkedFeature, isOpticalRetailExplicitlyEnabled, normalizeCustomPosSalesModes, resolvePosSalesModePolicy } from "@/lib/pos-sales-modes";
@@ -313,19 +314,20 @@ export async function hasBranchFeature(tenantId: string, branchId: string | null
     enabled = String(plan.data?.code ?? "").toLowerCase() === "custom" && command.data?.is_enabled === true;
   }
 
-  // An IT-approved CUSTOM Optical contract includes core cashier access.
-  // Never override an explicit tenant/branch denial, even for Optical stores.
-  // Fixed packages and non-Optical CUSTOM modes retain their own entitlements.
+  // CUSTOM is not sufficient by itself. IT must explicitly authorize the
+  // exact sales mode. The same decision is used by the cashier entry gate
+  // and GET /api/pos/features; explicit tenant/branch denials win.
   if (!enabled && !tenantOverride && !branchOverride &&
-      (featureCode === "pos.sales.access" || featureCode === "pos_sales" || featureCode === "core_pos_sales") &&
-      isOpticalRetailExplicitlyEnabled(contract?.metadata?.sales_modes)) {
+      (featureCode === "pos.sales.access" || featureCode === "pos_sales" ||
+       featureCode === "core_pos_sales" || featureCode === "stock_management") &&
+      contract?.metadata?.sales_modes) {
     const packageLookup = await supabase.from("subscription_packages")
       .select("code").eq("id", contract!.package_id)
       .maybeSingle<{ code: string }>();
     if (packageLookup.error) throw new FeatureGateError(
       "optical_package_check_failed", packageLookup.error.message, 500
     );
-    if (String(packageLookup.data?.code ?? "").toLowerCase() === "custom") enabled = true;
+    enabled = hasCustomSalesModeFeatureGrant(packageLookup.data?.code, contract?.metadata?.sales_modes, featureCode);
   }
 
   // Optical retail uses the existing secured SKU/scanner workflow.
