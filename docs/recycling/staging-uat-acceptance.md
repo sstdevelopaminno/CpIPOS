@@ -51,6 +51,12 @@ Shop 155858, ส.เจริญทรัพย์รุ่งเรื่อง
 | FIN-02 | Settlement = credit | Purchase booked as payable; sale booked as receivable; no fictional cash movement. |
 | FIN-03 | Finance GL bridge | Review `phase3_finance_gl_bridge_draft.sql`. Require a *different* active branch accountant than the source cashier; create linked Finance document and two-to-four-line GL journal with source snapshot, posting key and audit events. Reconcile all totals; **staging UAT not yet completed**. |
 | FIN-04 | Cancellation/refund/void | Still blocked: do not manually delete transactions, edit stock, or backdate posted GL. Require an approved reversal, original receipt cross-reference and shift adjustment workflow. **Not implemented yet.** |
+| SHIFT-01 | 100 THB opening cash, buy 20.63 THB cash, sell 10 THB cash | Expected cash is **89.37 THB**. Bank transfers and credit must not inflate drawer cash. |
+| SHIFT-02 | Two concurrent purchases attempt to overdraw cash float | Shift row lock and cash movement calculation prevent negative drawer balance. |
+| SHIFT-03 | Ordinary POS order and recycling transaction in one shift | Reject mixed ledger, require documented cross-ledger reconciliation before close. |
+| SHIFT-04 | A new transaction arrives during cashier close | DB close trigger recalculates and stores final shift cash/bank totals under the row lock, avoiding stale client results. |
+| SHIFT-05 | Close a shift without physical cash count | Reject when Recycling contains posted records. |
+| SHIFT-06 | Trial expires after a valid transaction | Cash/shift reconciliation for historical records still required even if new writes are disabled. |
 | FIN-05 | VAT/tax invoice | Disabled until merchant VAT status, numbering, legal invoice fields and tax policies verified. |
 | PRINT-01 | Material purchase/sale receipts | Implemented draft: immutable SKU/name/price/quantity snapshots, unique `RCY-B/S-...` purchase/sale reference, original/reprint route and browser print. Must test 58/80mm drivers and Android/Windows; **not a tax invoice**. |
 
@@ -85,7 +91,7 @@ having coalesce(sum(e.debit_minor),0) <> coalesce(sum(e.credit_minor),0);
 1. Supabase staging branch requires separate cost approval; do **not** create without confirmation.
 2. Run and review draft `docs/recycling/phase2_transaction_schema_draft.sql` on a cost-approved staging branch, fix SQL/API discrepancies, and generate an ordered canonical migration.
 3. Finish the review/UAT of the drafted Finance GL bridge and immutable purchase/sale receipts. **Cancellation/reversal** and policy for locked shifts/posted GL remain unfinished release blockers; do not enable live transactions without them.
-4. Pass all cases above, with audit logs and authorized role/branch testing.
+4. Pass all cases above, with audit logs and authorized role/branch testing. GitHub Actions has an **ephemeral PostgreSQL 16 synthetic UAT** (`.github/workflows/recycling-postgres-uat.yml`) which executes both SQL drafts. This is not a substitute for Supabase staging, role/session UAT or live printer tests.
 5. Verify POS PR #492 and IT PR #217 together before a coordinated, limited Production rollout. Enable Recycling only after passing UAT, and deploy in a single planned batch where feasible.
 
 Shop 155858 remains on its previously recorded CUSTOM trial settings until IT explicitly changes the mode. The General Sale login hotfix was merged via PR #493 and deployed to production, but Recycling itself remains disabled.
