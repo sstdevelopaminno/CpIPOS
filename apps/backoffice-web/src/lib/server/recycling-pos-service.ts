@@ -12,6 +12,7 @@ export type RecyclingCatalogItem = {
   imageUrl: string | null;
   buyPrice: number | null;
   sellPrice: number | null;
+  quantityBase: number | null;
   priceBasis: RecyclingPriceBasis;
   active: boolean;
 };
@@ -72,6 +73,20 @@ export async function getRecyclingCatalog(tenantId: string, branchId: string): P
     .order("name", { ascending: true }).limit(1000);
   if (error) throw new Error("recycling_catalog_unavailable");
 
+  // Do not show a fake zero balance before the additive recycling migration
+  // is installed and verified. Gate the extra query to avoid repeated
+  // PostgREST 404 log events (and unnecessary Vercel usage) during rollout.
+  const quantityByProduct = new Map<string, number>();
+  if (process.env.RECYCLING_STOCK_SCHEMA_READY === "1") {
+    const balances = await db.from("recycling_stock_balances")
+      .select("product_id,quantity_base")
+      .eq("tenant_id", tenantId).eq("branch_id", branchId).limit(1000);
+    if (balances.error) throw new Error("recycling_balance_query_failed");
+    for (const row of balances.data ?? []) {
+      quantityByProduct.set(String(row.product_id), Number(row.quantity_base));
+    }
+  }
+
   return (data ?? []).map((product): RecyclingCatalogItem => {
     const metadata = product.metadata && typeof product.metadata === "object" && !Array.isArray(product.metadata)
       ? product.metadata as Record<string, unknown> : {};
@@ -89,6 +104,8 @@ export async function getRecyclingCatalog(tenantId: string, branchId: string): P
       imageUrl: typeof url === "string" && /^https:\/\//i.test(url) ? url : null,
       buyPrice: metadata.recycling_buy_price != null && Number.isFinite(buy) && buy >= 0 ? buy : null,
       sellPrice: Number.isFinite(sell) && sell >= 0 ? sell : null,
+      quantityBase: process.env.RECYCLING_STOCK_SCHEMA_READY === "1"
+        ? quantityByProduct.get(String(product.id)) ?? 0 : null,
       priceBasis: basis,
       active: Boolean(product.is_active)
     };
