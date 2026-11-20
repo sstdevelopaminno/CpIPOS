@@ -47,6 +47,13 @@ export async function POST(request: Request) {
     if (!await isAuthorizedRecyclingTenant(scope.session.tenant_id)) {
       return fail("recycling_not_authorized", "This tenant does not have the active CUSTOM Recycling entitlement.", 403);
     }
+    // A reviewed migration alone does not authorize new financial writes.
+    // Deliberately fail closed until independent UAT, finance reconciliation
+    // and a controlled release enable the write path.
+    if (process.env.RECYCLING_TRANSACTION_WRITES_ENABLED !== "1") {
+      return fail("recycling_uat_only",
+        "Recycling transaction writes are disabled pending accounting UAT. No transaction was recorded.", 503);
+    }
     const { shift } = await requireActiveShift(scope);
     const raw = await request.json().catch(() => null) as TransactionPayload | null;
     if (!raw || typeof raw !== "object" || Array.isArray(raw) ||
