@@ -34,7 +34,31 @@ describe("shared sales UI standard / CUSTOM / Recycling",()=>{
    expect(recyclerPrint).toContain('import { renderReceiptHtml }');
    expect(recyclerPrint).toContain('renderReceiptHtml({');
    expect(recyclerPrint).toContain("quantityDisplay:");
+   expect(recyclerPrint).toContain('"ใบเสร็จรับซื้อวัสดุรีไซเคิล"');
+   expect(recyclerPrint).toContain('"ใบเสร็จขายออกวัสดุรีไซเคิล"');
+   expect(recyclerPrint).toContain('"หลักฐานรับซื้อวัสดุรีไซเคิล"');
    expect(recyclerPrint).toContain("voidWarning:");
+ });
+
+ it("labels Recycling credit buying/selling as outstanding rather than paid",()=>{
+   expect(recyclerPrint).toContain('const isCredit = args.settlement === "credit"');
+   expect(recyclerPrint).toContain('"ยอดค้างจ่ายผู้ขาย"');
+   expect(recyclerPrint).toContain('"ยอดค้างรับจากผู้ซื้อ"');
+   expect(recyclerPrint).toContain("ยังไม่มีการรับหรือจ่ายเงินจริง");
+   for (const width of [58, 80] as const) {
+     const html = renderReceiptHtml({
+       storeName:"ร้านทดสอบ", sellerName:"คู่ค้าทดสอบ", orderNo:"CR-001",
+       paidAtIso:"2026-11-20T04:00:00Z", paperWidthMm:width,
+       items:[{name:"เหล็ก", quantity:2, unitPrice:10, lineTotal:20}],
+       discountAmount:0, totalAmount:20, paymentMethod:"credit",
+       paymentHeading:"ยอดค้างจ่ายผู้ขาย",
+       footerText:"เครดิต/ค้างชำระ — ยังไม่มีการรับหรือจ่ายเงินจริง"
+     });
+     expect(html).toContain("ยอดค้างจ่ายผู้ขาย");
+     expect(html).toContain("เครดิต/ค้างชำระ");
+     expect(html).toContain("ยังไม่มีการรับหรือจ่ายเงินจริง");
+     expect(html).not.toContain("รับชำระเงิน");
+   }
  });
 });
 
@@ -66,6 +90,7 @@ describe("optional CUSTOM receipt fields don't change the standard 58/80mm templ
      sellerLabel:"ผู้ขายวัสดุ",
      sellerName:"ลูกค้าทดสอบ",
      modeLabel:"หลักฐานรับซื้อวัสดุรีไซเคิล",
+     documentHeading:"หลักฐานรับซื้อวัสดุรีไซเคิล",
      paymentHeading:"จ่ายเงินผู้ขาย",
      documentNotice:"ไม่ใช่ใบกำกับภาษี",
      voidWarning:"ยกเลิก VOID <ข้อความ>",

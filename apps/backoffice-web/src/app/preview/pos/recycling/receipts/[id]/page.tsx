@@ -90,7 +90,9 @@ export default async function RecyclingReceiptPage({
         <h1 className="text-lg font-extrabold">{shopName}</h1>
         <p className="mt-1 text-xs">{branchResult.data?.name ?? "สาขา"}</p>
         <h2 className="mt-2 text-base font-extrabold">
-          {isBuy ? "หลักฐานรับซื้อวัสดุรีไซเคิล" : "หลักฐานขายออกวัสดุรีไซเคิล"}
+          {tx.data.settlement === "credit"
+            ? (isBuy ? "หลักฐานรับซื้อวัสดุรีไซเคิล" : "หลักฐานขายออกวัสดุรีไซเคิล")
+            : (isBuy ? "ใบเสร็จรับซื้อวัสดุรีไซเคิล" : "ใบเสร็จขายออกวัสดุรีไซเคิล")}
         </h2>
         <p className="text-[11px] font-bold">เอกสารการซื้อขายทั่วไป ไม่ใช่ใบกำกับภาษี</p>
       </header>
