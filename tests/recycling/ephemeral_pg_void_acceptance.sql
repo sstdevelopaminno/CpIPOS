@@ -151,18 +151,16 @@ begin
       (voided_by is null or length(void_reason)<10))>0 then
     raise exception 'UAT_VOID_AUDIT_FIELDS_MISSING'; end if;
 
-  v_res:=public.recycling_post_transaction(v_t,v_b,v_shift,v_cashier,
-    '14141414-1414-4414-8414-141414141414','buy','bank_transfer','Bank paid supplier',
-    jsonb_build_array(jsonb_build_object('product_id',v_product,
-      'quantity',1,'unit','kg','expected_price',8.25)));
-  v_bank:=(v_res->>'id')::uuid;
+  -- A cashier-selected transfer must not be treated as paid bank cash
+  -- without a separately verified banking evidence/reconciliation workflow.
   begin
-    perform public.recycling_void_unposted_transaction(
-      v_t,v_b,v_bank,v_accountant,'15151515-1515-4515-8515-151515151515',
-      'Bank reversal without verified bank reference',true,false);
-    raise exception 'UAT_MISSING_BANK_REVERSAL_BLOCK';
+    perform public.recycling_post_transaction(v_t,v_b,v_shift,v_cashier,
+      '14141414-1414-4414-8414-141414141414','buy','bank_transfer','Unverified bank payment',
+      jsonb_build_array(jsonb_build_object('product_id',v_product,
+        'quantity',1,'unit','kg','expected_price',8.25)));
+    raise exception 'UAT_MISSING_BANK_VERIFICATION_GATE';
   exception when others then
-    if position('recycling_void_bank_reversal_requires_finance' in sqlerrm)=0 then raise; end if;
+    if position('recycling_bank_transfer_verification_required' in sqlerrm)=0 then raise; end if;
   end;
 
   v_res:=public.recycling_post_transaction(v_t,v_b,v_shift,v_cashier,
