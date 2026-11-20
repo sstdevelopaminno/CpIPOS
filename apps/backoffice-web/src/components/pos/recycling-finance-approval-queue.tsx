@@ -11,6 +11,7 @@ export type RecyclingFinancePendingTransaction = {
   counterparty_name: string;
   total_minor: number;
   cogs_minor: number;
+  status: "posted" | "voided";
   created_at: string;
   finance_document_id: string | null;
 };
@@ -95,13 +96,15 @@ export function RecyclingFinanceApprovalQueue({
           <td className="px-3 py-3">{tx.counterparty_name}</td>
           <td className="px-3 py-3 text-right font-semibold">{currency(tx.total_minor)}</td>
           <td className="px-3 py-3 text-right">{tx.direction === "sell" ? currency(tx.cogs_minor) : "—"}</td>
-          <td className="px-3 py-3">{tx.finance_document_id
+          <td className="px-3 py-3">{tx.status==="voided"
+            ? <span className="font-semibold text-rose-700">เอกสารยกเลิก VOID</span>
+            : tx.finance_document_id
             ? <span className="font-semibold text-emerald-700">โพสต์แล้ว</span>
             : <span className="font-semibold text-amber-700">รอตรวจสอบ</span>}</td>
           <td className="space-y-2 px-3 py-3 text-right">
             <Link className="block rounded border border-slate-200 px-3 py-2 text-center font-semibold text-slate-700"
               href={`/preview/pos/recycling/receipts/${tx.id}`}>ตรวจใบรับซื้อ–ขาย</Link>
-            {canPost && !tx.finance_document_id && <button type="button"
+            {canPost && tx.status==="posted" && !tx.finance_document_id && <button type="button"
               className="w-full rounded-lg bg-blue-700 px-3 py-2 font-bold text-white disabled:cursor-not-allowed disabled:opacity-50"
               disabled={!postingEnabled || Boolean(submitting)}
               onClick={() => void approveAndPost(tx.id)}>
