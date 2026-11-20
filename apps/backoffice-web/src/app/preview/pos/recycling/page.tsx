@@ -14,5 +14,6 @@ export default async function RecyclingPosPage() {
  return <RecyclingSalesContent
    tenantId={scope.session.tenant_id}
    branchId={scope.session.branch_id}
-   deviceCode={scope.session.device_code??null}/>;
+   deviceCode={scope.session.device_code??null}
+      operatorUserId={scope.session.user_id}/>;
 }

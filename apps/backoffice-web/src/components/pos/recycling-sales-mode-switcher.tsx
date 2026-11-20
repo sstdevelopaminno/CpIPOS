@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { createPortal } from "react-dom";
 import { useEffect, useState } from "react";
+import { PosSalesMetaDetails, THAI_POS_SALES_META_LABELS } from "@/components/pos/pos-sales-meta-details";
 
 const RECYCLING_URL = "/preview/pos";
 const GENERAL_URL = "/preview/pos/general";
@@ -21,11 +22,13 @@ function RecyclingModeIcon() {
  * overlapping menu or a negative ordinary POS sale.
  */
 export function RecyclingSalesModeSwitcher({
-  storeName, branchName, deviceCode, generalSaleEnabled
+  storeName, branchName, deviceCode, generalSaleEnabled, sellerName, shiftStatus
 }: {
   storeName: string;
   branchName: string;
   deviceCode: string | null;
+  sellerName: string;
+  shiftStatus: string;
   generalSaleEnabled: boolean;
 }) {
   const [open, setOpen] = useState(false);
@@ -53,7 +56,7 @@ export function RecyclingSalesModeSwitcher({
               <span className="posui-mode-switch-button__action">สลับโหมดขาย</span>
             </button>
             <div className="posui-mode-stack-meta">
-              <span className="rounded-lg bg-blue-50 px-3 py-1 text-xs font-extrabold text-blue-900">
+              <span className="posui-held-bill-btn" title={storeName}>
                 ร้านค้าของเก่า · Recycling
               </span>
             </div>
@@ -61,16 +64,13 @@ export function RecyclingSalesModeSwitcher({
         </div>
         <div className="posui-filter-group posui-sales-meta-group">
           <section className="posui-sales-meta-card" aria-label="ข้อมูลหน้าขาย">
-            <div className="posui-sales-meta-columns">
-              <dl className="posui-sales-meta-list posui-sales-meta-list--left">
-                <div className="posui-sales-meta-row"><dt>ร้าน</dt><dd>{storeName}</dd></div>
-                <div className="posui-sales-meta-row"><dt>สาขา</dt><dd>{branchName}</dd></div>
-              </dl>
-              <dl className="posui-sales-meta-list posui-sales-meta-list--right">
-                <div className="posui-sales-meta-row"><dt>เครื่องแคชเชียร์</dt><dd>{deviceCode || "—"}</dd></div>
-                <div className="posui-sales-meta-row"><dt>โหมด</dt><dd>รับซื้อ / ขายออก</dd></div>
-              </dl>
-            </div>
+            <PosSalesMetaDetails
+              sellerName={sellerName}
+              shiftStatus={shiftStatus}
+              branchName={branchName}
+              deviceCode={deviceCode}
+              labels={THAI_POS_SALES_META_LABELS}
+            />
           </section>
         </div>
       </div>
