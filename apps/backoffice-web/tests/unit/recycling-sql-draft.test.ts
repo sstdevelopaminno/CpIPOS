@@ -16,20 +16,20 @@ const releaseMigration = readFileSync(
   new URL("../../../../supabase/migrations/20261120040000_custom_recycling_atomic_finance.sql", import.meta.url), "utf8"
 );
 
-describe("Recycling SQL development drafts (not production migrations)", () => {
+describe("Recycling staged database migration (not yet applied to production)", () => {
   it("locks down the actual migration and prevents divergence from reviewed drafts", () => {
     expect(releaseMigration).toContain("BEGIN;");
     expect(releaseMigration.trimEnd().endsWith("COMMIT;")).toBe(true);
     expect(releaseMigration).toContain("recycling_v1_schema_already_exists_review_required");
     const p2 = phase2.slice(phase2.indexOf("create table if not exists public.recycling_stock_balances"))
-      .replace(/create table if not exists public\\.recycling_/g, "create table public.recycling_")
+      .replace(/create table if not exists public\.recycling_/g, "create table public.recycling_")
       .replace(/create index if not exists recycling_/g, "create index recycling_").trim();
     const p3 = phase3.slice(phase3.indexOf("create or replace function public.recycling_finance_post_transaction")).trim();
     const p4 = phase4.slice(phase4.indexOf("create or replace function public.recycling_void_unposted_transaction")).trim();
     expect(releaseMigration).toContain(p2);
     expect(releaseMigration).toContain(p3);
     expect(releaseMigration).toContain(p4);
-    expect(releaseMigration.match(/create table public\\.recycling_/g)).toHaveLength(4);
+    expect(releaseMigration.match(/create table public\.recycling_/g)).toHaveLength(4);
     expect(releaseMigration).toContain("security definer");
   });
 
