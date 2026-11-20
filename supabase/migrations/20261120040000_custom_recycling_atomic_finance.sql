@@ -194,6 +194,13 @@ begin
      coalesce(p_settlement,'') not in ('cash','bank_transfer','credit') then
     raise exception 'recycling_invalid_direction_or_settlement';
   end if;
+  -- Never assert that money has reached a bank account merely from a
+  -- cashier-selected payment method. An independent transfer evidence
+  -- and reconciliation workflow must be implemented before this method
+  -- can create a paid bank asset in the Finance subledger.
+  if p_settlement='bank_transfer' then
+    raise exception 'recycling_bank_transfer_verification_required';
+  end if;
   if length(btrim(coalesce(p_counterparty_name,''))) not between 1 and 240 then
     raise exception 'recycling_counterparty_required';
   end if;
