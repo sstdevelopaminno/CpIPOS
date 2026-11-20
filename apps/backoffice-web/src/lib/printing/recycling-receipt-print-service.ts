@@ -33,6 +33,8 @@ function renderRecyclingThermalReceipt(args: {
   branch: string;
   receiptNo: string;
   direction: string;
+  status: string;
+  voidReason?: string | null;
   date: string;
   counterparty: string;
   settlement: string;
@@ -41,6 +43,10 @@ function renderRecyclingThermalReceipt(args: {
 }) {
   const label = args.direction === "buy" ? "หลักฐานรับซื้อวัสดุรีไซเคิล" : "หลักฐานขายออกวัสดุรีไซเคิล";
   const settle = { cash:"เงินสด",bank_transfer:"เงินโอน",credit:"เครดิต/ค้างชำระ" }[args.settlement] ?? args.settlement;
+  const voidNotice = args.status === "voided"
+    ? `<aside style="border:2px solid #111;padding:6px;text-align:center;margin:5px 0;font-weight:bold;">
+       เอกสารยกเลิก VOID<br/>ใช้เป็นหลักฐานรายการที่ยังมีผลไม่ได้<br/>
+       <small>${escapeHtml(args.voidReason ?? "ยกเลิก")}</small></aside>` : "";
   const items = args.lines.map(l => `<tr>
     <td class="item"><strong>${escapeHtml(l.name_snapshot)}</strong>
       <span>${escapeHtml(l.sku_snapshot)}</span>
@@ -73,6 +79,7 @@ function renderRecyclingThermalReceipt(args: {
     <header class="head"><strong>${escapeHtml(args.shop)}</strong>
       <div>${escapeHtml(args.branch)}</div>
       <h1>${label}</h1><div>เอกสารซื้อขายทั่วไป ไม่ใช่ใบกำกับภาษี</div></header>
+    ${voidNotice}
     <section class="meta"><div>เลขที่ ${escapeHtml(args.receiptNo)}</div>
       <div>วันที่ ${escapeHtml(args.date)}</div>
       <div>${args.direction==="buy"?"ผู้ขายวัสดุ":"ผู้ซื้อวัสดุ"}: ${escapeHtml(args.counterparty)}</div>
@@ -94,7 +101,7 @@ export async function queueRoutedRecyclingReceipt(args: {
   const db = getSupabaseServiceClient();
   const [tx, lines, tenant, branch] = await Promise.all([
     db.from("recycling_transactions")
-      .select("id,receipt_no,direction,settlement,counterparty_name,total_minor,status,created_at")
+      .select("id,receipt_no,direction,settlement,counterparty_name,total_minor,status,void_reason,created_at")
       .eq("id",args.transactionId).eq("tenant_id",args.auth.tenantId).eq("branch_id",args.auth.branchId).maybeSingle(),
     db.from("recycling_transaction_lines")
       .select("line_no,sku_snapshot,name_snapshot,original_quantity,original_unit,base_unit,price_per_base,amount_minor")
@@ -104,7 +111,7 @@ export async function queueRoutedRecyclingReceipt(args: {
     db.from("branches").select("name").eq("id",args.auth.branchId)
       .eq("tenant_id",args.auth.tenantId).maybeSingle()
   ]);
-  if (tx.error || !tx.data || tx.data.status!=="posted") throw new Error("recycling_receipt_not_found");
+  if (tx.error || !tx.data || !["posted","voided"].includes(tx.data.status)) throw new Error("recycling_receipt_not_found");
   if (lines.error || !lines.data?.length) throw new Error("recycling_receipt_lines_missing");
   const totalLines = lines.data.reduce((total,line)=>total+Number(line.amount_minor),0);
   if (totalLines!==Number(tx.data.total_minor)) throw new Error("recycling_receipt_total_mismatch");
@@ -128,10 +135,13 @@ export async function queueRoutedRecyclingReceipt(args: {
       const html=renderRecyclingThermalReceipt({
         width:route.printer.paper_width_mm,shop,branch:branchName,
         receiptNo:tx.data.receipt_no,direction:tx.data.direction,
+        status:tx.data.status,voidReason:tx.data.void_reason,
         date,counterparty:tx.data.counterparty_name,settlement:tx.data.settlement,
         totalMinor:Number(tx.data.total_minor),lines:lines.data as MaterialLine[]
       });
       const textReceipt = [shop,branchName,tx.data.receipt_no,date,
+        ...(tx.data.status==="voided"
+          ? ["ยกเลิก VOID — ห้ามใช้ยืนยันธุรกรรมที่ยังมีผล",tx.data.void_reason??""] : []),
         tx.data.direction==="buy"?"รับซื้อวัสดุรีไซเคิล":"ขายออกวัสดุรีไซเคิล",
         ...lines.data.map(l=>`${l.name_snapshot} ${l.original_quantity} ${unitNames[l.original_unit]??l.original_unit} ${thaiMoney(Number(l.amount_minor))}`),
         `รวม ${thaiMoney(Number(tx.data.total_minor))} บาท`,
@@ -147,7 +157,9 @@ export async function queueRoutedRecyclingReceipt(args: {
           direction:tx.data.direction,
           branch_name:branchName,
           total_minor:Number(tx.data.total_minor),
-          settlement:tx.data.settlement
+          settlement:tx.data.settlement,
+          status:tx.data.status,
+          void_reason:tx.data.void_reason
         },
         metadata:{
           request_source:"recycling_receipt_reprint",
