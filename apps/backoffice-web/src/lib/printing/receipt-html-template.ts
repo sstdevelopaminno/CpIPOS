@@ -6,6 +6,10 @@ export type ReceiptHtmlItem = {
   unitPrice: number;
   lineTotal: number;
   note?: string | null;
+  /** Optional CUSTOM display values; ordinary POS receipts use original fields. */
+  sku?: string | null;
+  quantityDisplay?: string | null;
+  unitPriceSuffix?: string | null;
 };
 
 export type ReceiptHtmlInput = {
@@ -30,6 +34,11 @@ export type ReceiptHtmlInput = {
   changeAmount?: number | null;
   note?: string | null;
   reprint?: boolean;
+  sellerLabel?: string | null;
+  documentNotice?: string | null;
+  voidWarning?: string | null;
+  footerText?: string | null;
+  paymentHeading?: string | null;
 };
 
 const DEFAULT_RECEIPT_LOGO_URL = "/brand/cpipos-logo.png";
@@ -124,11 +133,12 @@ export function renderReceiptHtml(input: ReceiptHtmlInput) {
     <tr>
       <td class="col-name">
         <div class="name">${escapeHtml(item.name)}</div>
-        <div class="unit">x ${escapeHtml(money(item.unitPrice, currencyCode))}</div>
+        ${item.sku?.trim() ? `<div class="unit">${escapeHtml(item.sku)}</div>` : ""}
+        <div class="unit">x ${escapeHtml(money(item.unitPrice, currencyCode))}${item.unitPriceSuffix ? ` ${escapeHtml(item.unitPriceSuffix)}` : ""}</div>
         ${optionRows}
         ${detailRow}
       </td>
-      <td class="col-qty">${escapeHtml(qty(item.quantity))}</td>
+      <td class="col-qty">${escapeHtml(item.quantityDisplay || qty(item.quantity))}</td>
       <td class="col-total">${escapeHtml(money(item.lineTotal, currencyCode))}</td>
     </tr>`;
   }).join("");
@@ -189,22 +199,24 @@ export function renderReceiptHtml(input: ReceiptHtmlInput) {
     ${address}${phone}
     ${branchName ? `<div class="muted">${escapeHtml(branchName)}</div>` : ""}
     ${reprintLine}
+    ${input.voidWarning?.trim() ? `<div class="reprint" style="border:2px solid #111;padding:2mm;font-weight:900;">${escapeHtml(input.voidWarning)}</div>` : ""}
+    ${input.documentNotice?.trim() ? `<div class="muted">${escapeHtml(input.documentNotice)}</div>` : ""}
     <div class="hr"></div>
-    <div class="meta-line"><span>${L("ผู้ขาย","Seller","ຜູ້ຂາຍ")}</span><span>${escapeHtml(input.sellerName)}</span></div>
+    <div class="meta-line"><span>${escapeHtml(input.sellerLabel ?? L("ผู้ขาย","Seller","ຜູ້ຂາຍ"))}</span><span>${escapeHtml(input.sellerName)}</span></div>
     <div class="meta-line"><span>${L("โหมด","Mode","ໂໝດ")}</span><span>${escapeHtml(modeLabel)}</span></div>
     <div class="meta-line"><span>${L("เลขที่บิล","Bill no.","ເລກໃບບິນ")}</span><span>${escapeHtml(input.orderNo)}</span></div>
     <div class="meta-line"><span>${L("วันที่","Date","ວັນທີ")}</span><span>${escapeHtml(dateTime(input.paidAtIso, languageCode))}</span></div>
     <div class="hr"></div>
     <table><tbody>${itemRows}</tbody></table>
     <div class="hr"></div>
-    <div class="summary-line is-heading"><span>${L("ชำระเงิน","Payment","ຊຳລະເງິນ")}</span><strong>${escapeHtml(paymentLabel(input.paymentMethod, languageCode))}</strong></div>
+    <div class="summary-line is-heading"><span>${escapeHtml(input.paymentHeading ?? L("ชำระเงิน","Payment","ຊຳລະເງິນ"))}</span><strong>${escapeHtml(paymentLabel(input.paymentMethod, languageCode))}</strong></div>
     <div class="summary-line is-muted"><span>${L("ส่วนลด","Discount","ສ່ວນຫຼຸດ")}</span><strong>${currencySymbol}${escapeHtml(money(input.discountAmount, currencyCode))}</strong></div>
     ${taxLine}
     <div class="summary-line grand"><span>${L("ยอดสุทธิ","Net total","ຍອດສຸດທິ")}</span><strong>${currencySymbol}${escapeHtml(money(input.totalAmount, currencyCode))}</strong></div>
     ${cashLines}
     ${note}
     <div class="hr"></div>
-    <div class="foot">${L("ขอบคุณที่ใช้บริการ","Thank you for your purchase","ຂອບໃຈທີ່ໃຊ້ບໍລິການ")}</div>
+    <div class="foot">${escapeHtml(input.footerText ?? L("ขอบคุณที่ใช้บริการ","Thank you for your purchase","ຂອບໃຈທີ່ໃຊ້ບໍລິການ"))}</div>
   </main>
 </body>
 </html>`;
