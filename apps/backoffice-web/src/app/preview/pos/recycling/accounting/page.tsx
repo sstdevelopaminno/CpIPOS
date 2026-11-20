@@ -42,11 +42,12 @@ export default async function RecyclingAccountingPage() {
   const db = getSupabaseServiceClient();
   const [{ data, error }, transactionResult] = await Promise.all([
     db.from("recycling_accounting_entries")
-      .select("id,transaction_id,account_code,account_name,debit_minor,credit_minor,line_no")
+      .select("id,transaction_id,account_code,account_name,debit_minor,credit_minor,line_no,recycling_transactions!inner(status)")
       .eq("tenant_id", tenantId).eq("branch_id", branchId)
+      .eq("recycling_transactions.status", "posted")
       .order("transaction_id").order("line_no").limit(500),
     db.from("recycling_transactions")
-      .select("id,receipt_no,direction,counterparty_name,total_minor,cogs_minor,created_at,finance_document_id")
+      .select("id,receipt_no,direction,counterparty_name,total_minor,cogs_minor,created_at,status,finance_document_id")
       .eq("tenant_id", tenantId).eq("branch_id", branchId)
       .order("created_at", { ascending: false }).limit(100)
   ]);
@@ -83,7 +84,8 @@ export default async function RecyclingAccountingPage() {
     </header>
     <div role="note" className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
       รายการนี้เป็นสมุดบัญชีย่อย (Subledger) สำหรับกระทบยอดก่อนโอนเข้าสมุดรายวันบัญชีหลัก
-      ยังไม่ถือว่าโพสต์เข้าบัญชีแยกประเภทของระบบ Finance และยังไม่ใช่ใบกำกับภาษี
+      รวมเฉพาะรายการสถานะปกติ (ไม่รวมเอกสาร VOID) ยังไม่ถือว่าโพสต์เข้าบัญชีแยกประเภทของระบบ Finance
+      และยังไม่ใช่ใบกำกับภาษี
       กรุณาตรวจทานการอนุมัติและบัญชีที่ผูกก่อนการปิดงวด
     </div>
     <div className="grid gap-3 sm:grid-cols-3">
