@@ -60,9 +60,14 @@ export async function POST(request: Request) {
 
     const sessionScope = getTenantBranchScopeFromSession(scope);
     const recyclingRequested = body?.business_mode === "recycling";
-    if (recyclingRequested && !await isAuthorizedRecyclingTenant(sessionScope.tenantId)) {
+    const recyclingEnabled = await isAuthorizedRecyclingTenant(sessionScope.tenantId);
+    if (recyclingRequested && !recyclingEnabled) {
       return NextResponse.json({data:null,error:{code:"recycling_shift_not_authorized",
         message:"CUSTOM Recycling entitlement is not active."}},{status:403});
+    }
+    if (!recyclingRequested && recyclingEnabled) {
+      return NextResponse.json({data:null,error:{code:"recycling_general_shift_disabled",
+        message:"ร้าน CUSTOM Recycling ใช้กะรายวันเท่านั้น ห้ามเปิดกะ POS ทั่วไปจากระบบต่อกะเวลา 13:00/18:00"}},{status:409});
     }
     const opticalShift=await getOpticalShiftUiPolicy(sessionScope.tenantId);
     if (recyclingRequested && opticalShift.enabled) {
@@ -124,6 +129,28 @@ export async function POST(request: Request) {
     }
 
     async function reuseExistingShift(existingOpenShift: OpenShiftSummary) {
+      // In a concurrent unique-constraint race, never bind a recycled session
+      // to a generic shift (or vice versa) without re-checking persisted mode.
+      const identity = await supabase.from("shifts").select("metadata")
+        .eq("id", existingOpenShift.id).eq("tenant_id", sessionScope.tenantId)
+        .eq("branch_id", sessionScope.branchId).eq("status", "open").maybeSingle();
+      if (identity.error || !identity.data) {
+        return NextResponse.json({data:null,error:{code:"shift_mode_lookup_failed",
+          message:"ไม่สามารถยืนยันประเภทกะที่เปิดอยู่ได้"}},{status:503});
+      }
+      const activeMode = (identity.data.metadata as Record<string,unknown>|null)?.business_shift_mode;
+      if ((recyclingRequested && activeMode !== "recycling_daily") ||
+          (!recyclingRequested && activeMode === "recycling_daily")) {
+        return NextResponse.json({data:null,error:{code:"recycling_shift_mode_conflict",
+          message:"พบกะคนละประเภทในเครื่องนี้ กรุณาตรวจสอบรายการก่อนดำเนินการ"}},{status:409});
+      }
+      if (recyclingRequested) {
+        const cutoff = nextOpticalMidnightUtc(new Date(existingOpenShift.opened_at), "Asia/Bangkok");
+        if (!cutoff || Date.now() >= cutoff.getTime()) {
+          return NextResponse.json({data:null,error:{code:"recycling_previous_day_shift_pending_close",
+            message:"กะ Recycling จากวันก่อนยังรอปิดและตรวจสอบยอด"}},{status:409});
+        }
+      }
       const bindErrorResponse = await bindSessionToShift(existingOpenShift.id);
       if (bindErrorResponse) return bindErrorResponse;
       const response = NextResponse.json(
@@ -223,7 +250,7 @@ export async function POST(request: Request) {
           ...(opticalShift.enabled ? {business_shift_mode:"optical_daily",optical_timezone:opticalShift.timeZone,
             optical_country:opticalShift.country,optical_currency:opticalShift.currency}: {}),
           ...(recyclingRequested ? {business_shift_mode:"recycling_daily",recycling_timezone:"Asia/Bangkok",
-            cash_count_required:true, opened_via:"recycling_auto_on_cashier_entry"} : {})
+            cash_count_required:true, opened_via:"recycling_shift_menu"} : {})
         }
       })
       .select("id,status,opened_at,opening_cash,device_code")
