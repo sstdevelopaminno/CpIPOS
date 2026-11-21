@@ -15,6 +15,7 @@ import {
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 import { calculateShiftSalesSummary } from "@/lib/pos-shift-sales-summary";
 import { getRecyclingShiftReconciliation, type RecyclingShiftSettlement } from "@/lib/server/recycling-shift-reconciliation";
+import { isAuthorizedRecyclingTenant } from "@/lib/server/recycling-pos-service";
 import { collectPagedShiftRows, collectShiftRowsForIds } from "@/lib/pos-shift-query-pagination";
 
 function isMissingSessionShiftColumnError(error: { code?: string; message?: string } | null | undefined) {
@@ -342,7 +343,22 @@ export async function POST(request: Request) {
           message:"Opening cash must be reconciled before shift close."}},{status:409});
       opticalExpectedCash=Number((openingCash+opticalCashReceived).toFixed(2));
     }
-    let recyclingShift:RecyclingShiftSettlement|null=null;
+    // Preserve the original business_shift_mode and branch/day metadata on a
+    // manual Recycling close. Previously only Optical retained shift metadata,
+    // so the Recycling close slip lost its business-mode identity.
+    if (!opticalPolicy.enabled && await isAuthorizedRecyclingTenant(sessionScope.tenantId)) {
+      const stored = await supabase.from("shifts").select("metadata")
+        .eq("id",shift.id).eq("tenant_id",sessionScope.tenantId)
+        .eq("branch_id",sessionScope.branchId).eq("status","open").maybeSingle();
+      if (stored.error || !stored.data) return NextResponse.json({
+        data:null,error:{code:"recycling_shift_metadata_unavailable",
+          message:"Cannot safely load shift business mode before close."}},{status:503});
+      const metadata=(stored.data.metadata??{}) as Record<string,unknown>;
+      if (metadata.business_shift_mode === "recycling_daily") {
+        priorShiftMetadata=metadata;
+      }
+    }
+        let recyclingShift:RecyclingShiftSettlement|null=null;
     try {
       recyclingShift=await getRecyclingShiftReconciliation({
         tenantId:sessionScope.tenantId,branchId:sessionScope.branchId,shiftId:shift.id
@@ -391,7 +407,7 @@ export async function POST(request: Request) {
         actual_cash: initialActualCash,
         close_override_approval_id: selfApprovalId,
         metadata: {
-          ...(opticalPolicy.enabled ? priorShiftMetadata : {}),
+          ...(opticalPolicy.enabled || priorShiftMetadata.business_shift_mode==="recycling_daily" ? priorShiftMetadata : {}),
           ...(typeof shift === "object" ? { closed_via: "pos_session_gate" } : {}),
           ...(recyclingShift ? {
             recycling_buy_count:recyclingShift.buyCount,
