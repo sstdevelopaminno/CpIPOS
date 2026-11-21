@@ -12,7 +12,7 @@ const css = read("src/app/globals.css");
 describe("CUSTOM Recycling material management in the native POS shell", () => {
   it("keeps standard stock and authorized CUSTOM Recycling on their own server routes", () => {
     expect(route).toContain('redirect("/preview/pos/recycling/stock")');
-    expect(recyclingRoute).toContain('assertPosMenuPageAllowed(scope.session.tenant_id, "/preview/pos/stock")');
+    expect(recyclingRoute).toContain('assertPosMenuPageAllowed(tenantId, "/preview/pos/stock")');
     expect(recyclingRoute).toContain('requirePosPagePermission("inventory:view")');
     expect(recyclingRoute).toContain("isAuthorizedRecyclingTenant(tenantId)");
     expect(recyclingRoute).toContain("getRecyclingStockBranches(scope)");
