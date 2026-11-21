@@ -9,6 +9,15 @@ import type { RecyclingCatalogItem, RecyclingPriceBasis } from "@/lib/server/rec
 const money = (v: number | null) => v === null ? "ยังไม่กำหนด"
   : new Intl.NumberFormat("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(v);
 
+function isValidHttpsImagePreview(raw: string): boolean {
+  try {
+    const parsed = new URL(raw);
+    return parsed.protocol === "https:" && Boolean(parsed.hostname) && !parsed.username && !parsed.password;
+  } catch {
+    return false;
+  }
+}
+
 type FormState = {
   id?: string;
   sku: string;
@@ -269,7 +278,7 @@ export function RecyclingStockWorkspace({ items, branchName, canManage, canViewA
             <legend className="text-sm font-extrabold text-slate-900">รูปภาพวัสดุ (ไม่บังคับ)</legend>
             <div className="flex items-center gap-3">
               <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-slate-200 bg-slate-50 text-2xl">
-                {editing.image_url.trim().startsWith("https://")
+                {isValidHttpsImagePreview(editing.image_url.trim())
                   ? <Image src={editing.image_url.trim()} alt="ตัวอย่างรูปวัสดุ" width={64} height={64} unoptimized className="h-full w-full object-cover"/>
                   : <span aria-hidden="true">♻️</span>}
               </div>
