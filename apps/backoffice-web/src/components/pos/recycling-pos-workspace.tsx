@@ -793,26 +793,45 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
         </div>
         <label htmlFor="recycling-counterparty" className="mt-4 block text-sm font-semibold text-slate-800">
           {direction === "buy" ? "ชื่อผู้ขายวัสดุ" : "ชื่อผู้ซื้อวัสดุ"}
+          <span className="ml-1 text-xs font-normal text-slate-500">(ไม่บังคับ · เว้นว่างแสดง - บนบิล)</span>
         </label>
-        <input id="recycling-counterparty" autoFocus required maxLength={240}
+        <input id="recycling-counterparty" autoFocus maxLength={240}
           value={counterpartyName} disabled={posting}
           onChange={event => setCounterpartyName(event.target.value)}
-          placeholder="ระบุชื่อคู่ค้า"
+          placeholder="ไม่ระบุก็ได้"
           className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-3 text-sm text-slate-900 focus:border-blue-600 focus:outline-none"/>
-        <fieldset className="mt-4 space-y-2">
-          <legend className="text-sm font-extrabold text-slate-800">{direction === "buy" ? "วิธีจ่ายเงิน" : "วิธีรับชำระเงิน"}</legend>
-          <label className={"flex cursor-pointer items-center gap-3 rounded-lg border p-3 " + (settlement === "cash" ? "border-blue-600 bg-blue-50" : "border-slate-200")}>
-            <input type="radio" name="recycling-settlement" checked={settlement==="cash"}
-              disabled={posting} onChange={() => setSettlement("cash")} />
-            <span className="text-sm font-semibold">{direction === "buy" ? "จ่ายเงินสด" : "ชำระเงินสด"}</span>
-          </label>
-          <label className={"flex cursor-pointer items-center gap-3 rounded-lg border p-3 " + (settlement === "bank_transfer" ? "border-blue-600 bg-blue-50" : "border-slate-200")}>
-            <input type="radio" name="recycling-settlement" checked={settlement==="bank_transfer"}
-              disabled={posting} onChange={() => { setSettlement("bank_transfer"); setPostError(""); }} />
-            <span className="text-sm font-semibold">{direction === "buy" ? "จ่ายเงินโอน" : "ชำระเงินโอน"}
-              <small className="block font-normal text-slate-500">ต้องตรวจหลักฐานธนาคารก่อนยืนยันธุรกรรม</small>
-            </span>
-          </label>
+        <fieldset className="mt-4" tabIndex={0}
+          onKeyDown={event=>{
+            if(event.key==="ArrowLeft"||event.key==="ArrowRight"){
+              event.preventDefault();setPostError("");
+              setSettlement(event.key==="ArrowLeft"?"cash":"bank_transfer");
+            }
+          }}>
+          <legend className="mb-2 text-sm font-extrabold text-slate-800">
+            {direction === "buy" ? "วิธีจ่ายเงิน" : "วิธีรับชำระเงิน"}
+          </legend>
+          <div className="grid grid-cols-2 gap-2" role="group" aria-label="เลือกวิธีชำระด้วยลูกศรซ้ายขวา">
+            <label className={"flex min-w-0 cursor-pointer items-center gap-2 rounded-lg border p-3 "+
+              (settlement==="cash"?"border-blue-600 bg-blue-50 ring-1 ring-blue-100":"border-slate-200 bg-white")}>
+              <input type="radio" name="recycling-settlement" checked={settlement==="cash"}
+                disabled={posting} onChange={()=>{setSettlement("cash");setPostError("");}}/>
+              <span className="text-xl" aria-hidden="true">💵</span>
+              <span className="min-w-0 text-sm font-bold text-slate-800">
+                {direction==="buy"?"จ่ายเงินสด":"ชำระเงินสด"}
+              </span>
+            </label>
+            <label className={"flex min-w-0 cursor-pointer items-center gap-2 rounded-lg border p-3 "+
+              (settlement==="bank_transfer"?"border-blue-600 bg-blue-50 ring-1 ring-blue-100":"border-slate-200 bg-white")}>
+              <input type="radio" name="recycling-settlement" checked={settlement==="bank_transfer"}
+                disabled={posting} onChange={()=>{setSettlement("bank_transfer");setPostError("");}}/>
+              <span className="text-xl" aria-hidden="true">🏦</span>
+              <span className="min-w-0 text-sm font-bold text-slate-800">
+                {direction==="buy"?"จ่ายเงินโอน":"ชำระเงินโอน"}
+                <small className="block text-[11px] font-normal text-slate-500">ต้องตรวจหลักฐานธนาคารก่อนยืนยันธุรกรรม</small>
+              </span>
+            </label>
+          </div>
+          <p className="mt-2 text-xs text-slate-500">ใช้ปุ่มลูกศร ← / → เพื่อเลือกวิธีชำระเงิน</p>
         </fieldset>
         {settlement === "bank_transfer" && <p role="alert" className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs font-semibold text-amber-900">
           ยังไม่เปิดการตรวจสอบหลักฐานโอนเงินสำหรับ Recycling จึงไม่อนุญาตให้ยืนยันการ{direction === "buy" ? "จ่ายเงิน" : "รับชำระเงิน"}หรือสร้างบิลสำเร็จ
@@ -822,7 +841,7 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
         <div className="mt-5 flex justify-end gap-2">
           <button type="button" disabled={posting} onClick={() => setCheckoutOpen(false)}
             className="rounded-lg border border-slate-300 px-5 py-3 text-sm font-bold text-slate-700 disabled:opacity-50">ย้อนกลับ</button>
-          <button type="submit" disabled={!canUseShift || !transactionWritesEnabled || posting || settlement === "bank_transfer" || !counterpartyName.trim() || !visibleLines.length}
+          <button type="submit" disabled={!canUseShift || !transactionWritesEnabled || posting || settlement === "bank_transfer" || !visibleLines.length}
             className="rounded-lg bg-blue-700 px-5 py-3 text-sm font-extrabold text-white disabled:cursor-not-allowed disabled:opacity-50">
             {posting ? "กำลังบันทึก..." : direction === "buy" ? "ยืนยันจ่ายเงินและออกใบรับซื้อ" : "ยืนยันรับชำระและออกใบเสร็จขายออก"}
           </button>
