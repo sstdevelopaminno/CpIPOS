@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 const src=(path:string)=>readFileSync(resolve(process.cwd(),path),"utf8");
 
 describe("CUSTOM Recycling legacy 18:00 shift recovery isolation",()=>{
-  const db=src("../../supabase/migrations/20261121130000_recycling_legacy_shift_manager_recovery.sql");
+  const db=src("../../supabase/migrations/20261121133212_recycling_legacy_shift_manager_recovery_20261121.sql");
   const status=src("src/app/api/pos/recycling/shifts/current/route.ts");
   const recovery=src("src/app/api/pos/recycling/shifts/recover/route.ts");
   const ui=src("src/components/pos/recycling-shift-control.tsx");
