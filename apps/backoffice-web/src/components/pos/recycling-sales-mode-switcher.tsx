@@ -23,7 +23,7 @@ function RecyclingModeIcon() {
  */
 export function RecyclingSalesModeSwitcher({
   storeName, branchName, deviceCode, generalSaleEnabled, sellerName, shiftStatus,
-  direction, onDirectionChange, busy
+  direction, onDirectionChange, onOpenHeldBills, heldCount, busy
 }: {
   storeName: string;
   branchName: string;
@@ -33,6 +33,8 @@ export function RecyclingSalesModeSwitcher({
   generalSaleEnabled: boolean;
   direction: "buy" | "sell";
   onDirectionChange: (next: "buy" | "sell") => void;
+  onOpenHeldBills: () => void;
+  heldCount: number;
   busy: boolean;
 }) {
   const [open, setOpen] = useState(false);
@@ -50,19 +52,26 @@ export function RecyclingSalesModeSwitcher({
         <div className="posui-filter-group">
           <div className="recycling-topbar-actions flex min-w-0 flex-wrap items-center gap-2">
         <button type="button" className="posui-mode-switch-button"
+           style={{borderRadius:6,border:"1px solid #bdd4f7",background:"#eff6ff",minHeight:42}}
           onClick={() => setOpen(true)} aria-haspopup="dialog"
           aria-label="สลับโหมดขาย: ร้านค้าของเก่า Recycling">
           <span className="posui-mode-switch-button__icon" aria-hidden="true"><RecyclingModeIcon/></span>
           <span className="posui-mode-switch-button__action">สลับโหมดขาย</span>
         </button>
+        <button type="button" data-testid="recycling-held-bills-toolbar"
+           onClick={onOpenHeldBills} disabled={busy}
+           className="inline-flex min-h-10 shrink-0 items-center gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-extrabold text-amber-900 hover:bg-amber-100 disabled:opacity-50">
+           <span aria-hidden="true">▤</span> รายการพักบิล
+           {heldCount>0 && <span className="rounded bg-amber-200 px-1.5 py-0.5 font-black">{heldCount}</span>}
+        </button>
         <div role="group" aria-label="ประเภทการทำรายการ"
-          className="flex shrink-0 items-center gap-1 rounded-lg border border-slate-200 bg-slate-50 p-1">
+          className="flex shrink-0 items-center gap-1 rounded-md border border-blue-200 bg-blue-50 p-1">
           {([["buy", "รับซื้อเข้าร้าน"], ["sell", "ขายออก"]] as const).map(([value,label]) =>
             <button key={value} type="button" disabled={busy} aria-pressed={direction===value}
               onClick={() => onDirectionChange(value)}
-              className={"min-w-[96px] rounded-md px-3 py-2 text-xs font-extrabold transition-colors disabled:opacity-50 " +
-                (direction === value ? (value === "buy" ? "bg-blue-700 text-white" : "bg-emerald-700 text-white") :
-                  "bg-white text-slate-700 hover:bg-slate-100")}>
+              className={"min-h-10 min-w-[108px] rounded-md border px-3 py-2 text-xs font-extrabold shadow-sm transition-colors disabled:opacity-50 " +
+                (direction === value ? (value === "buy" ? "border-blue-700 bg-blue-700 text-white" : "border-emerald-700 bg-emerald-700 text-white") :
+                  "border-slate-200 bg-white text-slate-700 hover:border-blue-300 hover:bg-slate-100")}>
               {label}
             </button>
           )}

@@ -3,6 +3,7 @@ import { RecyclingPosWorkspace } from "@/components/pos/recycling-pos-workspace"
 import { getRecyclingCatalog, isAuthorizedRecyclingTenant } from "@/lib/server/recycling-pos-service";
 import { isAuthorizedCustomGeneralSaleTenant } from "@/lib/server/recycling-general-sale-entitlement";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
+import { loadProductMediaMap } from "@/lib/product-media";
 
 /**
  * One authenticated screen used by "หน้าขาย" and the historic Recycling URL.
@@ -29,8 +30,17 @@ export async function RecyclingSalesContent({
   ]);
   if (branch.error || !branch.data || tenant.error || !tenant.data || operator.error || shift.error)
     throw new Error("recycling_sales_shop_scope_unavailable");
+  // Match the stock manager's uploaded thumbnail, not the deprecated metadata URL.
+  const media=await loadProductMediaMap({tenantId,branchId});
+  const mediaByProduct:Record<string,string>={};
+  for(const item of products){
+    const asset=media.get(item.id);
+    if(asset)mediaByProduct[item.id]=asset.thumbnail_url;
+  }
   return <RecyclingPosWorkspace
     products={products}
+    tenantId={tenantId} branchId={branchId}
+    mediaByProduct={mediaByProduct}
     branchName={branch.data.name ?? "สาขาที่เข้าสู่ระบบ"}
     storeName={tenant.data.display_name || tenant.data.name || "ร้านค้าของเก่า"}
     deviceCode={deviceCode}

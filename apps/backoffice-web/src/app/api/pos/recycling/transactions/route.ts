@@ -85,9 +85,12 @@ export async function POST(request: Request) {
       return fail("recycling_bank_transfer_verification_required",
         "Bank transfers require a verified transfer record and independent reconciliation; no transaction was posted.", 409);
     }
-    const counterparty = typeof raw.counterparty_name === "string" ? raw.counterparty_name.trim() : "";
-    if (!counterparty || counterparty.length > 240) {
-      return fail("counterparty_required", "Please enter the customer/supplier name.", 422);
+    // Empty customer/supplier is allowed for walk-in counter purchases.
+    // Keep the server's atomic posting contract non-empty and print "-" on receipts.
+    const enteredName=typeof raw.counterparty_name==="string" ? raw.counterparty_name.trim() : "";
+    const counterparty=enteredName || "-";
+    if (counterparty.length>240) {
+      return fail("counterparty_too_long","Customer/supplier name is too long.",422);
     }
     if (!Array.isArray(raw.lines) || raw.lines.length < 1 || raw.lines.length > 100) {
       return fail("invalid_recycling_lines", "Cart must contain 1–100 line items.", 422);

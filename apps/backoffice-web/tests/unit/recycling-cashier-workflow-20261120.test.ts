@@ -29,7 +29,7 @@ describe("Recycling custom cashier UX", () => {
     expect(cashier).toContain('addLineToCart(product, "piece", 1, price)');
     expect(cashier).toContain("openQuantityPopup(product);");
     expect(cashier).toContain('setQuantity(item.priceBasis === "piece" ? "1" : "")');
-    expect(cashier).toContain("resolveRecyclingBarcode(barcodeIndex, search)");
+    expect(cashier).toContain("resolveRecyclingBarcode(barcodeIndex, normalized)");
   });
   it("uses single compact native header, moves buy/sell buttons into it, drops redundant action stripe", () => {
     expect(toolbar).toContain("recycling-compact-toolbar");
@@ -66,13 +66,13 @@ describe("Recycling custom cashier UX", () => {
   });
   it("opens payment dialog before post, never enables unverified bank transfer", () => {
     expect(cashier).toContain('setCheckoutOpen(true)');
-    expect(cashier).toContain('disabled={!canUseShift || !transactionWritesEnabled || posting || settlement === "bank_transfer" || !counterpartyName.trim()');
+    expect(cashier).toContain('disabled={!canUseShift || !transactionWritesEnabled || posting || settlement === "bank_transfer"');
     expect(cashier).toContain('disabled={!canUseShift || posting || checkoutOpen}');
     expect(cashier).toContain('aria-labelledby="recycling-checkout-title"');
     expect(cashier).toContain('role="dialog"');
     expect(cashier).toContain('if (settlement === "bank_transfer")');
     expect(cashier).toContain('checked={settlement==="bank_transfer"}');
-    expect(cashier).toContain('settlement === "bank_transfer" || !counterpartyName.trim()');
+    expect(cashier).toContain('settlement === "bank_transfer" || !visibleLines.length');
     expect(cashier).not.toContain('setSettlement("credit")');
     expect(postApi).toContain('raw.settlement === "bank_transfer"');
     expect(cashier).not.toContain("void postTransaction()}");
@@ -80,8 +80,8 @@ describe("Recycling custom cashier UX", () => {
   it("uses payout popup for buying and customer payment popup for selling", () => {
     expect(cashier).toContain('direction === "buy" ? "จ่ายเงิน" : "ชำระเงิน"');
     expect(cashier).toContain('direction === "buy" ? "วิธีจ่ายเงิน" : "วิธีรับชำระเงิน"');
-    expect(cashier).toContain('direction === "buy" ? "จ่ายเงินสด" : "ชำระเงินสด"');
-    expect(cashier).toContain('direction === "buy" ? "จ่ายเงินโอน" : "ชำระเงินโอน"');
+    expect(cashier).toContain('direction==="buy"?"จ่ายเงินสด":"ชำระเงินสด"');
+    expect(cashier).toContain('direction==="buy"?"จ่ายเงินโอน":"ชำระเงินโอน"');
     expect(cashier).toContain("ต้องตรวจหลักฐานธนาคารก่อนยืนยันธุรกรรม");
     expect(postApi).toContain('raw.settlement === "bank_transfer"');
   });
