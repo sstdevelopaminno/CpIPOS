@@ -6,6 +6,7 @@ import { assertPosMenuPageAllowed } from "@/lib/server/pos-menu-policy-service";
 import { getRecyclingCatalog, isAuthorizedRecyclingTenant } from "@/lib/server/recycling-pos-service";
 import { getRecyclingStockBranches, requireRecyclingStockBranch } from "@/lib/server/recycling-stock-branch-scope";
 import { requireTenantFeature } from "@/lib/feature-gate";
+import { loadProductMediaMap } from "@/lib/product-media";
 
 export const dynamic = "force-dynamic";
 
@@ -30,10 +31,18 @@ export default async function RecyclingStockPage({
   // cashier has stock access in their logged-in branch.
   await requireTenantFeature(tenantId, "stock_management", branch.id);
   const items = await getRecyclingCatalog(tenantId, branch.id);
+  // Only the stock UI reads photo assets; the cashier barcode path stays fast.
+  const media = await loadProductMediaMap({tenantId,branchId:branch.id});
+  const mediaByProduct:Record<string,string> = {};
+  for(const item of items){
+    const asset=media.get(item.id);
+    if(asset)mediaByProduct[item.id]=asset.thumbnail_url;
+  }
 
   return <RecyclingStockWorkspace
     key={branch.id}
     items={items}
+    mediaByProduct={mediaByProduct}
     branches={branches}
     branchId={branch.id}
     branchName={branch.name}

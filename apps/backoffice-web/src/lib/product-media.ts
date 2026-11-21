@@ -121,10 +121,10 @@ export async function resolveProductMediaBranchForSession(args: {
     if (membershipError || branchError) {
       throw new ProductMediaError("product_media_branch_scope_failed", "Unable to verify branch access.", 500);
     }
-    if (!membership || !branch || branch.is_active === false) {
+    if ((!membership && scope.session.role !== "owner") || !branch || branch.is_active === false) {
       throw new ProductMediaError("forbidden_branch_scope", "You do not have access to this branch.", 403);
     }
-    role = String(membership.role ?? "staff");
+    role = scope.session.role === "owner" ? "owner" : String(membership?.role ?? "staff");
   }
 
   if (requireManage && role !== "owner" && role !== "manager") {
