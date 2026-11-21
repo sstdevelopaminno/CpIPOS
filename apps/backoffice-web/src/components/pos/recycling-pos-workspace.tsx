@@ -593,7 +593,15 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
   // browser shortcuts never install global keyboard handlers.
   function onWorkspaceKeyDown(event:KeyboardEvent<HTMLElement>){
     if(event.key==="Shift"){
+      // Standalone Shift is a checkout shortcut only while the cashier is idle.
+      // Never open checkout while the operator is editing another input,
+      // including Thai/English material-name search.
+      const shiftTarget=event.target instanceof HTMLElement?event.target:null;
+      const shiftEditable=Boolean(shiftTarget?.closest("input,textarea,select,[contenteditable='true']"));
+      const shiftIdleScanner=shiftTarget?.id==="recycling-barcode" && searchMode==="barcode" &&
+        !scanBufferRef.current.trim();
       shiftTapArmedRef.current=!event.repeat&&!event.ctrlKey&&!event.altKey&&!event.metaKey&&
+        (!shiftEditable||shiftIdleScanner) &&
         !pending&&!checkoutOpen&&!cancelOpen&&!heldOpen&&!scanErrorPopup;
       return;
     }
