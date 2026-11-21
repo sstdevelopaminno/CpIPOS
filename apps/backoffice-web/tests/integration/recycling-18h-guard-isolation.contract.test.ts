@@ -42,6 +42,8 @@ describe("Recycling daily shift never uses ordinary POS 13:00/18:00 rollover", (
     expect(close).toContain('select("metadata,opening_cash")');
     expect(close).toContain('const recyclingShiftMode = shiftMetadata.business_shift_mode === "recycling_daily"');
     expect(close).toContain("recycling_shift_requires_explicit_close");
+    expect(close).toContain("!explicitRecyclingClose && await isAuthorizedRecyclingTenant(sessionScope.tenantId)");
+    expect(close).toContain("recycling_general_shift_disabled");
     expect(close).toContain("body?.shift_id !== shift.id");
     expect(close).toContain("quickClose || shouldClearOpenBills");
     expect(close).toContain("recycling_shift_mode_conflict");
