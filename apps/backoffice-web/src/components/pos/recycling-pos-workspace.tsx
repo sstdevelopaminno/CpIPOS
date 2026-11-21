@@ -554,6 +554,16 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
   }
 
   function onBarcodeKeyDown(event:KeyboardEvent<HTMLInputElement>){
+    if(scanErrorPopup){
+      if(event.key==="Enter"||event.key==="Escape"){
+        event.preventDefault();closeScanErrorPopup();
+      }
+      return;
+    }
+    // If the scanner field is empty, Numpad +/- are POS actions; if a
+    // barcode is being entered they are barcode characters instead.
+    if(!scanBufferRef.current && !event.repeat &&
+       (event.code==="NumpadAdd"||event.code==="NumpadSubtract"))return;
     if(event.key==="Enter"){
       event.preventDefault();
       if(searchMode==="barcode")scanBarcode(scanBufferRef.current || event.currentTarget.value);
@@ -576,10 +586,52 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
     const end=cursorAtEnd?base.length:(input.selectionEnd??start);
     const replacement=base.slice(0,start)+latin+base.slice(end);
     updateScannerSearch(replacement);setError("");setCatalogPage(1);
+    setScanFeedback("idle");
   }
 
+  // Only CUSTOM Recycling owns these shortcuts; the normal POS package and
+  // browser shortcuts never install global keyboard handlers.
+  function onWorkspaceKeyDown(event:KeyboardEvent<HTMLElement>){
+    if(event.key==="Shift"){
+      shiftTapArmedRef.current=!event.repeat&&!event.ctrlKey&&!event.altKey&&!event.metaKey&&
+        !pending&&!checkoutOpen&&!cancelOpen&&!heldOpen&&!scanErrorPopup;
+      return;
+    }
+    // A Shift+letter scanner HID sequence must NOT be mistaken for Shift tap.
+    if(shiftTapArmedRef.current)shiftTapArmedRef.current=false;
+    if(event.defaultPrevented||event.repeat||event.ctrlKey||event.altKey||event.metaKey ||
+       posting||!canUseShift || scanErrorPopup || pending||checkoutOpen||heldOpen||cancelOpen)return;
+    const target=event.target instanceof HTMLElement?event.target:null;
+    const editable=Boolean(target?.closest("input,textarea,select,[contenteditable='true']"));
+    const idleScanner=target?.id==="recycling-barcode" && searchMode==="barcode" &&
+      !scanBufferRef.current.trim();
+    if(editable&&!idleScanner)return;
+    if(event.key==="Delete" && visibleLines.length){
+      event.preventDefault();
+      openCancelConfirmation();
+    }else if(event.code==="NumpadSubtract" && visibleLines.length){
+      event.preventDefault();
+      removeLastCartLine();
+    }else if(event.code==="NumpadAdd" && visibleLines.length){
+      event.preventDefault();
+      parkCurrentBill();
+    }
+  }
 
-  return <main className="recycling-pos-layout flex h-full min-h-0 w-full flex-col overflow-hidden bg-white" data-testid="recycling-custom-pos">
+  function onWorkspaceKeyUp(event:KeyboardEvent<HTMLElement>){
+    if(event.key!=="Shift")return;
+    const tap=shiftTapArmedRef.current;
+    shiftTapArmedRef.current=false;
+    if(tap && !event.ctrlKey&&!event.altKey&&!event.metaKey &&
+       !scanBufferRef.current.trim()&&canUseShift&&!posting &&
+       !pending&&!checkoutOpen&&!cancelOpen&&!heldOpen&&!scanErrorPopup&&visibleLines.length){
+      event.preventDefault();
+      openCheckout();
+    }
+  }
+
+  return <main className="recycling-pos-layout flex h-full min-h-0 w-full flex-col overflow-hidden bg-white"
+    data-testid="recycling-custom-pos" onKeyDown={onWorkspaceKeyDown} onKeyUp={onWorkspaceKeyUp}>
     <RecyclingSalesModeSwitcher storeName={storeName} branchName={branchName}
       deviceCode={deviceCode} sellerName={sellerName} shiftStatus={canUseShift?"เปิดกะแล้ว":shiftGate==="checking"?"กำลังตรวจสอบกะ":"ยังไม่เปิดกะ"}
       generalSaleEnabled={generalSaleEnabled} direction={direction}
