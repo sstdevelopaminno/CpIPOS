@@ -6,6 +6,7 @@ import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react"
 import { recyclingBusinessDayKey, recyclingShiftIsToday } from "@/lib/recycling-business-day";
 import { buildRecyclingBarcodeIndex, resolveRecyclingBarcode } from "@/lib/recycling-barcode-index";
 import { normalizeRecyclingBarcodeInput, physicalRecyclingBarcodeKey } from "@/lib/recycling-scanner-keyboard";
+import { recyclingCashierShortcutFromCode, RECYCLING_SHORTCUT_DELAY_MS, type RecyclingCashierShortcut } from "@/lib/recycling-cashier-shortcuts";
 import { parseRecyclingHeldBills, recyclingHeldKey, type HeldRecyclingBill } from "@/lib/recycling-held-bills";
 import { calculateRecyclingLine, recyclingUnitLabel } from "@/lib/recycling-calculation";
 import { formatRecyclingUnitPrice, RECYCLING_PRICE_UNIT_LABELS } from "@/lib/recycling-price-units";
@@ -61,9 +62,22 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
   // Synchronous scan buffer: sub-10ms HID bursts must not lose keys while
   // React waits to render each controlled input update.
   const scanBufferRef=useRef("");
-  function updateScannerSearch(next:string){
+  const pendingScannerShortcutRef=useRef<{letter:RecyclingCashierShortcut;timer:number}|null>(null);
+  const scanRenderFrameRef=useRef<number|null>(null);
+  function updateScannerSearch(next:string,deferRender=false){
+    // The synchronous buffer is authoritative during dense HID bursts.
+    // Coalesce the visual catalog update into a frame without losing digits.
     scanBufferRef.current=next;
-    setSearch(next);
+    if(scanRenderFrameRef.current!==null){
+      window.cancelAnimationFrame(scanRenderFrameRef.current);
+      scanRenderFrameRef.current=null;
+    }
+    if(deferRender){
+      scanRenderFrameRef.current=window.requestAnimationFrame(()=>{
+        scanRenderFrameRef.current=null;
+        setSearch(scanBufferRef.current);
+      });
+    }else setSearch(next);
   }
   const [searchMode,setSearchMode]=useState<"barcode"|"name">("barcode");
   const [selectedCategory,setSelectedCategory]=useState("all");
@@ -97,6 +111,12 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
   const nextKey = useRef(0);
   const scannerRef = useRef<HTMLInputElement>(null);
   const cashMethodRef=useRef<HTMLInputElement>(null);
+  const heldCloseRef=useRef<HTMLButtonElement>(null);
+  useEffect(()=>()=> {
+    if(pendingScannerShortcutRef.current)window.clearTimeout(pendingScannerShortcutRef.current.timer);
+    if(scanRenderFrameRef.current!==null)window.cancelAnimationFrame(scanRenderFrameRef.current);
+  },[]);
+  useEffect(()=>{if(heldOpen)heldCloseRef.current?.focus();},[heldOpen]);
   useEffect(()=>{if(scanErrorPopup)scanDismissRef.current?.focus();},[scanErrorPopup]);
   useEffect(()=>{if(cancelOpen)cancelConfirmRef.current?.focus();},[cancelOpen]);
   useEffect(()=>{if(checkoutOpen)cashMethodRef.current?.focus();},[checkoutOpen]);
@@ -177,19 +197,22 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
 
   const barcodeIndex = useMemo(() => buildRecyclingBarcodeIndex(products), [products]);
   const visibleLines = lines.filter(line => line.direction === direction);
-  const total = visibleLines.reduce((sum, line) => sum + line.total, 0);
+  // Sum satang, not floating-point baht: 0.10 + 0.20 must remain 0.30.
+  const total = Number(visibleLines.reduce((sum,line)=>sum+BigInt(Math.round(line.total*100)),0n))/100;
   const categories=useMemo(()=>Array.from(new Set(products.map(item=>item.category)))
     .sort((a,b)=>a.localeCompare(b,"th")), [products]);
+  // Sorting 1,000 product cards for every scanner character stalls checkout.
+  const sortedProducts=useMemo(()=>[...products].sort((a,b)=>a.name.localeCompare(b.name,"th")),[products]);
   const filteredProducts=useMemo(()=>{
     const needle=search.trim().toLocaleLowerCase();
-    return products.filter(item=>{
+    return sortedProducts.filter(item=>{
       const matchesCategory=selectedCategory==="all"||item.category===selectedCategory;
       const matchesSearch=!needle || (searchMode==="barcode"
         ? item.sku.toLocaleLowerCase().includes(needle)
         : [item.name,item.category,item.sku].some(value=>value.toLocaleLowerCase().includes(needle)));
       return matchesCategory&&matchesSearch;
-    }).sort((a,b)=>a.name.localeCompare(b.name,"th"));
-  },[products,search,searchMode,selectedCategory]);
+    });
+  },[sortedProducts,search,searchMode,selectedCategory]);
   const pageSize=12;
   const pageCount=Math.max(1,Math.ceil(filteredProducts.length/pageSize));
   const currentPage=Math.min(catalogPage,pageCount);
@@ -245,12 +268,14 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
           unitPrice: price, total: calculated.amount
         }];
       }
-      return current.map((line, index) => index === existing ? {
-        ...line,
-        quantity: line.quantity + selectedQuantity,
-        basisQuantity: line.basisQuantity + calculated.basisQuantity,
-        total: Number((line.total + calculated.amount).toFixed(2))
-      } : line);
+      return current.map((line, index) => {
+        if(index!==existing)return line;
+        // Recalculate from the full count, rather than accumulating rounded
+        // floating-point totals over hundreds of repeated scans.
+        const nextQuantity=line.quantity+selectedQuantity;
+        const next=calculateRecyclingLine(nextQuantity,selectedUnit,price,product.priceBasis);
+        return next?{...line,quantity:nextQuantity,basisQuantity:next.basisQuantity,total:next.amount}:line;
+      });
     });
   }
 
@@ -335,6 +360,25 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
     setPostError("");
   }
 
+  function openHeldBills(){
+    if(!canUseShift||posting||pending||checkoutOpen||cancelOpen||heldOpen||scanErrorPopup)return;
+    setHeldError("");
+    setHeldOpen(true);
+  }
+  function activateRecyclingShortcut(shortcut:RecyclingCashierShortcut){
+    if(!canUseShift||posting||pending||checkoutOpen||cancelOpen||heldOpen||scanErrorPopup)return;
+    if(shortcut==="w")openHeldBills();
+    else changeDirection(shortcut==="a"?"buy":"sell");
+  }
+  function flushPendingScannerShortcut(){
+    const pendingShortcut=pendingScannerShortcutRef.current;
+    if(!pendingShortcut)return;
+    window.clearTimeout(pendingShortcut.timer);
+    pendingScannerShortcutRef.current=null;
+    // Second character or Enter arrived: it was a barcode, not W/A/D.
+    updateScannerSearch(scanBufferRef.current+pendingShortcut.letter,true);
+  }
+
   async function queueReceiptPrint(transactionId: string, requestId: string) {
     if (printing) return;
     setPrinting(true);
@@ -376,11 +420,14 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
   }
 
   async function postTransaction() {
-    if (posting || !canUseShift || !transactionWritesEnabled || !checkoutOpen || !visibleLines.length) return;
+    if (postingRef.current || posting || !canUseShift || !transactionWritesEnabled || !checkoutOpen || !visibleLines.length) return;
     if (settlement === "bank_transfer") {
       setPostError("ต้องตรวจหลักฐานธนาคารก่อนจึงจะยืนยันการจ่ายหรือรับเงินโอนได้");
       return;
     }
+    // Synchronous guard prevents rapid Enter/click from submitting twice
+    // before React applies the first 'posting' state update.
+    postingRef.current=true;
     setPosting(true);
     setPostError("");
     setPosted(null);
@@ -446,6 +493,7 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
       // connection error. The backend returns the original transaction.
       setPostError("การเชื่อมต่อขัดข้อง กรุณาลองบันทึกซ้ำด้วยรายการเดิม ห้ามจ่าย/รับเงินซ้ำก่อนตรวจสอบบิล");
     } finally {
+      postingRef.current=false;
       setPosting(false);
       if(rolloverWhilePostingRef.current){
         rolloverWhilePostingRef.current=false;
@@ -560,6 +608,33 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
       }
       return;
     }
+    if(event.key==="Escape"&&pendingScannerShortcutRef.current){
+      event.preventDefault();
+      window.clearTimeout(pendingScannerShortcutRef.current.timer);
+      pendingScannerShortcutRef.current=null;
+      return;
+    }
+    if(event.repeat&&pendingScannerShortcutRef.current){
+      event.preventDefault();
+      return;
+    }
+    const shortcut=recyclingCashierShortcutFromCode(event.code);
+    if(searchMode==="barcode"&&shortcut&&!event.repeat&&!event.shiftKey&&
+       !event.ctrlKey&&!event.altKey&&!event.metaKey&&!event.nativeEvent.isComposing&&
+       !scanBufferRef.current&&!pendingScannerShortcutRef.current){
+      // A scanned W123/A123/D123 starts with the same physical key as a
+      // shortcut. Only treat a lone idle key as an action after a short pause.
+      // Enter (including one-character barcode W) flushes into the scan.
+      event.preventDefault();
+      const timer=window.setTimeout(()=>{
+        if(pendingScannerShortcutRef.current?.timer!==timer)return;
+        pendingScannerShortcutRef.current=null;
+        if(document.activeElement===scannerRef.current)activateRecyclingShortcut(shortcut);
+      },RECYCLING_SHORTCUT_DELAY_MS);
+      pendingScannerShortcutRef.current={letter:shortcut,timer};
+      return;
+    }
+    if(pendingScannerShortcutRef.current)flushPendingScannerShortcut();
     // If the scanner field is empty, Numpad +/- are POS actions; if a
     // barcode is being entered they are barcode characters instead.
     if(!scanBufferRef.current && !event.repeat &&
@@ -585,13 +660,26 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
     const start=cursorAtEnd?base.length:(input.selectionStart??base.length);
     const end=cursorAtEnd?base.length:(input.selectionEnd??start);
     const replacement=base.slice(0,start)+latin+base.slice(end);
-    updateScannerSearch(replacement);setError("");setCatalogPage(1);
+    updateScannerSearch(replacement,true);setError("");setCatalogPage(1);
     setScanFeedback("idle");
   }
 
   // Only CUSTOM Recycling owns these shortcuts; the normal POS package and
   // browser shortcuts never install global keyboard handlers.
   function onWorkspaceKeyDown(event:KeyboardEvent<HTMLElement>){
+    if(event.defaultPrevented||event.nativeEvent.isComposing)return;
+    if(event.key==="Escape"){
+      if(posting)return; // never dismiss an in-flight payment
+      if(!scanErrorPopup&&!pending&&!checkoutOpen&&!cancelOpen&&!heldOpen)return;
+      event.preventDefault();event.stopPropagation();
+      if(scanErrorPopup){closeScanErrorPopup();return;}
+      if(cancelOpen)setCancelOpen(false);
+      else if(heldOpen)setHeldOpen(false);
+      else if(checkoutOpen)setCheckoutOpen(false);
+      else if(pending){setPending(null);setQuantity("");}
+      window.requestAnimationFrame(()=>scannerRef.current?.focus());
+      return;
+    }
     if(event.key==="Shift"){
       // Standalone Shift is a checkout shortcut only while the cashier is idle.
       // Never open checkout while the operator is editing another input,
@@ -607,13 +695,19 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
     }
     // A Shift+letter scanner HID sequence must NOT be mistaken for Shift tap.
     if(shiftTapArmedRef.current)shiftTapArmedRef.current=false;
-    if(event.defaultPrevented||event.repeat||event.ctrlKey||event.altKey||event.metaKey ||
+    if(event.repeat||event.ctrlKey||event.altKey||event.metaKey ||
        posting||!canUseShift || scanErrorPopup || pending||checkoutOpen||heldOpen||cancelOpen)return;
     const target=event.target instanceof HTMLElement?event.target:null;
     const editable=Boolean(target?.closest("input,textarea,select,[contenteditable='true']"));
     const idleScanner=target?.id==="recycling-barcode" && searchMode==="barcode" &&
       !scanBufferRef.current.trim();
     if(editable&&!idleScanner)return;
+    const shortcut=recyclingCashierShortcutFromCode(event.code);
+    if(shortcut&&!event.shiftKey&&!scanBufferRef.current.trim()){
+      event.preventDefault();
+      activateRecyclingShortcut(shortcut);
+      return;
+    }
     if(event.key==="Delete" && visibleLines.length){
       event.preventDefault();
       openCancelConfirmation();
@@ -644,7 +738,7 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
       deviceCode={deviceCode} sellerName={sellerName} shiftStatus={canUseShift?"เปิดกะแล้ว":shiftGate==="checking"?"กำลังตรวจสอบกะ":"ยังไม่เปิดกะ"}
       generalSaleEnabled={generalSaleEnabled} direction={direction}
       onDirectionChange={changeDirection} busy={posting}
-      heldCount={heldBills.length} onOpenHeldBills={()=>{if(canUseShift){setHeldError("");setHeldOpen(true);}}}/>
+      heldCount={heldBills.length} onOpenHeldBills={openHeldBills}/>
     {!canUseShift && <div data-testid="recycling-daily-shift-gate"
       className="fixed inset-0 z-[160] flex items-center justify-center bg-slate-950/55 px-4 py-8"
       role="dialog" aria-modal="true" aria-labelledby="recycling-shift-gate-title"
@@ -914,7 +1008,7 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
             <h2 id="recycling-held-title" className="text-lg font-extrabold text-slate-900">รายการพักบิล · CUSTOM Recycling</h2>
             <p className="mt-1 text-xs text-slate-500">เฉพาะสาขา เครื่อง และกะ Recycling ปัจจุบัน ไม่รวมพักบิล POS ทั่วไป</p>
           </div>
-          <button type="button" aria-label="ปิดรายการพักบิล" onClick={()=>setHeldOpen(false)}
+          <button type="button" ref={heldCloseRef} aria-label="ปิดรายการพักบิล" onClick={()=>setHeldOpen(false)}
             className="rounded-md border border-slate-200 px-3 py-1.5 text-sm">✕</button>
         </div>
         {heldError&&<p role="alert" className="mt-3 rounded-md bg-rose-50 p-3 text-xs text-rose-800">{heldError}</p>}

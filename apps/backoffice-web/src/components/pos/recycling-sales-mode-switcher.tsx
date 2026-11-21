@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { createPortal } from "react-dom";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { PosSalesMetaDetails, THAI_POS_SALES_META_LABELS } from "@/components/pos/pos-sales-meta-details";
 
 const RECYCLING_URL = "/preview/pos";
@@ -39,6 +39,26 @@ export function RecyclingSalesModeSwitcher({
 }) {
   const [open, setOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
+  const modeButtonRef=useRef<HTMLButtonElement>(null);
+  useEffect(()=>{
+    if(!open)return;
+    function closeOnEscape(event:globalThis.KeyboardEvent){
+      if(event.isComposing)return;
+      if(event.key==="Escape"){
+        event.preventDefault();event.stopPropagation();
+        setOpen(false);
+        modeButtonRef.current?.focus();
+        return;
+      }
+      // While the mode picker is open, never operate the cashier behind it.
+      if(event.key==="Shift"||event.key==="Delete"||
+         ["KeyW","KeyA","KeyD","NumpadAdd","NumpadSubtract"].includes(event.code)){
+        event.stopPropagation();
+      }
+    }
+    document.addEventListener("keydown",closeOnEscape,true);
+    return ()=>document.removeEventListener("keydown",closeOnEscape,true);
+  },[open]);
   return <>
     <section className={"recycling-pos-toolbar posui-sales-topbar min-w-0 border-b border-slate-200 bg-white px-2 py-2 " + (collapsed ? "is-collapsed" : "")}
       data-pos-react-sales-mode="recycling" data-testid="recycling-original-sales-toolbar">
@@ -51,7 +71,7 @@ export function RecyclingSalesModeSwitcher({
         </button>
         <div className="posui-filter-group">
           <div className="recycling-topbar-actions flex min-w-0 flex-wrap items-center gap-2">
-        <button type="button" className="posui-mode-switch-button"
+        <button type="button" ref={modeButtonRef} className="posui-mode-switch-button"
            style={{borderRadius:6,border:"1px solid #bdd4f7",background:"#eff6ff",minHeight:42}}
           onClick={() => setOpen(true)} aria-haspopup="dialog"
           aria-label="สลับโหมดขาย: ร้านค้าของเก่า Recycling">
@@ -59,6 +79,7 @@ export function RecyclingSalesModeSwitcher({
           <span className="posui-mode-switch-button__action">สลับโหมดขาย</span>
         </button>
         <button type="button" data-testid="recycling-held-bills-toolbar"
+           aria-keyshortcuts="W" title="ปุ่มลัด W · เมื่อไม่ได้กรอกข้อมูลและช่องสแกนว่าง"
            onClick={onOpenHeldBills} disabled={busy}
            className="inline-flex min-h-10 shrink-0 items-center gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-extrabold text-amber-900 hover:bg-amber-100 disabled:opacity-50">
            <span aria-hidden="true">▤</span> รายการพักบิล
@@ -68,6 +89,8 @@ export function RecyclingSalesModeSwitcher({
           className="flex shrink-0 items-center gap-1 rounded-md border border-blue-200 bg-blue-50 p-1">
           {([["buy", "รับซื้อเข้าร้าน"], ["sell", "ขายออก"]] as const).map(([value,label]) =>
             <button key={value} type="button" disabled={busy} aria-pressed={direction===value}
+              aria-keyshortcuts={value==="buy"?"A":"D"}
+              title={value==="buy"?"ปุ่มลัด A · รับซื้อเข้าร้าน":"ปุ่มลัด D · ขายออก"}
               onClick={() => onDirectionChange(value)}
               className={"min-h-10 min-w-[108px] rounded-md border px-3 py-2 text-xs font-extrabold shadow-sm transition-colors disabled:opacity-50 " +
                 (direction === value ? (value === "buy" ? "border-blue-700 bg-blue-700 text-white" : "border-emerald-700 bg-emerald-700 text-white") :
