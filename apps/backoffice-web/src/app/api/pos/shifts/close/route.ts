@@ -15,6 +15,7 @@ import {
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 import { calculateShiftSalesSummary } from "@/lib/pos-shift-sales-summary";
 import { getRecyclingShiftReconciliation, type RecyclingShiftSettlement } from "@/lib/server/recycling-shift-reconciliation";
+import { isAuthorizedRecyclingTenant } from "@/lib/server/recycling-pos-service";
 
 import { collectPagedShiftRows, collectShiftRowsForIds } from "@/lib/pos-shift-query-pagination";
 
@@ -219,6 +220,13 @@ export async function POST(request: Request) {
       ? identity.data.metadata as Record<string,unknown> : {};
     const recyclingShiftMode = shiftMetadata.business_shift_mode === "recycling_daily";
     const explicitRecyclingClose = body?.business_mode === "recycling";
+    // A previously opened generic POS shift must remain immutable from the
+    // native 13:00/18:00 rollover while the tenant runs CUSTOM Recycling.
+    // It requires a separate, audited manager reconciliation, not quick-close.
+    if (!explicitRecyclingClose && await isAuthorizedRecyclingTenant(sessionScope.tenantId)) {
+      return NextResponse.json({data:null,error:{code:"recycling_general_shift_disabled",
+        message:"ร้าน Recycling ไม่สามารถใช้คำสั่งปิด/ต่อกะ POS ทั่วไป ต้องตรวจสอบกะค้างกับผู้จัดการหรือ IT"}},{status:409});
+    }
     if (recyclingShiftMode && (!explicitRecyclingClose || body?.shift_id !== shift.id ||
         quickClose || shouldClearOpenBills)) {
       return NextResponse.json({data:null,error:{code:"recycling_shift_requires_explicit_close",
