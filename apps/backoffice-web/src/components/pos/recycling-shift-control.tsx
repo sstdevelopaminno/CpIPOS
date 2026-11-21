@@ -37,6 +37,7 @@ export function RecyclingShiftControl({branchName}: {branchName:string}) {
   const [needsJoin,setNeedsJoin] = useState(false);
   const [loading,setLoading] = useState(true);
   const [lookupFailed,setLookupFailed] = useState(false);
+  const [lookupErrorCode,setLookupErrorCode] = useState<string|null>(null);
   const [busy,setBusy] = useState(false);
   const [openingCash,setOpeningCash] = useState("");
   const [closingCash,setClosingCash] = useState("");
@@ -56,16 +57,18 @@ export function RecyclingShiftControl({branchName}: {branchName:string}) {
       }>|null;
       if (!response.ok) {
         setShift(null);setNeedsJoin(false);setLookupFailed(true);
+        setLookupErrorCode(body?.error?.code??"recycling_shift_lookup_failed");
         setMessage(body?.error?.message??"ตรวจสอบสถานะกะไม่สำเร็จ");
       } else {
         const current=body?.data?.shift;
         setShift(current && recyclingShiftIsToday(current.opened_at) ? current : null);
         setNeedsJoin(Boolean(current && body?.data?.needs_join));
-        setLookupFailed(false);
+        setLookupFailed(false);setLookupErrorCode(null);
         setMessage(body?.data?.message??"");
       }
     } catch {
       setShift(null);setNeedsJoin(false);setLookupFailed(true);
+      setLookupErrorCode("recycling_network_unavailable");
       setMessage("ไม่สามารถเชื่อมต่อระบบตรวจสอบกะได้ กรุณารีเฟรชสถานะ");
     } finally {setLoading(false);}
   }
@@ -99,8 +102,10 @@ export function RecyclingShiftControl({branchName}: {branchName:string}) {
   },[modalKind,busy]);
 
   function showModal(kind:"open"|"close"|"active"){
-    if(loading || lookupFailed || busy)return;
-    setActionError("");
+    if(loading || busy)return;
+    // Allow the cashier to inspect the reason for a blocked shift. Never
+    // enable a financial mutation while a conflicting POS shift is open.
+    setActionError(lookupFailed ? message : "");
     setModalKind(kind);
   }
 
@@ -138,7 +143,7 @@ export function RecyclingShiftControl({branchName}: {branchName:string}) {
     try {
       const response=await fetch("/api/pos/shifts/join",{
         method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({shift_id:shift.id})
+        body:JSON.stringify({shift_id:shift.id,business_mode:"recycling"})
       });
       const body=await response.json().catch(()=>null) as Result<{shift?:ShiftInfo}>|null;
       if(!response.ok||!body?.data?.shift){
@@ -163,7 +168,7 @@ export function RecyclingShiftControl({branchName}: {branchName:string}) {
     try {
       const response=await fetch("/api/pos/shifts/close",{
         method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({closing_cash:Number(closingCash),quick_close:false})
+        body:JSON.stringify({shift_id:shift.id,business_mode:"recycling",closing_cash:Number(closingCash),quick_close:false})
       });
       const body=await response.json().catch(()=>null) as Result<{shift_id?:string}>|null;
       if(!response.ok||!body?.data?.shift_id){
@@ -204,7 +209,7 @@ export function RecyclingShiftControl({branchName}: {branchName:string}) {
           <h2 className="text-base font-extrabold text-slate-900">กะ Recycling · {branchName}</h2>
           <span className={"rounded-full px-3 py-1 text-xs font-bold "+(
             hasShift?"bg-emerald-100 text-emerald-800":"bg-slate-100 text-slate-700")}>
-            {loading?"กำลังตรวจสอบ":lookupFailed?"ตรวจสอบไม่สำเร็จ":hasShift?"เปิดอยู่":"ยังไม่เปิดกะ"}
+            {loading?"กำลังตรวจสอบ":lookupFailed?lookupErrorCode==="recycling_existing_legacy_shift_requires_review"?"มีกะต่างประเภทเปิดอยู่":"ตรวจสอบไม่สำเร็จ":hasShift?"เปิดอยู่":"ยังไม่เปิดกะ"}
           </span>
         </div>
         <p className="mt-1 text-xs leading-5 text-slate-500">
@@ -213,23 +218,24 @@ export function RecyclingShiftControl({branchName}: {branchName:string}) {
       </div>
       <div className="flex flex-wrap gap-2" data-testid="recycling-shift-actions">
         <button type="button" onClick={()=>showModal("active")}
-          disabled={loading||lookupFailed||busy}
+          disabled={loading||busy}
           className="min-h-10 rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 disabled:opacity-50">
           ดูกะปัจจุบัน
         </button>
         <button type="button" onClick={()=>showModal("open")}
-          disabled={loading||lookupFailed||busy||hasShift}
+          disabled={loading||busy||hasShift}
           className="min-h-10 rounded-xl bg-blue-600 px-4 py-2 text-sm font-bold text-white disabled:opacity-50">
           เปิดกะทันที
         </button>
         <button type="button" onClick={()=>showModal("close")}
-          disabled={loading||lookupFailed||busy||!hasShift||needsJoin}
+          disabled={loading||busy||(!hasShift&&!lookupFailed)||needsJoin}
           className="min-h-10 rounded-xl bg-slate-900 px-4 py-2 text-sm font-bold text-white disabled:opacity-50">
           ปิดกะตอนนี้
         </button>
       </div>
     </div>
-    {message && (!shift || message !== "กะ Recycling เปิดแล้ว") && <p role="status" className="mt-2 text-xs text-slate-600">{message}</p>}
+    {message && (!shift || message !== "กะ Recycling เปิดแล้ว") && <p role={lookupFailed?"alert":"status"}
+      className={"mt-2 text-xs "+(lookupFailed?"font-semibold text-amber-800":"text-slate-600")}>{message}</p>}
     <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
       {lastClosed?<RecyclingShiftPrintButton shiftId={lastClosed}/>:<span className="text-xs text-slate-500">
         {shift?"กะเริ่ม "+new Date(shift.opened_at).toLocaleString("th-TH",{timeZone:"Asia/Bangkok"}):"ยังไม่มีกะที่เปิดในเครื่องนี้"}
@@ -286,7 +292,7 @@ export function RecyclingShiftControl({branchName}: {branchName:string}) {
           </>}
         </div>
 
-        {modalKind==="open"&&<form id="recycling-open-shift-form" className="mt-4"
+        {modalKind==="open"&&!lookupFailed&&<form id="recycling-open-shift-form" className="mt-4"
           onSubmit={event=>{event.preventDefault();void openShift();}}>
           <label htmlFor="recycling-opening-cash" className="block text-sm font-semibold text-slate-800">
             เงินสดตั้งต้น (บาท)
@@ -297,7 +303,7 @@ export function RecyclingShiftControl({branchName}: {branchName:string}) {
             placeholder="ระบุยอดเงินสดตั้งต้นตามจริง"
             className="mt-2 min-h-11 w-full rounded-xl border border-slate-300 px-3 py-3 text-sm disabled:opacity-50"/>
         </form>}
-        {modalKind==="close"&&<form id="recycling-close-shift-form" className="mt-4"
+        {modalKind==="close"&&!lookupFailed&&shift&&<form id="recycling-close-shift-form" className="mt-4"
           onSubmit={event=>{event.preventDefault();void closeShift();}}>
           <label htmlFor="recycling-closing-cash" className="block text-sm font-semibold text-slate-800">
             เงินสดที่ตรวจนับจริง (บาท)
@@ -311,6 +317,15 @@ export function RecyclingShiftControl({branchName}: {branchName:string}) {
         {actionError&&<p role="alert" className="mt-3 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm font-semibold text-rose-700">
           {actionError}
         </p>}
+        {lookupFailed&&<p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-900">
+          กะ Recycling ไม่สามารถเปิดหรือปิดขณะนี้ได้ ระบบจะไม่ปิดกะ POS ทั่วไปแทน
+          และไม่แก้ไขข้อมูลเงินสดหรือบิลอัตโนมัติ ให้ผู้จัดการตรวจสอบกะที่ค้างก่อน
+        </p>}
+        {lookupFailed&&<button type="button" disabled={loading||busy}
+          onClick={()=>{setModalKind(null);void loadShift();}}
+          className="mt-2 rounded-lg border border-amber-300 px-3 py-2 text-xs font-bold text-amber-900 disabled:opacity-50">
+          ตรวจสอบสถานะอีกครั้ง
+        </button>}
         <div className="mt-5 flex flex-wrap justify-end gap-2">
           <button type="button" onClick={()=>setModalKind(null)} disabled={busy}
             className="min-h-10 rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 disabled:opacity-50">
