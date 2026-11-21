@@ -68,7 +68,7 @@ export function RecyclingPosWorkspace({ products, branchName, storeName, deviceC
   const requestIdRef = useRef("");
   const nextKey = useRef(0);
   const scannerRef = useRef<HTMLInputElement>(null);
-  postingRef.current=posting;
+  useEffect(()=>{postingRef.current=posting;},[posting]);
   const canUseShift=shiftGate==="open" && recyclingShiftIsToday(shiftOpenedAt);
   useEffect(()=>{
     let mounted=true;
