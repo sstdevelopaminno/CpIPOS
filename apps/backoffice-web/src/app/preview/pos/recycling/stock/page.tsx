@@ -4,23 +4,39 @@ import { requirePosPagePermission } from "@/lib/pos-page-guard";
 import { requirePosSession } from "@/lib/pos-session-guard";
 import { assertPosMenuPageAllowed } from "@/lib/server/pos-menu-policy-service";
 import { getRecyclingCatalog, isAuthorizedRecyclingTenant } from "@/lib/server/recycling-pos-service";
-import { getSupabaseServiceClient } from "@/lib/supabase-admin";
+import { getRecyclingStockBranches, requireRecyclingStockBranch } from "@/lib/server/recycling-stock-branch-scope";
+import { requireTenantFeature } from "@/lib/feature-gate";
 
 export const dynamic = "force-dynamic";
 
-export default async function RecyclingStockPage() {
+export default async function RecyclingStockPage({
+  searchParams
+}: {
+  searchParams?: Promise<{ branch_id?: string | string[] }>;
+}) {
   const scope = await requirePosSession();
-  await assertPosMenuPageAllowed(scope.session.tenant_id, "/preview/pos/stock");
+  const {tenant_id: tenantId, branch_id: sessionBranchId} = scope.session;
+  await assertPosMenuPageAllowed(tenantId, "/preview/pos/stock");
   await requirePosPagePermission("inventory:view");
-  const { tenant_id: tenantId, branch_id: branchId } = scope.session;
   if (!await isAuthorizedRecyclingTenant(tenantId)) notFound();
-  const [items, branch] = await Promise.all([
-    getRecyclingCatalog(tenantId, branchId),
-    getSupabaseServiceClient().from("branches").select("name")
-      .eq("tenant_id", tenantId).eq("id", branchId).maybeSingle()
-  ]);
-  return <RecyclingStockWorkspace items={items}
-    branchName={branch.data?.name ?? "สาขาที่เข้าสู่ระบบ"}
-    canManage={scope.session.role === "owner" || scope.session.role === "manager"}
-    canViewAccounting={scope.session.role === "owner" || scope.session.role === "accountant"} />;
+
+  const branches = await getRecyclingStockBranches(scope);
+  const params = await searchParams;
+  const raw = Array.isArray(params?.branch_id) ? params.branch_id[0] : params?.branch_id;
+  const branch = requireRecyclingStockBranch(
+    raw?.trim() || sessionBranchId, branches, false
+  );
+  // A branch-specific IT restriction must not be bypassed merely because the
+  // cashier has stock access in their logged-in branch.
+  await requireTenantFeature(tenantId, "stock_management", branch.id);
+  const items = await getRecyclingCatalog(tenantId, branch.id);
+
+  return <RecyclingStockWorkspace
+    key={branch.id}
+    items={items}
+    branches={branches}
+    branchId={branch.id}
+    branchName={branch.name}
+    canManage={branch.canManage}
+  />;
 }

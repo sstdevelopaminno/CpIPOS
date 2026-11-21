@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import type { RecyclingCatalogItem, RecyclingPriceBasis } from "@/lib/server/recycling-pos-service";
 import { type RecyclingPriceUnit, formatRecyclingUnitPrice, getRecyclingPriceBasis, parseRecyclingUnitPrice, RECYCLING_PRICE_UNIT_LABELS } from "@/lib/recycling-price-units";
+import type { RecyclingStockBranch } from "@/lib/server/recycling-stock-branch-scope";
 
 const money = (v: number | null) => v === null ? "ยังไม่กำหนด"
   : new Intl.NumberFormat("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(v);
@@ -35,16 +36,18 @@ const blank: FormState = {
   buy_price: "", sell_price: "", image_url: ""
 };
 
-export function RecyclingStockWorkspace({ items, branchName, canManage, canViewAccounting }: {
+export function RecyclingStockWorkspace({ items, branches, branchId, branchName, canManage }: {
   items: RecyclingCatalogItem[];
+  branches: RecyclingStockBranch[];
+  branchId: string;
   branchName: string;
   canManage: boolean;
-  canViewAccounting: boolean;
 }) {
   const router = useRouter();
   const addButtonRef = useRef<HTMLButtonElement>(null);
   const [filter, setFilter] = useState("");
   const [editing, setEditing] = useState<FormState | null>(null);
+  const [editingBranchId, setEditingBranchId] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -54,6 +57,9 @@ export function RecyclingStockWorkspace({ items, branchName, canManage, canViewA
   const incomplete = items.filter(item => item.buyPrice === null || item.sellPrice === null).length;
 
   function edit(item?: RecyclingCatalogItem) {
+    // New materials require an explicit branch choice in the dialog, even
+    // when the visible listing has a default branch.
+    setEditingBranchId(item ? branchId : "");
     setError("");
     setNotice("");
     setEditing(item ? {
@@ -102,6 +108,14 @@ export function RecyclingStockWorkspace({ items, branchName, canManage, canViewA
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!editing || busy) return;
+    if (!editingBranchId || !branches.some(b => b.id === editingBranchId && b.canManage)) {
+      setError("กรุณาเลือกสาขาที่ได้รับสิทธิ์ก่อนบันทึกวัสดุ");
+      return;
+    }
+    if (editing.id && editingBranchId !== branchId) {
+      setError("ไม่สามารถย้ายวัสดุข้ามสาขาด้วยการแก้ไขทะเบียนได้");
+      return;
+    }
     if (parseRecyclingUnitPrice(editing.buy_price, editing.price_unit) === null ||
         parseRecyclingUnitPrice(editing.sell_price, editing.price_unit) === null) {
       setError("กรุณาระบุราคาที่แปลงเป็นหน่วยฐานได้ตรงสตางค์: บาท/กก. 2, บาท/ขีด 3, บาท/กรัม 5 ตำแหน่ง");
@@ -115,6 +129,7 @@ export function RecyclingStockWorkspace({ items, branchName, canManage, canViewA
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ...editing,
+          branch_id: editingBranchId,
           buy_price: editing.buy_price,
           sell_price: editing.sell_price
         })
@@ -128,7 +143,11 @@ export function RecyclingStockWorkspace({ items, branchName, canManage, canViewA
       }
       setEditing(null);
       setNotice("บันทึกวัสดุและราคาเรียบร้อยแล้ว");
-      router.refresh();
+      if (editingBranchId !== branchId) {
+        router.push("/preview/pos/recycling/stock?branch_id=" + encodeURIComponent(editingBranchId));
+      } else {
+        router.refresh();
+      }
     } catch {
       setError("ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์เพื่อบันทึกราคา");
     } finally {
@@ -144,16 +163,18 @@ export function RecyclingStockWorkspace({ items, branchName, canManage, canViewA
           <p className="mt-0.5 text-xs text-slate-500">สาขา: {branchName} · ทะเบียนวัสดุเดียวสำหรับรับซื้อและขายออก</p>
         </div>
         <nav className="flex flex-wrap items-center gap-2" aria-label="ทางลัดหน้าจัดการวัสดุ">
+          <label className="flex items-center gap-2 text-xs font-bold text-slate-700">
+            สาขา
+            <select data-testid="recycling-stock-branch-selector" aria-label="เลือกสาขาสำหรับดูทะเบียนวัสดุ"
+              value={branchId} disabled={busy || Boolean(editing)}
+              onChange={event => router.push("/preview/pos/recycling/stock?branch_id=" + encodeURIComponent(event.target.value))}
+              className="h-10 max-w-[220px] rounded-lg border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-800 focus:border-blue-600 focus:outline-none">
+              {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+            </select>
+          </label>
           <Link href="/preview/pos/more" className="inline-flex min-h-10 items-center rounded-lg border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50">
             ← กลับเมนูเพิ่มเติม
           </Link>
-          <Link href="/preview/pos/recycling" className="inline-flex min-h-10 items-center rounded-lg border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50">
-            กลับหน้ารับซื้อ / ขายออก
-          </Link>
-          {canViewAccounting && <Link href="/preview/pos/recycling/accounting"
-            className="inline-flex min-h-10 items-center rounded-lg border border-blue-200 bg-blue-50 px-3 text-sm font-semibold text-blue-900 hover:bg-blue-100">
-            สมุดบัญชีย่อย
-          </Link>}
           {canManage && <button ref={addButtonRef} type="button" onClick={() => edit()}
             className="inline-flex min-h-10 items-center rounded-lg bg-blue-700 px-4 text-sm font-extrabold text-white hover:bg-blue-800">
             + เพิ่มวัสดุ
@@ -240,6 +261,18 @@ export function RecyclingStockWorkspace({ items, branchName, canManage, canViewA
             className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-slate-300 bg-white text-lg text-slate-600 hover:bg-slate-100 disabled:opacity-50">×</button>
         </div>
         <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-5 py-4">
+          <section className="rounded-lg border border-blue-200 bg-blue-50/50 p-3" aria-label="สาขาที่บันทึกวัสดุ">
+            <label className="block text-xs font-extrabold text-blue-950">เลือกสาขาที่จะบันทึกวัสดุ <span className="text-rose-600">*</span>
+              <select required data-testid="recycling-stock-editor-branch" value={editingBranchId}
+                disabled={Boolean(editing.id) || busy}
+                onChange={event => setEditingBranchId(event.target.value)}
+                className="mt-2 block h-11 w-full rounded-lg border border-blue-200 bg-white px-3 text-sm font-semibold text-slate-900 disabled:bg-slate-100">
+                <option value="">-- เลือกสาขาก่อนเพิ่มวัสดุ --</option>
+                {branches.filter(b => b.canManage).map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+              </select>
+            </label>
+            <p className="mt-2 text-xs text-slate-600">วัสดุและราคาจะแยกตามสาขาที่เลือก · ไม่โอนสต๊อกข้ามสาขาโดยอัตโนมัติ</p>
+          </section>
           <fieldset className="space-y-3">
             <legend className="text-sm font-extrabold text-slate-900">ข้อมูลวัสดุ</legend>
             <div className="grid gap-3 sm:grid-cols-2">
@@ -306,7 +339,7 @@ export function RecyclingStockWorkspace({ items, branchName, canManage, canViewA
           {error && <p role="alert" className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm font-semibold text-rose-800">{error}</p>}
         </div>
         <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-slate-200 bg-white px-5 py-3">
-          <p className="max-w-xs text-xs text-slate-500">การเพิ่มวัสดุไม่ใช่การเพิ่มยอดสต๊อก ยอดคงเหลือเปลี่ยนจากธุรกรรมที่บันทึกจริง</p>
+          <p className="max-w-xs text-xs text-slate-500">สาขาที่เลือก: {branches.find(b => b.id === editingBranchId)?.name ?? "ยังไม่เลือก"} · การเพิ่มวัสดุไม่ใช่การเพิ่มยอดสต๊อก</p>
           <div className="flex gap-2">
             <button type="button" disabled={busy} onClick={closeEditor}
               className="min-h-11 rounded-lg border border-slate-300 bg-white px-5 text-sm font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-50">← กลับ</button>
