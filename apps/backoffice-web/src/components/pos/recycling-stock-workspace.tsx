@@ -48,6 +48,7 @@ export function RecyclingStockWorkspace({ items, branches, branchId, branchName,
 }) {
   const router = useRouter();
   const addButtonRef = useRef<HTMLButtonElement>(null);
+  const deleteTriggerRef = useRef<HTMLButtonElement | null>(null);
   const [filter, setFilter] = useState("");
   const [barcodeItem, setBarcodeItem] = useState<RecyclingCatalogItem | null>(null);
   const [photoFile, setPhotoFile] = useState<File | null>(null);
@@ -56,6 +57,9 @@ export function RecyclingStockWorkspace({ items, branches, branchId, branchName,
   const [editing, setEditing] = useState<FormState | null>(null);
   const [editingBranchId, setEditingBranchId] = useState("");
   const [busy, setBusy] = useState(false);
+  const [deleteTarget,setDeleteTarget] = useState<RecyclingCatalogItem|"all"|null>(null);
+  const [deleteConfirmation,setDeleteConfirmation] = useState("");
+  const [deleteError,setDeleteError] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const rows = useMemo(() => items.filter(item =>
@@ -190,6 +194,64 @@ export function RecyclingStockWorkspace({ items, branches, branchId, branchName,
     }
   }
 
+  function requestDelete(target: RecyclingCatalogItem|"all", trigger:HTMLButtonElement) {
+    if (busy || !canManage) return;
+    deleteTriggerRef.current=trigger;
+    setDeleteTarget(target);setDeleteConfirmation("");setDeleteError("");setNotice("");
+  }
+  function cancelDelete() {
+    if (busy) return;
+    setDeleteTarget(null);setDeleteConfirmation("");setDeleteError("");
+    window.requestAnimationFrame(()=>{
+      if(deleteTriggerRef.current?.isConnected)deleteTriggerRef.current.focus();
+      else addButtonRef.current?.focus();
+    });
+  }
+  useEffect(()=>{
+    if(!deleteTarget)return;
+    const onEscape=(event:KeyboardEvent)=>{
+      if(event.key==="Escape"&&!busy) {
+        event.preventDefault();setDeleteTarget(null);setDeleteConfirmation("");setDeleteError("");
+      }
+    };
+    document.addEventListener("keydown",onEscape);
+    return ()=>document.removeEventListener("keydown",onEscape);
+  },[deleteTarget,busy]);
+
+  async function confirmDelete() {
+    if(!deleteTarget||busy||!canManage)return;
+    const isBulk=deleteTarget==="all";
+    if(isBulk&&(deleteConfirmation.trim()!=="ลบทั้งหมด"||items.length===0)){
+      setDeleteError("กรุณาพิมพ์คำว่า ลบทั้งหมด เพื่อยืนยัน");return;
+    }
+    setBusy(true);setDeleteError("");
+    try{
+      const response=await fetch("/api/pos/recycling/catalog",{
+        method:"DELETE",credentials:"same-origin",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({
+          branch_id:branchId,
+          ...(isBulk?{delete_all:true,expected_count:items.length,confirmation:"ลบทั้งหมด"}
+            :{id:deleteTarget.id,confirmation:"ลบรายการนี้"})
+        })
+      });
+      const result=await response.json().catch(()=>null) as {
+        data?:{deleted_count?:number}|null;error?:{message?:string}|null
+      }|null;
+      const count=result?.data?.deleted_count;
+      if(!response.ok||typeof count!=="number"||count!==(isBulk?items.length:1)){
+        setDeleteError(result?.error?.message??"ลบวัสดุไม่สำเร็จ กรุณารีเฟรชรายการแล้วลองใหม่");
+        return;
+      }
+      setNotice(isBulk?`ลบวัสดุในสาขา ${branchName} ออกจากรายการแล้ว ${count} รายการ`
+        :`ลบวัสดุ ${deleteTarget.name} ออกจากรายการแล้ว`);
+      setDeleteTarget(null);setDeleteConfirmation("");
+      router.refresh();window.requestAnimationFrame(()=>addButtonRef.current?.focus());
+    }catch{
+      setDeleteError("เชื่อมต่อระบบลบวัสดุไม่สำเร็จ กรุณาตรวจสอบสถานะก่อนกดซ้ำ");
+    }finally{setBusy(false);}
+  }
+
   return <main className="recycling-stock-layout flex h-full min-h-0 w-full flex-col overflow-hidden bg-white" data-testid="recycling-custom-stock">
     <header className="shrink-0 border-b border-slate-200 bg-white px-4 py-3" data-testid="recycling-stock-toolbar">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -201,7 +263,7 @@ export function RecyclingStockWorkspace({ items, branches, branchId, branchName,
           <label className="flex items-center gap-2 text-xs font-bold text-slate-700">
             สาขา
             <select data-testid="recycling-stock-branch-selector" aria-label="เลือกสาขาสำหรับดูทะเบียนวัสดุ"
-              value={branchId} disabled={busy || Boolean(editing)}
+              value={branchId} disabled={busy || Boolean(editing) || Boolean(deleteTarget)}
               onChange={event => router.push("/preview/pos/recycling/stock?branch_id=" + encodeURIComponent(event.target.value))}
               className="h-10 max-w-[220px] rounded-lg border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-800 focus:border-blue-600 focus:outline-none">
               {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
