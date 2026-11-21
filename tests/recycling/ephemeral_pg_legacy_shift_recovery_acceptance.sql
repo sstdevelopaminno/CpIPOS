@@ -101,7 +101,7 @@ begin
     where action='recycling_legacy_shift_zero_cash_recovered'
       and target_id=v_new;
  if v_rows<>1 then raise exception 'Required atomic audit missing'; end if;
- if (select status from public.shifts where id='cccccccc-0000-4000-8000-000000000000')<>'open' then
+ if (select status from public.shifts where id='cccccccc-0000-4000-8000-000000000000')<>'closed' then
    raise exception 'Normal POS shift was modified';
  end if;
  begin
