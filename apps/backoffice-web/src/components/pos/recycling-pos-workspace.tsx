@@ -425,9 +425,13 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
 
   function saveHeldBills(next:HeldRecyclingBill[]):boolean{
     if(!canUseShift || !shiftId)return false;
+    if(next.length>30){
+      setHeldError("รายการพักบิลครบ 30 บิลแล้ว กรุณาเรียกคืนหรือเคลียร์บิลก่อนพักเพิ่ม");
+      return false;
+    }
     try{
-      window.localStorage.setItem(storageKey,JSON.stringify(next.slice(0,30)));
-      setHeldBills(next.slice(0,30));
+      window.localStorage.setItem(storageKey,JSON.stringify(next));
+      setHeldBills(next);
       return true;
     }catch{
       setHeldError("ไม่สามารถบันทึกพักบิลลงเครื่องนี้ได้ ตะกร้ายังอยู่ โปรดตรวจสอบพื้นที่เก็บข้อมูล");
@@ -444,7 +448,7 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
         productId:line.product.id,unit:line.unit,quantity:line.quantity,unitPrice:line.unitPrice
       }))
     };
-    if(!saveHeldBills([draft,...heldBills].slice(0,30)))return;
+    if(!saveHeldBills([draft,...heldBills]))return;
     requestIdRef.current="";setPosted(null);setPrintNotice(null);setCounterpartyName("");
     setLines(current=>current.filter(line=>line.direction!==direction));
     setHeldNotice("พักบิลสำเร็จ · สามารถเรียกคืนได้จากรายการพักบิล");
