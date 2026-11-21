@@ -957,16 +957,26 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
           {direction === "buy" ? "ชื่อผู้ขายวัสดุ" : "ชื่อผู้ซื้อวัสดุ"}
           <span className="ml-1 text-xs font-normal text-slate-500">(ไม่บังคับ · เว้นว่างแสดง - บนบิล)</span>
         </label>
-        <input id="recycling-counterparty" autoFocus maxLength={240}
+        <input id="recycling-counterparty" maxLength={240}
           value={counterpartyName} disabled={posting}
           onChange={event => setCounterpartyName(event.target.value)}
           placeholder="ไม่ระบุก็ได้"
           className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-3 text-sm text-slate-900 focus:border-blue-600 focus:outline-none"/>
         <fieldset className="mt-4" tabIndex={0}
           onKeyDown={event=>{
+            if(posting)return;
             if(event.key==="ArrowLeft"||event.key==="ArrowRight"){
-              event.preventDefault();setPostError("");
-              setSettlement(event.key==="ArrowLeft"?"cash":"bank_transfer");
+              event.preventDefault();event.stopPropagation();setPostError("");
+              const next=event.key==="ArrowLeft"?"cash":"bank_transfer";
+              setSettlement(next);
+              if(next==="cash")cashMethodRef.current?.focus();
+            }else if(event.key==="Enter"){
+              event.preventDefault();event.stopPropagation();
+              if(settlement==="bank_transfer"){
+                setPostError("ยังไม่สามารถยืนยันเงินโอนโดยไม่มีหลักฐานธนาคารที่ตรวจสอบแล้ว");
+              }else if(canUseShift && transactionWritesEnabled && visibleLines.length && !posting){
+                event.currentTarget.closest("form")?.requestSubmit();
+              }
             }
           }}>
           <legend className="mb-2 text-sm font-extrabold text-slate-800">
@@ -975,7 +985,7 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
           <div className="grid grid-cols-2 gap-2" role="group" aria-label="เลือกวิธีชำระด้วยลูกศรซ้ายขวา">
             <label className={"flex min-w-0 cursor-pointer items-center gap-2 rounded-lg border p-3 "+
               (settlement==="cash"?"border-blue-600 bg-blue-50 ring-1 ring-blue-100":"border-slate-200 bg-white")}>
-              <input type="radio" name="recycling-settlement" checked={settlement==="cash"}
+              <input type="radio" ref={cashMethodRef} autoFocus name="recycling-settlement" checked={settlement==="cash"}
                 disabled={posting} onChange={()=>{setSettlement("cash");setPostError("");}}/>
               <span className="text-xl" aria-hidden="true">💵</span>
               <span className="min-w-0 text-sm font-bold text-slate-800">
@@ -993,7 +1003,7 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
               </span>
             </label>
           </div>
-          <p className="mt-2 text-xs text-slate-500">ใช้ปุ่มลูกศร ← / → เพื่อเลือกวิธีชำระเงิน</p>
+          <p className="mt-2 text-xs text-slate-500">ใช้ลูกศร ← / → เลือกเงินสดหรือเงินโอน แล้วกด Enter เพื่อยืนยันเมื่อผ่านการตรวจสอบเงื่อนไข</p>
         </fieldset>
         {settlement === "bank_transfer" && <p role="alert" className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs font-semibold text-amber-900">
           ยังไม่เปิดการตรวจสอบหลักฐานโอนเงินสำหรับ Recycling จึงไม่อนุญาตให้ยืนยันการ{direction === "buy" ? "จ่ายเงิน" : "รับชำระเงิน"}หรือสร้างบิลสำเร็จ
@@ -1020,15 +1030,13 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
           <CatalogImage item={pending} mediaUrl={mediaByProduct[pending.id]}/>
           <div><strong className="block text-slate-900">{pending.name}</strong><small className="text-slate-500">{pending.category}</small></div>
         </div>
-        <p className="mt-4 text-sm font-semibold text-slate-700">เลือกหน่วยจากผลชั่งภายนอก</p>
-        <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4" role="group" aria-label="หน่วยจำนวน">
-          {units.map(value => <button type="button" key={value} onClick={() => setUnit(value)} aria-pressed={unit === value}
-            className={`rounded-lg border px-2 py-2 text-sm font-bold ${unit === value
-              ? "border-blue-700 bg-blue-700 text-white" : "border-slate-200 bg-white text-slate-700"}`}>
-            {recyclingUnitLabel(value)}
-          </button>)}
-        </div>
-        <label className="mt-4 block text-sm font-semibold text-slate-700" htmlFor="recycling-quantity">จำนวนที่ชั่ง / นับ</label>
+        <p className="mt-4 rounded-lg bg-blue-50 px-3 py-2 text-sm font-semibold text-blue-900"
+          data-testid="recycling-configured-unit">
+          หน่วยจากทะเบียนวัสดุ: {recyclingUnitLabel(unit)} · ระบบใช้ราคาที่ตั้งค่าไว้ให้อัตโนมัติ
+        </p>
+        <label className="mt-4 block text-sm font-semibold text-slate-700" htmlFor="recycling-quantity">
+          จำนวนที่ชั่ง / นับ ({recyclingUnitLabel(unit)})
+        </label>
         <input id="recycling-quantity" autoFocus type="number" min="0.001" step="any" value={quantity}
           onChange={event => setQuantity(event.target.value)} onKeyDown={event => { if (event.key === "Enter") { event.preventDefault(); addToCart(); } }}
           className="mt-1 w-full rounded-lg border-2 border-blue-300 px-3 py-3 text-xl font-bold text-slate-900 focus:border-blue-700 focus:outline-none" />
@@ -1044,13 +1052,15 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
           <div className="mt-3 flex justify-between border-t border-slate-200 pt-3 text-lg font-extrabold text-blue-900">
             <span>รวม</span><span>{preview ? formatMoney(preview.amount) : "—"} ฿</span>
           </div>
-          {!preview && <p role="alert" className="mt-2 text-xs font-semibold text-rose-700">โปรดกรอกจำนวนที่ถูกต้องและเลือกหน่วยที่ตรงกับสินค้าชนิดนี้</p>}
+          {!preview && <p role="alert" className="mt-2 text-xs font-semibold text-rose-700">โปรดกรอกน้ำหนักหรือจำนวนให้ถูกต้องตามหน่วยที่กำหนดไว้ในทะเบียนวัสดุ</p>}
         </div>
         <div className="mt-4 grid grid-cols-2 gap-2">
           <button type="button" onClick={() => { setPending(null); scannerRef.current?.focus(); }}
             className="rounded-lg border border-slate-200 px-4 py-3 font-bold text-slate-700">ยกเลิก</button>
           <button type="button" disabled={!preview} onClick={addToCart}
-            className="rounded-lg bg-blue-700 px-4 py-3 font-bold text-white disabled:cursor-not-allowed disabled:opacity-50">เพิ่มลงตะกร้า</button>
+            className="rounded-lg bg-blue-700 px-4 py-3 font-bold text-white disabled:cursor-not-allowed disabled:opacity-50">
+            เพิ่มลงตะกร้า (Enter)
+          </button>
         </div>
       </section>
     </div>}
