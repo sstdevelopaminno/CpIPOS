@@ -9,6 +9,8 @@ import {
   updateCachedPosSessionShift
 } from "@/lib/pos-session-guard";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
+import { isAuthorizedRecyclingTenant } from "@/lib/server/recycling-pos-service";
+import { recyclingShiftIsToday } from "@/lib/recycling-business-day";
 
 function isMissingSessionShiftColumnError(error: { code?: string; message?: string } | null | undefined) {
   if (!error) return false;
@@ -28,7 +30,7 @@ export async function POST(request: Request) {
   try {
     const scope = await requirePosSession();
     requirePermission(scope, "shift:join");
-    const body = (await request.json().catch(() => null)) as { shift_id?: string } | null;
+    const body = (await request.json().catch(() => null)) as { shift_id?: string; business_mode?: string } | null;
     const shiftId = String(body?.shift_id ?? "").trim();
     if (!shiftId) {
       return NextResponse.json({ data: null, error: { code: "shift_id_required", message: "shift_id is required." } }, { status: 422 });
@@ -38,22 +40,22 @@ export async function POST(request: Request) {
     const supabase = getSupabaseServiceClient();
     const shiftQuery = await supabase
       .from("shifts")
-      .select("id,tenant_id,branch_id,status,device_code,opened_at,opened_by")
+      .select("id,tenant_id,branch_id,status,device_code,opened_at,opened_by,metadata")
       .eq("id", shiftId)
       .eq("tenant_id", sessionScope.tenantId)
       .eq("branch_id", sessionScope.branchId)
-      .maybeSingle<{ id: string; tenant_id: string; branch_id: string; status: string; device_code: string | null; opened_at: string; opened_by: string }>();
+      .maybeSingle<{ id: string; tenant_id: string; branch_id: string; status: string; device_code: string | null; opened_at: string; opened_by: string; metadata: Record<string,unknown>|null }>();
     let shiftRow = shiftQuery.data;
     let shiftError = shiftQuery.error;
 
     if (isMissingShiftDeviceCodeColumnError(shiftQuery.error)) {
       const legacyShiftQuery = await supabase
         .from("shifts")
-        .select("id,tenant_id,branch_id,status,opened_at,opened_by")
+        .select("id,tenant_id,branch_id,status,opened_at,opened_by,metadata")
         .eq("id", shiftId)
         .eq("tenant_id", sessionScope.tenantId)
         .eq("branch_id", sessionScope.branchId)
-        .maybeSingle<{ id: string; tenant_id: string; branch_id: string; status: string; opened_at: string; opened_by: string }>();
+        .maybeSingle<{ id: string; tenant_id: string; branch_id: string; status: string; opened_at: string; opened_by: string; metadata: Record<string,unknown>|null }>();
       shiftRow = legacyShiftQuery.data ? { ...legacyShiftQuery.data, device_code: null } : null;
       shiftError = legacyShiftQuery.error;
     }
@@ -66,6 +68,23 @@ export async function POST(request: Request) {
     }
     if (shiftRow.status !== "open") {
       return NextResponse.json({ data: null, error: { code: "shift_not_open", message: "Shift is not open." } }, { status: 409 });
+    }
+    // A recycling cashier cannot join an ordinary POS shift, and the ordinary
+    // join endpoint cannot silently bind a tagged Recycling business-day shift.
+    const activeMode = shiftRow.metadata?.business_shift_mode;
+    const recyclingRequested = body?.business_mode === "recycling";
+    if (recyclingRequested && !await isAuthorizedRecyclingTenant(sessionScope.tenantId)) {
+      return NextResponse.json({data:null,error:{code:"recycling_shift_not_authorized",
+        message:"ไม่มีสิทธิ์เข้าร่วมกะ Recycling"}},{status:403});
+    }
+    if ((recyclingRequested && activeMode !== "recycling_daily") ||
+        (!recyclingRequested && activeMode === "recycling_daily")) {
+      return NextResponse.json({data:null,error:{code:"recycling_shift_mode_conflict",
+        message:"ประเภทกะไม่ตรงกับโหมดของหน้าขาย กรุณาตรวจสอบกับผู้จัดการ"}},{status:409});
+    }
+    if (recyclingRequested && !recyclingShiftIsToday(shiftRow.opened_at)) {
+      return NextResponse.json({data:null,error:{code:"recycling_previous_day_shift_pending_close",
+        message:"กะ Recycling จากวันก่อนต้องตรวจสอบและปิดก่อนเข้าร่วมกะใหม่"}},{status:409});
     }
     const isStaffRole = scope.session.role !== "owner" && scope.session.role !== "manager" && scope.session.role !== "accountant";
     if (isStaffRole && shiftRow.opened_by !== sessionScope.userId) {
