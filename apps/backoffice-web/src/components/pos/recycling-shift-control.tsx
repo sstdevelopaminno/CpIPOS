@@ -81,7 +81,7 @@ export function RecyclingShiftControl({branchName}: {branchName:string}) {
 
   async function openShift() {
     if (busy || loading || shift) return;
-    if (openingCash.trim() && !/^\\d{1,10}(\\.\\d{1,2})?$/.test(openingCash.trim())) {
+    if (openingCash.trim() && !/^\d{1,10}(\.\d{1,2})?$/.test(openingCash.trim())) {
       setMessage("กรุณากรอกเงินสดตั้งต้นเป็นจำนวนที่ถูกต้อง ไม่เกิน 2 ตำแหน่ง");return;
     }
     setBusy(true);setMessage("");
@@ -99,7 +99,6 @@ export function RecyclingShiftControl({branchName}: {branchName:string}) {
         router.refresh();
       }else{
         setMessage(body?.error?.message??"เปิดกะไม่สำเร็จ กรุณาตรวจสอบสถานะกะ");
-        await loadShift();
       }
     }catch{setMessage("เชื่อมต่อเซิร์ฟเวอร์เปิดกะไม่ได้");}
     finally{setBusy(false);}
@@ -125,7 +124,7 @@ export function RecyclingShiftControl({branchName}: {branchName:string}) {
 
   async function closeShift() {
     if (!shift || needsJoin || busy) return;
-    if (!/^\\d{1,10}(\\.\\d{1,2})?$/.test(closingCash.trim())) {
+    if (!/^\d{1,10}(\.\d{1,2})?$/.test(closingCash.trim())) {
       setMessage("กรุณานับเงินสดจริงและกรอกจำนวนบาทไม่เกินสองตำแหน่งก่อนปิดกะ");
       return;
     }
