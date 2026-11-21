@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useMemo, useRef, useState } from "react";
 import { buildRecyclingBarcodeIndex, resolveRecyclingBarcode } from "@/lib/recycling-barcode-index";
 import { calculateRecyclingLine, recyclingUnitLabel } from "@/lib/recycling-calculation";
+import { formatRecyclingUnitPrice, RECYCLING_PRICE_UNIT_LABELS } from "@/lib/recycling-price-units";
 import type { RecyclingCatalogItem, RecyclingUnit } from "@/lib/server/recycling-pos-service";
 import { RecyclingSalesModeSwitcher } from "@/components/pos/recycling-sales-mode-switcher";
 
@@ -310,7 +311,10 @@ export function RecyclingPosWorkspace({ products, branchName, storeName, deviceC
               </span>
               <span className="shrink-0 text-right text-sm font-bold text-blue-800">
                 {price === null ? "ยังไม่ตั้งราคา" : `${formatMoney(price)} ฿`}
-                <small className="block text-xs font-normal text-slate-500">/{item.priceBasis === "kg" ? "กก." : "ชิ้น"}</small>
+                <small className="block text-xs font-normal text-slate-500">/{item.priceBasis === "kg" ? "กก." : "ชิ้น"} (ราคาอ้างอิง)</small>
+                {price !== null && item.priceUnit !== item.priceBasis && <small className="block text-[11px] font-normal text-blue-600">
+                  {formatRecyclingUnitPrice(price,item.priceUnit)} ฿/{RECYCLING_PRICE_UNIT_LABELS[item.priceUnit]}
+                </small>}
               </span>
             </button>;
           }) : <p className="rounded-lg bg-slate-50 p-5 text-center text-sm text-slate-500">ไม่พบสินค้าในสต๊อกของสาขา</p>}
@@ -462,8 +466,11 @@ export function RecyclingPosWorkspace({ products, branchName, storeName, deviceC
           onChange={event => setQuantity(event.target.value)} onKeyDown={event => { if (event.key === "Enter") { event.preventDefault(); addToCart(); } }}
           className="mt-1 w-full rounded-lg border-2 border-blue-300 px-3 py-3 text-xl font-bold text-slate-900 focus:border-blue-700 focus:outline-none" />
         <div className="mt-4 rounded-lg bg-slate-50 p-3 text-sm">
-          <div className="flex justify-between gap-2"><span>ราคาที่ตั้งไว้ในสต๊อก</span>
+          <div className="flex justify-between gap-2"><span>ราคาฐานที่ใช้คำนวณ</span>
             <strong>{selectedPrice === null ? "—" : formatMoney(selectedPrice)} ฿ /{pending.priceBasis === "kg" ? "กก." : "ชิ้น"}</strong></div>
+          {selectedPrice !== null && pending.priceUnit !== pending.priceBasis && <p className="mt-1 text-xs text-blue-800">
+            ราคาที่ตั้งในทะเบียน: {formatRecyclingUnitPrice(selectedPrice,pending.priceUnit)} บาท/{RECYCLING_PRICE_UNIT_LABELS[pending.priceUnit]} · ระบบแปลงเป็นหน่วยฐานแล้ว
+          </p>}
           {preview && <div className="mt-2 flex justify-between gap-2 text-slate-600">
             <span>จำนวนเทียบหน่วยราคา</span><span>{preview.basisQuantity.toLocaleString("th-TH", { maximumFractionDigits: 6 })} {pending.priceBasis === "kg" ? "กก." : "ชิ้น"}</span>
           </div>}
