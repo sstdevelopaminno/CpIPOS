@@ -5,6 +5,9 @@ import { parseRecyclingHeldBills, recyclingHeldKey } from "@/lib/recycling-held-
 describe("Recycling cashier scanner and parked bills isolation",()=>{
  it("decodes Kedmanee numeric SKU independent of Windows input language",()=>{
    expect(normalizeRecyclingBarcodeInput("จจจ")).toBe("000");
+   expect(normalizeRecyclingBarcodeInput("P-011/2")).toBe("P-011/2");
+   expect(physicalRecyclingBarcodeKey("Digit2",false)).toBe("2");
+   expect(physicalRecyclingBarcodeKey("Slash",false)).toBe("/");
    expect(physicalRecyclingBarcodeKey("KeyA",false)).toBe("a");
    expect(physicalRecyclingBarcodeKey("KeyP",true)).toBe("P");
    expect(physicalRecyclingBarcodeKey("Digit0",false)).toBe("0");
