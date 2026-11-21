@@ -18,6 +18,7 @@ import { getCurrentLanguage, t } from "@/lib/i18n";
 import { loadPosRuntimeDevicePolicyForSession } from "@/lib/pos-device-status";
 import { PosGuardError, requirePosSession } from "@/lib/pos-session-guard";
 import { loadPosSubscriptionLifecycleGuard } from "@/lib/services/pos-subscription-lifecycle-guard-service";
+import { isAuthorizedRecyclingTenant } from "@/lib/server/recycling-pos-service";
 
 export const viewport: Viewport = {
   width: "device-width",
@@ -138,6 +139,9 @@ export default async function PosPreviewLayout({ children }: { children: ReactNo
 
   const sessionRole = String(scope.session.role ?? "").trim().toLowerCase();
   const isKitchen = sessionRole === "kitchen";
+  // CUSTOM Recycling follows a single Bangkok business day. Never mount the
+  // ordinary 13:00/18:00 POS shift-cycle overlay for these tenants.
+  const isRecyclingMode = !isKitchen && await isAuthorizedRecyclingTenant(scope.session.tenant_id);
 
   const requestHeaders = await headers();
   const userAgent = requestHeaders.get("user-agent") ?? "";
@@ -150,7 +154,7 @@ export default async function PosPreviewLayout({ children }: { children: ReactNo
   return (
     <main className="pos-app-root flex h-screen w-screen overflow-hidden bg-slate-50">
       <PosRoutePerformanceTracker />
-      {!isKitchen ? <PosShiftCycleGuard lang={lang === "lo" ? "en" : lang} /> : null}
+      {!isKitchen && !isRecyclingMode ? <PosShiftCycleGuard lang={lang === "lo" ? "en" : lang} /> : null}
       {!isKitchen ? <PosDeviceHeartbeatSender /> : null}
       {!isKitchen ? <PosFf0001SalesModeGuard /> : null}
       {!isKitchen ? <PosSalesModePolicyController /> : null}
