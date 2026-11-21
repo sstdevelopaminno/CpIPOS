@@ -21,7 +21,7 @@ export async function RecyclingHistoryReports({scope,kind,search}:{
   </section>;
  }
  const branchNames=new Map(report.branchOptions.map(b=>[b.id,b.name]));
- const totalLines=report.lines.filter(line=>report.transactions.some(t=>t.id===line.transaction_id&&t.status==="posted"));
+ const totalLines=report.lines;
  const rows=report.visible;
  const lineMap=new Map(report.transactions.map(t=>[t.id,t]));
  const pageLink=(p:number)=>"?"+new URLSearchParams({
@@ -74,16 +74,18 @@ export async function RecyclingHistoryReports({scope,kind,search}:{
      </div>
      <p className="mt-3 text-xs font-semibold text-slate-600">บันทึกรับซื้อ {report.totals.buyCount} บิล · ขายออก {report.totals.sellCount} บิล · ยกเลิก {report.totals.voidCount} บิล (ไม่รวมในยอดเงิน)</p>
      <h2 className="mb-2 mt-5 font-bold">สรุปกะที่มีธุรกรรม Recycling</h2>
-     <div className="overflow-x-auto rounded-xl border border-slate-200"><table className="w-full min-w-[900px] text-sm">
-       <thead className="bg-slate-100"><tr>{["เปิดกะ","ปิดกะ","สาขา","เงินต้นกะ","คาดหวัง","นับได้จริง","สถานะ"].map(x=><th className="px-3 py-3 text-left" key={x}>{x}</th>)}</tr></thead>
+     <div className="overflow-x-auto rounded-xl border border-slate-200"><table className="w-full min-w-[1080px] text-sm">
+       <thead className="bg-slate-100"><tr>{["เปิดกะ","ปิดกะ","สาขา","รับซื้อ","ขายออก","เงินต้นกะ","คาดหวัง","นับได้จริง","สถานะ"].map(x=><th className="px-3 py-3 text-left" key={x}>{x}</th>)}</tr></thead>
        <tbody>{report.shifts.length?report.shifts.map(s=><tr key={s.id} className="border-t border-slate-100">
          <td className="px-3 py-3">{when(s.opened_at)}</td><td className="px-3 py-3">{when(s.closed_at)}</td>
          <td className="px-3 py-3">{branchNames.get(s.branch_id)??"—"}</td>
+         <td className="px-3 py-3">{minor(report.transactions.filter(t=>t.shift_id===s.id&&t.direction==="buy"&&t.status==="posted").reduce((a,t)=>a+Number(t.total_minor),0))}</td>
+         <td className="px-3 py-3">{minor(report.transactions.filter(t=>t.shift_id===s.id&&t.direction==="sell"&&t.status==="posted").reduce((a,t)=>a+Number(t.total_minor),0))}</td>
          <td className="px-3 py-3">{s.opening_cash===null?"—":Number(s.opening_cash).toFixed(2)}</td>
          <td className="px-3 py-3">{s.expected_cash===null?"รอตรวจสอบ":Number(s.expected_cash).toFixed(2)}</td>
          <td className="px-3 py-3">{s.actual_cash===null?"ยังไม่ได้นับ":Number(s.actual_cash).toFixed(2)}</td>
          <td className="px-3 py-3">{s.status==="closed"?"ปิดแล้ว":"เปิดอยู่"}</td>
-       </tr>):<tr><td colSpan={7} className="p-10 text-center text-slate-500">ไม่มีกะ Recycling ในช่วงนี้</td></tr>}</tbody>
+       </tr>):<tr><td colSpan={9} className="p-10 text-center text-slate-500">ไม่มีกะ Recycling ในช่วงนี้</td></tr>}</tbody>
      </table></div>
     </>}
    {kind==="receipts"&&<div className="mt-4 overflow-x-auto rounded-xl border border-slate-200">

@@ -2,6 +2,7 @@ import "server-only";
 import type { PosSessionScope } from "@/lib/pos-session-guard";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 import { getRecyclingStockBranches } from "@/lib/server/recycling-stock-branch-scope";
+import { sumRecyclingReportMoney } from "@/lib/recycling-report-calculation";
 
 export type RecyclingReportKind = "summary" | "receipts" | "products";
 export type RecyclingReportQuery = {period?:string;date?:string;from?:string;to?:string;branch?:string;direction?:string;status?:string;q?:string;page?:string};
@@ -31,19 +32,6 @@ function todayBangkok():string{
  const f=new Intl.DateTimeFormat("en-CA",{timeZone:"Asia/Bangkok",year:"numeric",month:"2-digit",day:"2-digit"});
  const p=f.formatToParts(new Date());const n=(type:string)=>p.find(x=>x.type===type)?.value??"";
  return n("year")+"-"+n("month")+"-"+n("day");
-}
-function sumRows(rows:RecyclingTransaction[]):RecyclingHistoryReport["totals"]{
- const result={buyCount:0,sellCount:0,voidCount:0,buyMinor:0,sellMinor:0,cogsMinor:0,
- cashInMinor:0,cashOutMinor:0,transferInMinor:0,transferOutMinor:0,creditInMinor:0,creditOutMinor:0};
- for(const row of rows){
-  if(!Number.isSafeInteger(Number(row.total_minor))||!Number.isSafeInteger(Number(row.cogs_minor)))throw new Error("recycling_report_unsafe_amount");
-  if(row.status==="voided"){result.voidCount++;continue;}
-  const buy=row.direction==="buy",amount=Number(row.total_minor);
-  if(buy){result.buyCount++;result.buyMinor+=amount;}else{result.sellCount++;result.sellMinor+=amount;result.cogsMinor+=Number(row.cogs_minor);}
-  const key=row.settlement==="cash"?(buy?"cashOutMinor":"cashInMinor"):row.settlement==="bank_transfer"?(buy?"transferOutMinor":"transferInMinor"):(buy?"creditOutMinor":"creditInMinor");
-  result[key]+=amount;
- }
- return result;
 }
 /** The generic POS orders/receipts and their payment ledger are intentionally untouched. */
 export async function loadRecyclingHistoryReport(scope:PosSessionScope,kind:RecyclingReportKind,query:RecyclingReportQuery={}):Promise<RecyclingHistoryReport>{
@@ -114,5 +102,5 @@ export async function loadRecyclingHistoryReport(scope:PosSessionScope,kind:Recy
  }
  return {kind,from,to,date,period,branch,direction,status,q,sessionBranchId:scope.session.branch_id,
   branchOptions:branches.map(b=>({id:b.id,name:b.name})),transactions:matching,lines,shifts,
-  totals:sumRows(transactions),page,pages,visible};
+  totals:sumRecyclingReportMoney(transactions),page,pages,visible};
 }
