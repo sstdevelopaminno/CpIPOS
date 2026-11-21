@@ -35,8 +35,7 @@ export async function getRecyclingStockBranches(scope: PosSessionScope): Promise
     String(row.branch_id), String(row.role ?? "").toLowerCase()
   ]));
   const visible = (all.data ?? []).filter(row => role === "owner"
-    || (row.id === sessionBranch && role !== "manager")
-    || roles.has(row.id)
+    || (role === "manager" ? roles.has(row.id) : row.id === sessionBranch)
   ).map(row => ({
     id: String(row.id),
     name: String(row.name ?? row.id),
