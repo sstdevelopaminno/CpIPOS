@@ -120,7 +120,7 @@ export async function RecyclingHistoryReports({scope,kind,search}:{
        return <tr key={l.id} className="border-t border-slate-100">
          <td className="px-3 py-3">{when(t.created_at)}</td><td className="px-3 py-3">{t.receipt_no}</td>
          <td className="px-3 py-3">{l.name_snapshot}<span className="block text-xs text-slate-500">{l.sku_snapshot}</span></td>
-         <td className="px-3 py-3">{Number(l.original_quantity).toLocaleString("th-TH")} {unitNames[l.original_unit]??l.original_unit}</td>
+         <td className="px-3 py-3">{Number(l.original_quantity).toLocaleString("th-TH",{maximumFractionDigits:6})} {unitNames[l.original_unit]??l.original_unit}</td>
          <td className="px-3 py-3">{Number(l.price_per_base).toFixed(2)} บาท/{unitNames[l.base_unit]??l.base_unit}</td>
          <td className="px-3 py-3">{minor(Number(l.amount_minor))}</td><td className="px-3 py-3">{branchNames.get(t.branch_id)}</td>
          <td className="px-3 py-3">{t.status==="voided"?"VOID":"ขายออก"}</td>
