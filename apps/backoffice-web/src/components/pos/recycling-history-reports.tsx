@@ -1,3 +1,4 @@
+import { RecyclingSummaryPrintButton } from "@/components/pos/recycling-summary-print-button";
 import Link from "next/link";
 import type { PosSessionScope } from "@/lib/pos-session-guard";
 import { loadRecyclingHistoryReport, type RecyclingReportKind, type RecyclingReportQuery } from "@/lib/server/recycling-history-reports";
@@ -35,6 +36,9 @@ export async function RecyclingHistoryReports({scope,kind,search}:{
       <h1 className="mt-4 text-xl font-extrabold">{titles[kind]} <span className="text-xs font-bold text-blue-700">CUSTOM Recycling</span></h1>
       <p className="mt-1 text-xs text-slate-500">ข้อมูลรับซื้อและขายออกแยกกัน · ไม่รวมกับรายการขายของ POS ทั่วไป</p></div>
     <div className="flex flex-wrap gap-2 print:hidden">
+      {kind==="summary"&&<RecyclingSummaryPrintButton filters={{
+       period:report.period,date:report.date,from:report.from,to:report.to,branch:report.branch
+      }}/>}
       <Link className={btn} href="/preview/pos/sales-summary">สรุปยอดขาย</Link>
       <Link className={btn} href="/preview/pos/receipts">ใบเสร็จย้อนหลัง</Link>
       <Link className={btn} href="/preview/pos/product-sales">รายการขายสินค้า</Link>
