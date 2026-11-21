@@ -6,7 +6,7 @@ const src=(file:string)=>readFileSync(resolve(process.cwd(),file),"utf8");
 const cashier=src("src/components/pos/recycling-pos-workspace.tsx");
 const toolbar=src("src/components/pos/recycling-sales-mode-switcher.tsx");
 const sales=src("src/components/pos/recycling-sales-content.tsx");
-const stock=src("app/preview/pos/recycling/stock/page.tsx");
+const stock=src("src/app/preview/pos/recycling/stock/page.tsx");
 const api=src("src/app/api/pos/recycling/transactions/route.ts");
 const general=src("src/components/pos/pos-legacy-sales-content.tsx");
 
