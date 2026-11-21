@@ -145,7 +145,7 @@ export async function DELETE(request: Request) {
     const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
     if (deleteAll) {
       if (id || body.confirmation !== "ลบทั้งหมด" ||
-          !Number.isSafeInteger(body.expected_count) || Number(body.expected_count) <= 0) {
+          typeof body.expected_count !== "number" || !Number.isSafeInteger(body.expected_count) || body.expected_count <= 0) {
         return fail("recycling_delete_all_confirmation_required", "ต้องยืนยันข้อความ ลบทั้งหมด และจำนวนรายการให้ถูกต้อง", 422);
       }
     } else if (!uuid.test(id) || body.confirmation !== "ลบรายการนี้") {
