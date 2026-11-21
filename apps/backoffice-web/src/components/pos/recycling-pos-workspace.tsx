@@ -669,16 +669,23 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
       <section className="recycling-scanner-panel flex min-h-0 min-w-0 flex-col bg-white p-3">
         <div className="flex items-center justify-between gap-3">
           <h2 className="text-base font-extrabold text-slate-900">ยิงบาร์โค้ด / ค้นหาวัสดุ</h2>
-          <span className="rounded-lg bg-slate-100 px-2 py-1 text-xs text-slate-600">{products.length} รายการ</span>
+          <span data-testid="recycling-scanner-feedback" role="status" aria-live="polite"
+            className="inline-flex items-center gap-2 rounded-lg bg-slate-100 px-2 py-1 text-xs text-slate-600">
+            <span aria-hidden="true" className={"h-2.5 w-2.5 rounded-full " +
+              (scanFeedback==="success"?"bg-emerald-500 ring-2 ring-blue-100":
+                scanFeedback==="error"?"bg-rose-600 ring-2 ring-rose-100":"bg-slate-300")}/>
+            {products.length} รายการ
+            <span className="sr-only">{scanFeedback==="success"?"สแกนสำเร็จ":scanFeedback==="error"?"สแกนผิดพลาด":"พร้อมสแกน"}</span>
+          </span>
         </div>
         <div className="mt-3 flex flex-wrap items-center gap-2" role="group" aria-label="วิธีค้นหาวัสดุ">
           <button type="button" aria-pressed={searchMode==="barcode"}
-            onClick={()=>{setSearchMode("barcode");updateScannerSearch("");setCatalogPage(1);scannerRef.current?.focus();}}
+            onClick={()=>{setSearchMode("barcode");updateScannerSearch("");setScanFeedback("idle");setCatalogPage(1);scannerRef.current?.focus();}}
             className={"rounded-md border px-3 py-1.5 text-xs font-bold "+(searchMode==="barcode"?"border-blue-600 bg-blue-600 text-white":"border-slate-200 bg-white text-slate-600")}>
             สแกนบาร์โค้ด (EN อัตโนมัติ)
           </button>
           <button type="button" aria-pressed={searchMode==="name"}
-            onClick={()=>{setSearchMode("name");updateScannerSearch("");setCatalogPage(1);scannerRef.current?.focus();}}
+            onClick={()=>{setSearchMode("name");updateScannerSearch("");setScanFeedback("idle");setCatalogPage(1);scannerRef.current?.focus();}}
             className={"rounded-md border px-3 py-1.5 text-xs font-bold "+(searchMode==="name"?"border-blue-600 bg-blue-600 text-white":"border-slate-200 bg-white text-slate-600")}>
             ค้นหาชื่อวัสดุ (ไทย/อังกฤษ)
           </button>
@@ -694,7 +701,7 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
           onChange={event=>{
             updateScannerSearch(searchMode==="barcode"
               ?normalizeRecyclingBarcodeInput(event.target.value):event.target.value);
-            setCatalogPage(1);setError("");
+            setCatalogPage(1);setError("");setScanFeedback("idle");
           }}
           onKeyDown={onBarcodeKeyDown}/>
         {error && <p role="alert" className="mt-2 rounded-lg bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700">{error}</p>}
@@ -813,7 +820,7 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
         {heldError && <p role="alert" className="mt-2 text-xs font-semibold text-rose-800">{heldError}</p>}
         <div className="mt-3 flex flex-wrap items-center justify-end gap-2" data-testid="recycling-cart-actions">
           <button type="button" disabled={posting||checkoutOpen||visibleLines.length===0}
-            onClick={()=>setCancelOpen(true)}
+            onClick={openCancelConfirmation}
             className="min-h-11 rounded-md border border-rose-200 bg-white px-4 py-2.5 text-sm font-bold text-rose-700 hover:bg-rose-50 disabled:opacity-40">
             ยกเลิกบิล
           </button>
@@ -822,7 +829,7 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
             className="min-h-11 rounded-md border border-amber-300 bg-amber-50 px-4 py-2.5 text-sm font-bold text-amber-900 hover:bg-amber-100 disabled:opacity-40">
             ▤ พักบิล
           </button>
-          <button type="button" onClick={() => { setCheckoutOpen(true); setPostError(""); }}
+          <button type="button" onClick={openCheckout}
             disabled={!canUseShift || posting || visibleLines.length === 0}
             className="min-h-11 min-w-[210px] max-w-full flex-1 rounded-md bg-blue-700 px-5 py-3 text-sm font-extrabold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-50 sm:flex-none">
             {direction === "buy" ? "บันทึกใบรับซื้อและเข้าสต๊อก" : "บันทึกขายออกและตัดสต๊อก"}
@@ -833,16 +840,60 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
     </div>
 
 
+    {scanErrorPopup && <div className="fixed inset-0 z-[1450] flex items-center justify-center bg-slate-950/65 p-4"
+      role="presentation">
+      <section role="alertdialog" aria-modal="true" aria-labelledby="recycling-scan-error-title"
+        aria-describedby="recycling-scan-error-message" data-testid="recycling-invalid-scan-dialog"
+        onKeyDown={event=>{
+          if(event.key==="Enter"||event.key==="Escape"){
+            event.preventDefault();event.stopPropagation();closeScanErrorPopup();
+          }
+        }}
+        className="w-full max-w-sm rounded-xl border border-rose-200 bg-white p-5 shadow-2xl">
+        <div className="flex items-center gap-3">
+          <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-rose-50 text-xl text-rose-700" aria-hidden="true">!</span>
+          <h2 id="recycling-scan-error-title" className="text-lg font-extrabold text-slate-900">สแกนบาร์โค้ดไม่สำเร็จ</h2>
+        </div>
+        <p id="recycling-scan-error-message" className="mt-3 text-sm leading-6 text-rose-800">{scanErrorPopup}</p>
+        <button type="button" ref={scanDismissRef} onClick={closeScanErrorPopup}
+          className="mt-5 w-full rounded-md bg-blue-700 px-4 py-3 text-sm font-bold text-white">
+          ตกลง (Enter) · สแกนใหม่
+        </button>
+      </section>
+    </div>}
     {cancelOpen && <div className="fixed inset-0 z-[1250] flex items-center justify-center bg-slate-950/65 p-3" role="presentation">
       <section role="alertdialog" aria-modal="true" aria-labelledby="recycling-cancel-title"
+        data-testid="recycling-cancel-confirmation"
+        onKeyDown={event=>{
+          if(event.key==="ArrowLeft"||event.key==="ArrowRight"){
+            event.preventDefault();event.stopPropagation();
+            setCancelChoice(event.key==="ArrowLeft"?"keep":"confirm");
+          }else if(event.key==="Enter"){
+            event.preventDefault();event.stopPropagation();
+            if(cancelChoice==="confirm")cancelCurrentBill();
+            else setCancelOpen(false);
+          }else if(event.key==="Escape"){
+            event.preventDefault();event.stopPropagation();setCancelOpen(false);
+          }
+        }}
         className="w-full max-w-sm rounded-xl border border-slate-200 bg-white p-5 shadow-2xl">
         <h2 id="recycling-cancel-title" className="text-lg font-extrabold text-slate-900">ยืนยันยกเลิกบิล</h2>
         <p className="mt-2 text-sm leading-6 text-slate-600">
           ยกเลิก {visibleLines.length} รายการที่ยังไม่บันทึก? ระบบจะไม่ลบใบรับซื้อหรือยอดสต๊อกที่เคยบันทึกแล้ว
         </p>
-        <div className="mt-5 flex justify-end gap-2">
-          <button type="button" onClick={()=>setCancelOpen(false)} className="rounded-md border border-slate-200 px-4 py-2 text-sm font-semibold">กลับไปตรวจสอบ</button>
-          <button type="button" onClick={cancelCurrentBill} className="rounded-md bg-rose-700 px-4 py-2 text-sm font-bold text-white">ยืนยันยกเลิกบิล</button>
+        <p className="mt-3 text-xs text-slate-500">ลูกศร ← ย้อนกลับ · → ยืนยันยกเลิก · Enter เลือก · Esc ปิด</p>
+        <div className="mt-5 grid grid-cols-2 gap-2">
+          <button type="button" onFocus={()=>setCancelChoice("keep")} onClick={()=>setCancelOpen(false)}
+            className={"rounded-md border px-3 py-3 text-sm font-semibold "+
+              (cancelChoice==="keep"?"border-blue-700 bg-blue-50 text-blue-900 ring-2 ring-blue-200":"border-slate-200 bg-white text-slate-700")}>
+            ← ไม่ยกเลิก
+          </button>
+          <button type="button" ref={cancelConfirmRef} onFocus={()=>setCancelChoice("confirm")}
+            onClick={cancelCurrentBill}
+            className={"rounded-md border px-3 py-3 text-sm font-bold "+
+              (cancelChoice==="confirm"?"border-rose-700 bg-rose-700 text-white ring-2 ring-rose-200":"border-slate-200 bg-white text-rose-700")}>
+            ยืนยันยกเลิกบิล →
+          </button>
         </div>
       </section>
     </div>}
