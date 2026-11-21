@@ -80,13 +80,17 @@ begin
       and shift_id=new.id limit 1) then
     raise exception 'recycling_mixed_legacy_shift_requires_reconciliation';
   end if;
-  v_auto:=
+  -- Important: current_setting(...,true) is NULL outside the worker.
+  -- SQL three-valued logic must fail CLOSED rather than bypass cash-count
+  -- protection for ordinary/manual shift updates.
+  v_auto:=coalesce((
     pg_catalog.current_setting('cpipos.recycling_auto_close',true)='1'
     and old.metadata->>'business_shift_mode'='recycling_daily'
     and new.metadata->>'close_reason'='recycling_daily_auto_close_midnight'
     and new.metadata->>'system_auto_closed'='true'
     and new.metadata->>'cash_count_required'='true'
-    and new.closed_by is null and new.actual_cash is null;
+    and new.closed_by is null and new.actual_cash is null
+  ),false);
   if (new.actual_cash is null or new.actual_cash<0) and not v_auto then
     raise exception 'recycling_shift_cash_count_required';
   end if;
