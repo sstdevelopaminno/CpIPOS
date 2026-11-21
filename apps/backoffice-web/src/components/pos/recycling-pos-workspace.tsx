@@ -655,10 +655,7 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
       <section className="recycling-cart-panel flex min-h-0 min-w-0 flex-col bg-white p-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 className="text-base font-extrabold text-slate-900">ตะกร้ารายการ{direction === "buy" ? "รับซื้อ" : "ขายออก"}</h2>
-          <button type="button" className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-bold text-slate-700 disabled:opacity-50"
-            disabled={!visibleLines.length || posting || checkoutOpen} onClick={() => { requestIdRef.current = ""; setPosted(null); setLines(current => current.filter(line => line.direction !== direction)); }}>
-            ล้างตะกร้า
-          </button>
+          <span className="text-xs text-slate-500">กรุณาตรวจสอบน้ำหนักและราคาก่อนบันทึก</span>
         </div>
         <div className="recycling-cart-scroll mt-3 min-h-0 flex-1 overflow-auto rounded-lg border border-slate-200" data-testid="recycling-scrollable-cart">
           <table className="w-full min-w-[630px] border-collapse text-sm">
@@ -701,10 +698,22 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
             ดูหลักฐานและพิมพ์ใบรับซื้อ–ขายออก
           </Link>
         </p>}
-        <div className="mt-3 flex justify-end">
+        {heldNotice && <p role="status" className="mt-2 text-xs font-semibold text-blue-800">{heldNotice}</p>}
+        {heldError && <p role="alert" className="mt-2 text-xs font-semibold text-rose-800">{heldError}</p>}
+        <div className="mt-3 flex flex-wrap items-center justify-end gap-2" data-testid="recycling-cart-actions">
+          <button type="button" disabled={posting||checkoutOpen||visibleLines.length===0}
+            onClick={()=>setCancelOpen(true)}
+            className="min-h-11 rounded-md border border-rose-200 bg-white px-4 py-2.5 text-sm font-bold text-rose-700 hover:bg-rose-50 disabled:opacity-40">
+            ยกเลิกบิล
+          </button>
+          <button type="button" disabled={!canUseShift||posting||checkoutOpen||visibleLines.length===0}
+            onClick={parkCurrentBill}
+            className="min-h-11 rounded-md border border-amber-300 bg-amber-50 px-4 py-2.5 text-sm font-bold text-amber-900 hover:bg-amber-100 disabled:opacity-40">
+            ▤ พักบิล
+          </button>
           <button type="button" onClick={() => { setCheckoutOpen(true); setPostError(""); }}
             disabled={!canUseShift || posting || visibleLines.length === 0}
-            className="w-auto min-w-[220px] max-w-full rounded-lg bg-blue-700 px-5 py-3 text-sm font-extrabold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-50">
+            className="min-h-11 min-w-[210px] max-w-full flex-1 rounded-md bg-blue-700 px-5 py-3 text-sm font-extrabold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-50 sm:flex-none">
             {direction === "buy" ? "บันทึกใบรับซื้อและเข้าสต๊อก" : "บันทึกขายออกและตัดสต๊อก"}
           </button>
         </div>
@@ -712,6 +721,52 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
       </section>
     </div>
 
+
+    {cancelOpen && <div className="fixed inset-0 z-[1250] flex items-center justify-center bg-slate-950/65 p-3" role="presentation">
+      <section role="alertdialog" aria-modal="true" aria-labelledby="recycling-cancel-title"
+        className="w-full max-w-sm rounded-xl border border-slate-200 bg-white p-5 shadow-2xl">
+        <h2 id="recycling-cancel-title" className="text-lg font-extrabold text-slate-900">ยืนยันยกเลิกบิล</h2>
+        <p className="mt-2 text-sm leading-6 text-slate-600">
+          ยกเลิก {visibleLines.length} รายการที่ยังไม่บันทึก? ระบบจะไม่ลบใบรับซื้อหรือยอดสต๊อกที่เคยบันทึกแล้ว
+        </p>
+        <div className="mt-5 flex justify-end gap-2">
+          <button type="button" onClick={()=>setCancelOpen(false)} className="rounded-md border border-slate-200 px-4 py-2 text-sm font-semibold">กลับไปตรวจสอบ</button>
+          <button type="button" onClick={cancelCurrentBill} className="rounded-md bg-rose-700 px-4 py-2 text-sm font-bold text-white">ยืนยันยกเลิกบิล</button>
+        </div>
+      </section>
+    </div>}
+    {heldOpen && <div className="fixed inset-0 z-[1250] flex items-center justify-center bg-slate-950/65 p-3" role="presentation">
+      <section role="dialog" aria-modal="true" aria-labelledby="recycling-held-title"
+        className="flex max-h-[85dvh] w-full max-w-xl flex-col rounded-xl border border-slate-200 bg-white p-5 shadow-2xl"
+        data-testid="recycling-held-bills-modal">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h2 id="recycling-held-title" className="text-lg font-extrabold text-slate-900">รายการพักบิล · CUSTOM Recycling</h2>
+            <p className="mt-1 text-xs text-slate-500">เฉพาะสาขา เครื่อง และกะ Recycling ปัจจุบัน ไม่รวมพักบิล POS ทั่วไป</p>
+          </div>
+          <button type="button" aria-label="ปิดรายการพักบิล" onClick={()=>setHeldOpen(false)}
+            className="rounded-md border border-slate-200 px-3 py-1.5 text-sm">✕</button>
+        </div>
+        {heldError&&<p role="alert" className="mt-3 rounded-md bg-rose-50 p-3 text-xs text-rose-800">{heldError}</p>}
+        <div className="mt-4 min-h-0 space-y-2 overflow-y-auto">
+          {!heldBills.length && <p className="rounded-lg bg-slate-50 p-8 text-center text-sm text-slate-500">ยังไม่มีรายการพักบิลในกะนี้</p>}
+          {heldBills.map(bill=><article key={bill.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 p-3">
+            <div>
+              <strong className="text-sm text-slate-900">{bill.direction==="buy"?"ใบรับซื้อ":"บิลขายออก"} · {bill.lines.length} รายการ</strong>
+              <small className="mt-1 block text-xs text-slate-500">
+                พักเมื่อ {new Date(bill.heldAt).toLocaleString("th-TH",{timeZone:"Asia/Bangkok"})}
+              </small>
+            </div>
+            <div className="flex gap-2">
+              <button type="button" disabled={posting} onClick={()=>restoreHeldBill(bill)}
+                className="rounded-md bg-blue-700 px-3 py-2 text-xs font-bold text-white disabled:opacity-50">เรียกคืนบิล</button>
+              <button type="button" disabled={posting} onClick={()=>deleteHeldBill(bill)}
+                className="rounded-md border border-rose-200 px-3 py-2 text-xs font-bold text-rose-700 disabled:opacity-50">ลบ</button>
+            </div>
+          </article>)}
+        </div>
+      </section>
+    </div>}
     {checkoutOpen && <div className="fixed inset-0 z-[1200] flex items-center justify-center bg-slate-950/70 p-3"
       role="presentation">
       <form role="dialog" aria-modal="true" aria-labelledby="recycling-checkout-title"
