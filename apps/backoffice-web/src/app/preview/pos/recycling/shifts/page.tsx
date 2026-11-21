@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { requirePosSession } from "@/lib/pos-session-guard";
+import { requirePosSession, requirePermission } from "@/lib/pos-session-guard";
 import { isAuthorizedRecyclingTenant } from "@/lib/server/recycling-pos-service";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 import { RecyclingShiftControl, RecyclingShiftPrintButton } from "@/components/pos/recycling-shift-control";
@@ -19,12 +19,22 @@ function priceFromMinor(value: unknown): string {
 export default async function RecyclingShiftHistoryPage() {
   const scope = await requirePosSession();
   const { tenant_id: tenantId, branch_id: branchId, role } = scope.session;
-  if (!["owner","manager","accountant"].includes(role)) notFound();
+  // Staff can open/view their own terminal shift; never expose other
+  // employees' cash close reports or another branch's financial data.
+  requirePermission(scope,"shift:join");
+  const canViewBranchHistory=["owner","manager","accountant"].includes(role);
   if (!await isAuthorizedRecyclingTenant(tenantId)) notFound();
   const db = getSupabaseServiceClient();
-  const { data, error } = await db.from("shifts")
-    .select("id,opened_at,closed_at,opening_cash,expected_cash,actual_cash,status,metadata")
-    .eq("tenant_id",tenantId).eq("branch_id",branchId)
+  let history=db.from("shifts")
+    .select("id,opened_by,device_code,opened_at,closed_at,opening_cash,expected_cash,actual_cash,status,metadata")
+    .eq("tenant_id",tenantId).eq("branch_id",branchId);
+  if(!canViewBranchHistory){
+    history=history.eq("opened_by",scope.session.user_id);
+    history=scope.session.device_code
+      ?history.eq("device_code",scope.session.device_code)
+      :history.is("device_code",null);
+  }
+  const { data, error } = await history
     .order("opened_at",{ascending:false}).limit(60);
   if (error) throw new Error("recycling_shift_history_unavailable");
   const shifts = (data ?? []).filter(shift => {
