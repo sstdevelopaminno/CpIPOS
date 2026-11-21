@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import type { RecyclingCatalogItem, RecyclingPriceBasis } from "@/lib/server/recycling-pos-service";
+import { type RecyclingPriceUnit, formatRecyclingUnitPrice, getRecyclingPriceBasis, parseRecyclingUnitPrice, RECYCLING_PRICE_UNIT_LABELS } from "@/lib/recycling-price-units";
 
 const money = (v: number | null) => v === null ? "ยังไม่กำหนด"
   : new Intl.NumberFormat("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(v);
@@ -24,12 +25,13 @@ type FormState = {
   name: string;
   category: string;
   price_basis: RecyclingPriceBasis;
+  price_unit: RecyclingPriceUnit;
   buy_price: string;
   sell_price: string;
   image_url: string;
 };
 const blank: FormState = {
-  sku: "", name: "", category: "", price_basis: "kg",
+  sku: "", name: "", category: "", price_basis: "kg", price_unit: "kg",
   buy_price: "", sell_price: "", image_url: ""
 };
 
@@ -56,10 +58,26 @@ export function RecyclingStockWorkspace({ items, branchName, canManage, canViewA
     setNotice("");
     setEditing(item ? {
       id: item.id, sku: item.sku, name: item.name, category: item.category,
-      price_basis: item.priceBasis, buy_price: item.buyPrice === null ? "" : String(item.buyPrice),
-      sell_price: item.sellPrice === null ? "" : String(item.sellPrice),
+      price_basis: item.priceBasis, price_unit: item.priceUnit,
+      buy_price: formatRecyclingUnitPrice(item.buyPrice, item.priceUnit),
+      sell_price: formatRecyclingUnitPrice(item.sellPrice, item.priceUnit),
       image_url: item.imageUrl ?? ""
     } : { ...blank });
+  }
+
+  function selectPriceUnit(nextUnit: RecyclingPriceUnit) {
+    setEditing(current => {
+      if (!current || (current.id && getRecyclingPriceBasis(nextUnit) !== current.price_basis)) return current;
+      const nextBasis = getRecyclingPriceBasis(nextUnit);
+      const sameBasis = current.price_basis === nextBasis;
+      const buy = sameBasis ? parseRecyclingUnitPrice(current.buy_price, current.price_unit) : null;
+      const sell = sameBasis ? parseRecyclingUnitPrice(current.sell_price, current.price_unit) : null;
+      return {
+        ...current, price_unit: nextUnit, price_basis: nextBasis,
+        buy_price: current.buy_price.trim() && buy !== null ? formatRecyclingUnitPrice(buy, nextUnit) : "",
+        sell_price: current.sell_price.trim() && sell !== null ? formatRecyclingUnitPrice(sell, nextUnit) : ""
+      };
+    });
   }
 
   function closeEditor() {
@@ -84,8 +102,9 @@ export function RecyclingStockWorkspace({ items, branchName, canManage, canViewA
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!editing || busy) return;
-    if (!editing.buy_price.trim() || !editing.sell_price.trim()) {
-      setError("กรุณาระบุราคารับซื้อและราคาขายออกก่อนบันทึก");
+    if (parseRecyclingUnitPrice(editing.buy_price, editing.price_unit) === null ||
+        parseRecyclingUnitPrice(editing.sell_price, editing.price_unit) === null) {
+      setError("กรุณาระบุราคาที่แปลงเป็นหน่วยฐานได้ตรงสตางค์: บาท/กก. 2, บาท/ขีด 3, บาท/กรัม 5 ตำแหน่ง");
       return;
     }
     setBusy(true);
@@ -96,8 +115,8 @@ export function RecyclingStockWorkspace({ items, branchName, canManage, canViewA
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ...editing,
-          buy_price: Number(editing.buy_price),
-          sell_price: Number(editing.sell_price)
+          buy_price: editing.buy_price,
+          sell_price: editing.sell_price
         })
       });
       const payload = await response.json().catch(() => null) as {
@@ -121,8 +140,7 @@ export function RecyclingStockWorkspace({ items, branchName, canManage, canViewA
     <header className="shrink-0 border-b border-slate-200 bg-white px-4 py-3" data-testid="recycling-stock-toolbar">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-[11px] font-bold uppercase tracking-wide text-blue-700">CpiPOS / CUSTOM Recycling / จัดการสินค้า</p>
-          <h1 className="mt-1 text-xl font-extrabold text-slate-950">จัดการสินค้าและวัสดุรีไซเคิล</h1>
+          <h1 className="text-lg font-extrabold text-slate-950">จัดการสินค้า <span className="ml-1 text-xs font-semibold text-blue-700">CUSTOM Recycling</span></h1>
           <p className="mt-0.5 text-xs text-slate-500">สาขา: {branchName} · ทะเบียนวัสดุเดียวสำหรับรับซื้อและขายออก</p>
         </div>
         <nav className="flex flex-wrap items-center gap-2" aria-label="ทางลัดหน้าจัดการวัสดุ">
@@ -142,12 +160,6 @@ export function RecyclingStockWorkspace({ items, branchName, canManage, canViewA
           </button>}
         </nav>
       </div>
-      <div className="mt-3 flex flex-wrap items-center gap-x-6 gap-y-2 border-t border-slate-100 pt-3 text-xs" data-testid="recycling-stock-inline-summary">
-        <span className="text-slate-600">วัสดุทั้งหมด <strong className="ml-1 text-base tabular-nums text-slate-950">{items.length}</strong></span>
-        <span className="text-slate-600">กำหนดราคาครบ <strong className="ml-1 text-base tabular-nums text-emerald-700">{items.length - incomplete}</strong></span>
-        <span className="text-slate-600">รอตั้งราคา <strong className="ml-1 text-base tabular-nums text-amber-700">{incomplete}</strong></span>
-        <span className="text-slate-500">ราคาซื้อเข้าและราคาขายออกแยกกัน · สต๊อกเปลี่ยนจากธุรกรรมที่บันทึกจริงเท่านั้น</span>
-      </div>
     </header>
 
     {notice && <p role="status" className="mx-3 mt-2 shrink-0 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-800">{notice}</p>}
@@ -155,8 +167,8 @@ export function RecyclingStockWorkspace({ items, branchName, canManage, canViewA
     <section className="flex min-h-0 flex-1 flex-col overflow-hidden" aria-label="ทะเบียนวัสดุ" data-testid="recycling-stock-table-area">
       <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-slate-50/60 px-4 py-3">
         <div>
-          <h2 className="text-sm font-extrabold text-slate-900">รายการวัสดุในสาขา</h2>
-          <p className="mt-1 text-xs text-slate-500">รูปภาพ · บาร์โค้ด · วัสดุ · ราคารับซื้อ / ขายออก · คงเหลือ</p>
+          <h2 className="text-sm font-extrabold text-slate-900">รายการวัสดุในสาขา <span className="ml-2 font-normal text-slate-500">ทั้งหมด {items.length} · ตั้งราคาครบ {items.length - incomplete} · รอตั้งราคา {incomplete}</span></h2>
+          <p className="mt-1 text-xs text-slate-500">ราคาซื้อเข้าและราคาขายออกแยกกัน · ยอดคงเหลือเปลี่ยนตามธุรกรรมที่บันทึกจริงเท่านั้น</p>
         </div>
         <label className="w-full max-w-xs text-xs font-semibold text-slate-700">
           ค้นหาวัสดุ
@@ -186,9 +198,9 @@ export function RecyclingStockWorkspace({ items, branchName, canManage, canViewA
               <td className="px-3 py-2 font-mono text-slate-700">{item.sku || "ยังไม่ระบุ"}</td>
               <td className="px-3 py-2 font-bold text-slate-900">{item.name}</td>
               <td className="px-3 py-2 text-slate-600">{item.category}</td>
-              <td className="px-3 py-2 text-right font-bold tabular-nums text-blue-700">{money(item.buyPrice)}</td>
-              <td className="px-3 py-2 text-right font-bold tabular-nums text-emerald-700">{money(item.sellPrice)}</td>
-              <td className="px-3 py-2 text-slate-600">{item.priceBasis === "kg" ? "บาท/กก." : "บาท/ชิ้น"}</td>
+              <td className="px-3 py-2 text-right font-bold tabular-nums text-blue-700">{item.buyPrice === null ? "ยังไม่กำหนด" : formatRecyclingUnitPrice(item.buyPrice,item.priceUnit)}</td>
+              <td className="px-3 py-2 text-right font-bold tabular-nums text-emerald-700">{item.sellPrice === null ? "ยังไม่กำหนด" : formatRecyclingUnitPrice(item.sellPrice,item.priceUnit)}</td>
+              <td className="px-3 py-2 text-slate-600">บาท/{RECYCLING_PRICE_UNIT_LABELS[item.priceUnit]} <small className="block text-[11px] text-slate-400">สต๊อกฐาน: {item.priceBasis === "kg" ? "กก." : "ชิ้น"}</small></td>
               <td className="px-3 py-2 text-right font-semibold tabular-nums text-slate-800">
                 {item.quantityBase === null ? "รอยืนยันสต๊อก" : item.quantityBase.toLocaleString("th-TH", {maximumFractionDigits:6}) + (item.priceBasis === "kg" ? " กก." : " ชิ้น")}
               </td>
@@ -216,9 +228,9 @@ export function RecyclingStockWorkspace({ items, branchName, canManage, canViewA
     {editing && <div className="fixed inset-0 z-[1200] flex items-center justify-center bg-slate-950/70 p-3"
       role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) closeEditor(); }}>
       <form onSubmit={save} role="dialog" aria-modal="true" aria-labelledby="material-editor-title" aria-describedby="material-editor-description"
-        className="flex max-h-[92vh] w-full max-w-2xl flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl"
+        className="flex max-h-[92vh] w-full max-w-[760px] flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl"
         data-testid="recycling-material-editor">
-        <div className="flex shrink-0 items-start justify-between gap-4 border-b border-slate-200 bg-slate-50 px-5 py-4">
+        <div className="flex shrink-0 items-start justify-between gap-4 border-b border-slate-200 bg-gradient-to-r from-slate-50 to-blue-50 px-5 py-3.5">
           <div>
             <p className="text-[11px] font-bold uppercase tracking-wider text-blue-700">CUSTOM Recycling · จัดการสินค้า</p>
             <h3 id="material-editor-title" className="mt-1 text-xl font-extrabold text-slate-950">{editing.id ? "แก้ไขข้อมูลวัสดุ" : "เพิ่มวัสดุใหม่"}</h3>
@@ -244,32 +256,35 @@ export function RecyclingStockWorkspace({ items, branchName, canManage, canViewA
                   placeholder="กลุ่มวัสดุ" className="mt-1 block h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100"/>
               </label>
               <label className="block text-xs font-semibold text-slate-700">หน่วยราคามาตรฐาน
-                <select disabled={Boolean(editing.id)} value={editing.price_basis}
-                  onChange={event => setEditing(current => current ? {...current, price_basis:event.target.value as RecyclingPriceBasis} : null)}
-                  className="mt-1 block h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 focus:border-blue-600 focus:outline-none disabled:bg-slate-100 disabled:text-slate-500">
-                  <option value="kg">กิโลกรัม (บาท/กก.)</option><option value="piece">ชิ้น (บาท/ชิ้น)</option>
+                <select value={editing.price_unit}
+                  onChange={event => selectPriceUnit(event.target.value as RecyclingPriceUnit)}
+                  className="mt-1 block h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 focus:border-blue-600 focus:outline-none">
+                  <option value="kg" disabled={Boolean(editing.id) && editing.price_basis === "piece"}>กิโลกรัม (บาท/กก.)</option>
+                  <option value="khid" disabled={Boolean(editing.id) && editing.price_basis === "piece"}>ขีด (บาท/ขีด)</option>
+                  <option value="g" disabled={Boolean(editing.id) && editing.price_basis === "piece"}>กรัม (บาท/กรัม)</option>
+                  <option value="piece" disabled={Boolean(editing.id) && editing.price_basis === "kg"}>ชิ้น (บาท/ชิ้น)</option>
                 </select>
               </label>
             </div>
-            {editing.id && <p className="text-xs font-medium text-amber-800">หน่วยราคาของวัสดุที่บันทึกแล้วเปลี่ยนไม่ได้จนกว่าจะตรวจและแปลงสต๊อกอย่างถูกต้อง</p>}
+            <p className="text-xs font-medium text-slate-600">สามารถสลับหน่วย กก. / ขีด / กรัม โดยแปลงราคาอ้างอิงอย่างแม่นยำ · ยอดสต๊อกใช้กิโลกรัมเหมือนเดิม {editing.id ? "· ห้ามเปลี่ยนระหว่างหน่วยน้ำหนักกับหน่วยชิ้นหลังบันทึกทะเบียน" : ""}</p>
           </fieldset>
 
           <fieldset className="space-y-3 border-t border-slate-200 pt-4">
             <legend className="text-sm font-extrabold text-slate-900">กำหนดราคาแยกตามธุรกรรม</legend>
             <div className="grid gap-3 sm:grid-cols-2">
               <label className="block rounded-lg border border-blue-200 bg-blue-50/60 p-3 text-sm font-bold text-blue-900">
-                ราคารับซื้อเข้าร้าน (บาท/หน่วยฐาน)
-                <input required min="0" max="99999999" step="0.01" type="number" inputMode="decimal" value={editing.buy_price}
+                ราคารับซื้อเข้าร้าน (บาท/{RECYCLING_PRICE_UNIT_LABELS[editing.price_unit]})
+                <input required min="0" max="99999999" step="any" type="number" inputMode="decimal" value={editing.buy_price}
                   onChange={event => setEditing(current => current ? {...current, buy_price:event.target.value} : null)}
                   placeholder="0.00" className="mt-2 block h-11 w-full rounded-lg border border-blue-200 bg-white px-3 text-base tabular-nums text-slate-900 outline-none focus:border-blue-600"/>
-                <small className="mt-2 block text-xs font-normal text-blue-800">ใช้ตอนร้านจ่ายเงินรับซื้อวัสดุ</small>
+                <small className="mt-2 block text-xs font-normal text-blue-800">ใช้ตอนร้านจ่ายเงิน · ราคาอ้างอิง {parseRecyclingUnitPrice(editing.buy_price,editing.price_unit) === null ? "—" : money(parseRecyclingUnitPrice(editing.buy_price,editing.price_unit))} บาท/{editing.price_basis === "kg" ? "กก." : "ชิ้น"}</small>
               </label>
               <label className="block rounded-lg border border-emerald-200 bg-emerald-50/60 p-3 text-sm font-bold text-emerald-900">
-                ราคาขายออก (บาท/หน่วยฐาน)
-                <input required min="0" max="99999999" step="0.01" type="number" inputMode="decimal" value={editing.sell_price}
+                ราคาขายออก (บาท/{RECYCLING_PRICE_UNIT_LABELS[editing.price_unit]})
+                <input required min="0" max="99999999" step="any" type="number" inputMode="decimal" value={editing.sell_price}
                   onChange={event => setEditing(current => current ? {...current, sell_price:event.target.value} : null)}
                   placeholder="0.00" className="mt-2 block h-11 w-full rounded-lg border border-emerald-200 bg-white px-3 text-base tabular-nums text-slate-900 outline-none focus:border-emerald-600"/>
-                <small className="mt-2 block text-xs font-normal text-emerald-800">ใช้ตอนร้านรับเงินจากการขายวัสดุ</small>
+                <small className="mt-2 block text-xs font-normal text-emerald-800">ใช้ตอนร้านรับชำระเงิน · ราคาอ้างอิง {parseRecyclingUnitPrice(editing.sell_price,editing.price_unit) === null ? "—" : money(parseRecyclingUnitPrice(editing.sell_price,editing.price_unit))} บาท/{editing.price_basis === "kg" ? "กก." : "ชิ้น"}</small>
               </label>
             </div>
           </fieldset>

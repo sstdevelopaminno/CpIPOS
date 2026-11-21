@@ -10382,7 +10382,7 @@ body:has(.pos-app-root) {
 .recycling-stock-layout {
   min-width: 0;
   min-height: 0;
-  border: 1px solid #e2e8f0;
+  border: 0;
 }
 .recycling-stock-layout [data-testid="recycling-stock-table-scroll"] {
   overscroll-behavior: contain;

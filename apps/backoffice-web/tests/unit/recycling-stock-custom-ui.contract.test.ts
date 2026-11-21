@@ -22,7 +22,7 @@ describe("CUSTOM Recycling material management in the native POS shell", () => {
     expect(workspace).toContain('data-testid="recycling-custom-stock"');
     expect(workspace).toContain("recycling-stock-layout flex h-full min-h-0 w-full flex-col overflow-hidden");
     expect(workspace).toContain('data-testid="recycling-stock-toolbar"');
-    expect(workspace).toContain('data-testid="recycling-stock-inline-summary"');
+    expect(workspace).not.toContain('data-testid="recycling-stock-inline-summary"');
     expect(workspace).toContain('data-testid="recycling-stock-table-scroll"');
     expect(css).toContain(".pos-app-content-area:has(> .recycling-stock-layout)");
     expect(css).toContain("padding: 0 !important");
@@ -44,6 +44,10 @@ describe("CUSTOM Recycling material management in the native POS shell", () => {
 
   it("separates buy/sell prices without changing actual stock balances", () => {
     expect(workspace).toContain("ราคารับซื้อเข้าร้าน");
+    expect(workspace).toContain('<option value="g"');
+    expect(workspace).toContain('<option value="khid"');
+    expect(workspace).toContain("parseRecyclingUnitPrice");
+    expect(catalogApi).toContain("recycling_price_unit: priceUnit");
     expect(workspace).toContain("ราคาขายออก");
     expect(workspace).toContain('setEditing(null)');
     expect(catalogApi).toContain('requirePosApiFeature({ tenantId, branchId }, "stock_management")');
