@@ -5,6 +5,8 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { recyclingBusinessDayKey, recyclingShiftIsToday } from "@/lib/recycling-business-day";
 import { buildRecyclingBarcodeIndex, resolveRecyclingBarcode } from "@/lib/recycling-barcode-index";
+import { normalizeRecyclingBarcodeInput, physicalRecyclingBarcodeKey } from "@/lib/recycling-scanner-keyboard";
+import { parseRecyclingHeldBills, recyclingHeldKey, type HeldRecyclingBill } from "@/lib/recycling-held-bills";
 import { calculateRecyclingLine, recyclingUnitLabel } from "@/lib/recycling-calculation";
 import { formatRecyclingUnitPrice, RECYCLING_PRICE_UNIT_LABELS } from "@/lib/recycling-price-units";
 import type { RecyclingCatalogItem, RecyclingUnit } from "@/lib/server/recycling-pos-service";
@@ -26,15 +28,19 @@ const weightUnits: RecyclingUnit[] = ["kg", "khid", "g", "ton"];
 const formatMoney = (amount: number) =>
   new Intl.NumberFormat("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(amount);
 
-function CatalogImage({ item }: { item: RecyclingCatalogItem }) {
-  return item.imageUrl
-    ? <Image src={item.imageUrl} alt={item.name} width={54} height={54} unoptimized
+function CatalogImage({ item, mediaUrl }: { item: RecyclingCatalogItem; mediaUrl?: string }) {
+  const imageUrl=mediaUrl || item.imageUrl;
+  return imageUrl
+    ? <Image src={imageUrl} alt={item.name} width={54} height={54} unoptimized
         className="h-12 w-12 shrink-0 rounded-lg border border-slate-200 bg-white object-cover" />
     : <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-slate-100 text-xl" aria-hidden="true">♻️</div>;
 }
 
-export function RecyclingPosWorkspace({ products, branchName, storeName, deviceCode, sellerName, shiftStatus, generalSaleEnabled, transactionWritesEnabled }: {
+export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByProduct, branchName, storeName, deviceCode, sellerName, shiftStatus, generalSaleEnabled, transactionWritesEnabled }: {
   products: RecyclingCatalogItem[];
+  tenantId: string;
+  branchId: string;
+  mediaByProduct: Record<string,string>;
   branchName: string;
   storeName: string;
   deviceCode: string | null;
@@ -45,6 +51,7 @@ export function RecyclingPosWorkspace({ products, branchName, storeName, deviceC
 }) {
   const [shiftGate,setShiftGate]=useState<"checking"|"open"|"blocked">("checking");
   const [shiftOpenedAt,setShiftOpenedAt]=useState("");
+  const [shiftId,setShiftId]=useState("");
   const [shiftMessage,setShiftMessage]=useState("กำลังตรวจสอบและเปิดกะ Recycling ประจำวัน...");
   const gateInFlightRef=useRef(false);
   const lastDayRef=useRef(recyclingBusinessDayKey(new Date()));
@@ -52,11 +59,20 @@ export function RecyclingPosWorkspace({ products, branchName, storeName, deviceC
   const rolloverWhilePostingRef=useRef(false);
   const [direction, setDirection] = useState<Direction>("buy");
   const [search, setSearch] = useState("");
+  const [searchMode,setSearchMode]=useState<"barcode"|"name">("barcode");
+  const [selectedCategory,setSelectedCategory]=useState("all");
+  const [catalogPage,setCatalogPage]=useState(1);
   const [error, setError] = useState("");
   const [pending, setPending] = useState<RecyclingCatalogItem | null>(null);
   const [unit, setUnit] = useState<RecyclingUnit>("kg");
   const [quantity, setQuantity] = useState("1");
   const [lines, setLines] = useState<CartLine[]>([]);
+  const [heldBills,setHeldBills]=useState<HeldRecyclingBill[]>([]);
+  const [heldOpen,setHeldOpen]=useState(false);
+  const [cancelOpen,setCancelOpen]=useState(false);
+  const [heldNotice,setHeldNotice]=useState("");
+  const [heldError,setHeldError]=useState("");
+  const previousShiftId=useRef("");
   const [counterpartyName, setCounterpartyName] = useState("");
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [printNotice, setPrintNotice] = useState<{ok:boolean; message:string} | null>(null);
@@ -92,10 +108,12 @@ export function RecyclingPosWorkspace({ products, branchName, storeName, deviceC
         if (response.ok && shift?.status === "open" && !result?.data?.needs_join &&
             recyclingShiftIsToday(shift.opened_at)) {
           setShiftOpenedAt(shift.opened_at);
+          setShiftId(shift.id);
           setShiftGate("open");
           setShiftMessage("กะ Recycling เปิดแล้ว");
         } else {
           setShiftOpenedAt("");
+          setShiftId("");
           setShiftGate("blocked");
           setShiftMessage(result?.error?.message ?? result?.data?.message ??
             "ยังไม่ได้เปิดกะวันนี้ กรุณาไปที่เมนูเปิด/ปิดกะ");
@@ -104,6 +122,7 @@ export function RecyclingPosWorkspace({ products, branchName, storeName, deviceC
         if (mounted) {
           setShiftGate("blocked");
           setShiftOpenedAt("");
+          setShiftId("");
           setShiftMessage("ไม่สามารถตรวจสอบสถานะกะได้ กรุณาลองอีกครั้ง");
         }
       } finally {
@@ -120,9 +139,10 @@ export function RecyclingPosWorkspace({ products, branchName, storeName, deviceC
         rolloverWhilePostingRef.current = postingRef.current;
         if (!postingRef.current) {
           setLines([]); setPending(null); setCheckoutOpen(false); setCounterpartyName("");
+          setHeldBills([]); setHeldOpen(false); setCancelOpen(false);
           requestIdRef.current = ""; setPosted(null);
         }
-        setShiftGate("checking"); setShiftOpenedAt("");
+        setShiftGate("checking"); setShiftOpenedAt(""); setShiftId("");
         setError("เปลี่ยนวันธุรกิจแล้ว เคลียร์เฉพาะตะกร้าที่ยังไม่บันทึก ไม่ลบใบเสร็จหรือสต๊อก");
         void checkShift();
       }
@@ -142,11 +162,24 @@ export function RecyclingPosWorkspace({ products, branchName, storeName, deviceC
   const barcodeIndex = useMemo(() => buildRecyclingBarcodeIndex(products), [products]);
   const visibleLines = lines.filter(line => line.direction === direction);
   const total = visibleLines.reduce((sum, line) => sum + line.total, 0);
-  const filteredProducts = useMemo(() => {
-    const needle = search.trim().toLowerCase();
-    return products.filter(item => !needle || item.sku.toLowerCase().includes(needle) ||
-      item.name.toLowerCase().includes(needle) || item.category.toLowerCase().includes(needle)).slice(0, 30);
-  }, [products, search]);
+  const categories=useMemo(()=>Array.from(new Set(products.map(item=>item.category)))
+    .sort((a,b)=>a.localeCompare(b,"th")), [products]);
+  const filteredProducts=useMemo(()=>{
+    const needle=search.trim().toLocaleLowerCase();
+    return products.filter(item=>{
+      const matchesCategory=selectedCategory==="all"||item.category===selectedCategory;
+      const matchesSearch=!needle || (searchMode==="barcode"
+        ? item.sku.toLocaleLowerCase().includes(needle)
+        : [item.name,item.category,item.sku].some(value=>value.toLocaleLowerCase().includes(needle)));
+      return matchesCategory&&matchesSearch;
+    }).sort((a,b)=>a.name.localeCompare(b.name,"th"));
+  },[products,search,searchMode,selectedCategory]);
+  const pageSize=12;
+  const pageCount=Math.max(1,Math.ceil(filteredProducts.length/pageSize));
+  const currentPage=Math.min(catalogPage,pageCount);
+  const pageItems=filteredProducts.slice((currentPage-1)*pageSize,currentPage*pageSize);
+  const storageKey=useMemo(()=>recyclingHeldKey(tenantId,branchId,deviceCode,shiftId),
+    [tenantId,branchId,deviceCode,shiftId]);
   const selectedPrice = pending ? (direction === "buy" ? pending.buyPrice : pending.sellPrice) : null;
   const preview = pending && selectedPrice !== null && quantity.trim()
     ? calculateRecyclingLine(Number(quantity), unit, selectedPrice, pending.priceBasis) : null;
@@ -201,9 +234,11 @@ export function RecyclingPosWorkspace({ products, branchName, storeName, deviceC
     });
   }
 
-  function scanBarcode() {
+  function scanBarcode(value:string=search) {
     if (posting || checkoutOpen) return;
-    const result = resolveRecyclingBarcode(barcodeIndex, search);
+    const normalized=normalizeRecyclingBarcodeInput(value);
+    setSearch(normalized);
+    const result = resolveRecyclingBarcode(barcodeIndex, normalized);
     if (result.status !== "found") {
       setError(result.status === "duplicate"
         ? "บาร์โค้ดนี้ซ้ำกัน กรุณาให้ผู้จัดการตรวจสอบทะเบียนสินค้า"
@@ -248,6 +283,7 @@ export function RecyclingPosWorkspace({ products, branchName, storeName, deviceC
     setPending(null);
     setCheckoutOpen(false);
     setSettlement("cash");
+    setCatalogPage(1);
     setPostError("");
   }
 
@@ -292,7 +328,7 @@ export function RecyclingPosWorkspace({ products, branchName, storeName, deviceC
   }
 
   async function postTransaction() {
-    if (posting || !canUseShift || !transactionWritesEnabled || !checkoutOpen || !visibleLines.length || !counterpartyName.trim()) return;
+    if (posting || !canUseShift || !transactionWritesEnabled || !checkoutOpen || !visibleLines.length) return;
     if (settlement === "bank_transfer") {
       setPostError("ต้องตรวจหลักฐานธนาคารก่อนจึงจะยืนยันการจ่ายหรือรับเงินโอนได้");
       return;
@@ -308,7 +344,7 @@ export function RecyclingPosWorkspace({ products, branchName, storeName, deviceC
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           request_id: currentRequestId, direction, settlement,
-          counterparty_name: counterpartyName.trim(),
+          counterparty_name: counterpartyName.trim() || "-",
           lines: visibleLines.map(line => ({
             product_id: line.product.id,
             quantity: line.quantity,
@@ -362,6 +398,122 @@ export function RecyclingPosWorkspace({ products, branchName, storeName, deviceC
         setCounterpartyName("");requestIdRef.current="";
       }
     }
+  }
+
+  // Local drafts are isolated from the normal POS held-bill pool. Never
+  // automatically restore a cart into a new shift, another branch or device.
+  useEffect(()=>{
+    if(!shiftId){setHeldBills([]);return;}
+    if(previousShiftId.current && previousShiftId.current!==shiftId){
+      setLines([]);setPending(null);setCheckoutOpen(false);
+      setHeldOpen(false);setCancelOpen(false);
+    }
+    previousShiftId.current=shiftId;
+    try{
+      setHeldBills(parseRecyclingHeldBills(window.localStorage.getItem(storageKey),shiftId));
+    }catch{setHeldBills([]);}
+  },[shiftId,storageKey]);
+
+  function saveHeldBills(next:HeldRecyclingBill[]):boolean{
+    if(!canUseShift || !shiftId)return false;
+    try{
+      window.localStorage.setItem(storageKey,JSON.stringify(next.slice(0,30)));
+      setHeldBills(next.slice(0,30));
+      return true;
+    }catch{
+      setHeldError("ไม่สามารถบันทึกพักบิลลงเครื่องนี้ได้ ตะกร้ายังอยู่ โปรดตรวจสอบพื้นที่เก็บข้อมูล");
+      return false;
+    }
+  }
+
+  function parkCurrentBill(){
+    if(!canUseShift||posting||checkoutOpen||!visibleLines.length||!shiftId)return;
+    setHeldError("");
+    const draft:HeldRecyclingBill={
+      id:window.crypto.randomUUID(),heldAt:new Date().toISOString(),direction,shiftId,
+      lines:visibleLines.map(line=>({
+        productId:line.product.id,unit:line.unit,quantity:line.quantity,unitPrice:line.unitPrice
+      }))
+    };
+    if(!saveHeldBills([draft,...heldBills].slice(0,30)))return;
+    requestIdRef.current="";setPosted(null);setPrintNotice(null);setCounterpartyName("");
+    setLines(current=>current.filter(line=>line.direction!==direction));
+    setHeldNotice("พักบิลสำเร็จ · สามารถเรียกคืนได้จากรายการพักบิล");
+    scannerRef.current?.focus();
+  }
+
+  function cancelCurrentBill(){
+    if(posting||checkoutOpen)return;
+    requestIdRef.current="";setPosted(null);setPostError("");setPrintNotice(null);
+    setLines(current=>current.filter(line=>line.direction!==direction));
+    setCounterpartyName("");setCancelOpen(false);setHeldNotice("ยกเลิกตะกร้าที่ยังไม่บันทึกแล้ว");
+    scannerRef.current?.focus();
+  }
+
+  function restoreHeldBill(bill:HeldRecyclingBill){
+    if(posting||checkoutOpen||!canUseShift||!shiftId||bill.shiftId!==shiftId)return;
+    setHeldError("");
+    if(lines.some(line=>line.direction===bill.direction) &&
+       !window.confirm("มีรายการในตะกร้าอยู่แล้ว ต้องการแทนที่ด้วยบิลที่พักไว้หรือไม่?"))return;
+    const nextLines:CartLine[]=[];
+    let priceChanged=false;
+    for(const saved of bill.lines){
+      const product=products.find(item=>item.id===saved.productId);
+      if(!product){
+        setHeldError("พบสินค้าที่ถูกลบหรือย้ายสาขา ไม่สามารถเรียกคืนบิลนี้ได้");
+        return;
+      }
+      const currentPrice=bill.direction==="buy"?product.buyPrice:product.sellPrice;
+      if(currentPrice===null){
+        setHeldError("มีรายการที่ยังไม่กำหนดราคา ไม่สามารถเรียกคืนบิลนี้ได้");
+        return;
+      }
+      const calculated=calculateRecyclingLine(saved.quantity,saved.unit,currentPrice,product.priceBasis);
+      if(!calculated){setHeldError("น้ำหนักหรือหน่วยในบิลพักไม่ถูกต้อง");return;}
+      priceChanged ||= currentPrice!==saved.unitPrice;
+      nextKey.current+=1;
+      nextLines.push({
+        key:nextKey.current,direction:bill.direction,product,quantity:saved.quantity,
+        unit:saved.unit,basisQuantity:calculated.basisQuantity,
+        unitPrice:currentPrice,total:calculated.amount
+      });
+    }
+    if(!saveHeldBills(heldBills.filter(item=>item.id!==bill.id)))return;
+    requestIdRef.current="";setPosted(null);setPrintNotice(null);
+    setDirection(bill.direction);
+    setLines(current=>[...current.filter(line=>line.direction!==bill.direction),...nextLines]);
+    setHeldOpen(false);setCounterpartyName("");setPostError("");
+    setHeldNotice(priceChanged
+      ?"เรียกคืนบิลแล้ว · ราคาวัสดุมีการเปลี่ยนแปลง ระบบใช้ราคาปัจจุบัน กรุณาตรวจสอบก่อนรับจ่าย"
+      :"เรียกคืนบิลแล้ว กรุณาตรวจสอบน้ำหนักและยอดก่อนชำระ");
+  }
+
+  function deleteHeldBill(bill:HeldRecyclingBill){
+    if(posting||!canUseShift)return;
+    if(!window.confirm("ลบรายการพักบิลนี้? รายการยังไม่ถูกบันทึกเป็นการซื้อขาย"))return;
+    saveHeldBills(heldBills.filter(item=>item.id!==bill.id));
+  }
+
+  function onBarcodeKeyDown(event:React.KeyboardEvent<HTMLInputElement>){
+    if(event.key==="Enter"){
+      event.preventDefault();
+      if(searchMode==="barcode")scanBarcode(event.currentTarget.value);
+      return;
+    }
+    if(searchMode!=="barcode"||event.ctrlKey||event.altKey||event.metaKey||
+       event.nativeEvent.isComposing)return;
+    // Hardware scanner sends physical key codes independent of Windows TH/EN.
+    // Intercept only when the active layout emitted Thai, leaving shortcuts
+    // and navigation intact; pasted Thai codes are normalized on input.
+    if(!/[ก-๙]/u.test(event.key))return;
+    const latin=physicalRecyclingBarcodeKey(event.code,event.shiftKey);
+    if(latin===null)return;
+    event.preventDefault();
+    const input=event.currentTarget;
+    const start=input.selectionStart??input.value.length;
+    const end=input.selectionEnd??start;
+    const replacement=input.value.slice(0,start)+latin+input.value.slice(end);
+    setSearch(replacement);setError("");setCatalogPage(1);
   }
 
   const units = pending?.priceBasis === "piece" ? (["piece", "stem"] as RecyclingUnit[]) : weightUnits;
