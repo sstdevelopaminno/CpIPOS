@@ -10,7 +10,7 @@ import {
 } from "@/lib/pos-session-guard";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 import { getOpticalShiftUiPolicy } from "@/lib/server/optical-shift-ui-policy";
-import { resolveOpticalDailyShift, nextOpticalMidnightUtc } from "@/lib/pos-optical-daily-shift";
+import { resolveOpticalDailyShift, nextOpticalMidnightUtc, startOfOpticalLocalDateUtc } from "@/lib/pos-optical-daily-shift";
 import { isAuthorizedRecyclingTenant } from "@/lib/server/recycling-pos-service";
 
 function isMissingSessionShiftColumnError(error: { code?: string; message?: string } | null | undefined) {
@@ -185,6 +185,27 @@ export async function POST(request: Request) {
         }
       }
       return reuseExistingShift(existingLookup.data);
+    }
+
+    if (recyclingRequested) {
+      // One Recycling business-day shift per cashier terminal: a manual early
+      // close must not be silently reopened when the cashier returns.
+      const localToday = new Date(Date.now()+7*60*60*1000).toISOString().slice(0,10);
+      const localTomorrow = new Date(Date.parse(localToday+"T00:00:00Z")+86400000).toISOString().slice(0,10);
+      const from = startOfOpticalLocalDateUtc(localToday,"Asia/Bangkok");
+      const to = startOfOpticalLocalDateUtc(localTomorrow,"Asia/Bangkok");
+      if (!from || !to) throw new Error("recycling_business_day_unavailable");
+      let sameDay = supabase.from("shifts").select("id").eq("tenant_id",sessionScope.tenantId)
+        .eq("branch_id",sessionScope.branchId).eq("status","closed")
+        .gte("opened_at",from.toISOString()).lt("opened_at",to.toISOString())
+        .contains("metadata",{business_shift_mode:"recycling_daily"}).limit(1);
+      if (sessionScope.deviceCode) sameDay=sameDay.eq("device_code",sessionScope.deviceCode);
+      else sameDay=sameDay.is("device_code",null);
+      const check=await sameDay;
+      if (check.error) return NextResponse.json({data:null,error:{code:"recycling_shift_daily_review_failed",
+        message:"Unable to check today's already-closed shift."}},{status:503});
+      if ((check.data??[]).length) return NextResponse.json({data:null,error:{code:"recycling_shift_already_closed_today",
+        message:"กะ Recycling ของวันนี้ปิดไปแล้ว เปิดอัตโนมัติอีกครั้งวันถัดไปเท่านั้น"}},{status:409});
     }
 
     const createResult = await supabase
