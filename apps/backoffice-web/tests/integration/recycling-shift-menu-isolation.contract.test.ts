@@ -81,7 +81,7 @@ describe("CUSTOM Recycling shift menu isolation and cashier entry gate", () => {
     expect(control).toContain('form="recycling-open-shift-form"');
     expect(control).toContain('form="recycling-close-shift-form"');
     expect(control).toContain("setModalKind(null)");
-    expect(control).toContain('setActionError(lookupFailed ? message : "")');
+    expect(control).toContain('setActionError(lookupFailed && kind!=="recover" ? message : "")');
     expect(control).toContain('setLookupErrorCode(body?.error?.code');
     expect(control).toContain('disabled={loading||busy||hasShift}');
     expect(control).toContain('disabled={loading||busy||(!hasShift&&!lookupFailed)||needsJoin}');
