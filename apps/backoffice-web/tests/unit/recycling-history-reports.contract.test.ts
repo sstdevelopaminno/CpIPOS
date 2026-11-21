@@ -4,6 +4,7 @@ import {resolve} from "node:path";
 const read=(p:string)=>readFileSync(resolve(process.cwd(),p),"utf8");
 const service=read("src/lib/server/recycling-history-reports.ts");
 const view=read("src/components/pos/recycling-history-reports.tsx");
+const finance=read("src/lib/recycling-report-calculation.ts");
 describe("CUSTOM Recycling independent history reports",()=>{
  it("routes only authorized CUSTOM Recycling, leaving ordinary POS reports untouched",()=>{
   for(const name of ["sales-summary","receipts","product-sales"]){
@@ -25,12 +26,12 @@ describe("CUSTOM Recycling independent history reports",()=>{
   expect(service).not.toContain('.from("orders")');
  });
  it("separates buys, sales, paid, credited and VOID without negative sales",()=>{
-  expect(service).toContain('if(row.status==="voided")');
-  expect(service).toContain('result.buyMinor+=amount');
-  expect(service).toContain('result.sellMinor+=amount');
-  expect(service).toContain('cashOutMinor');
-  expect(service).toContain('transferInMinor');
-  expect(service).toContain('creditOutMinor');
+  expect(finance).toContain('if(row.status==="voided")');
+  expect(finance).toContain('result.buyMinor+=amount');
+  expect(finance).toContain('result.sellMinor+=amount');
+  expect(finance).toContain('cashOutMinor');
+  expect(finance).toContain('transferInMinor');
+  expect(finance).toContain('creditOutMinor');
   expect(view).toContain("ไม่รวมกับรายการขายของ POS ทั่วไป");
   expect(view).toContain("ดูรายงานโหมดขายทั่วไป");
  });
