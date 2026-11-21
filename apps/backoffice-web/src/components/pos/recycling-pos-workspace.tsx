@@ -24,7 +24,6 @@ type CartLine = {
   total: number;
 };
 
-const weightUnits: RecyclingUnit[] = ["kg", "khid", "g", "ton"];
 const formatMoney = (amount: number) =>
   new Intl.NumberFormat("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(amount);
 
@@ -70,6 +69,10 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
   const [selectedCategory,setSelectedCategory]=useState("all");
   const [catalogPage,setCatalogPage]=useState(1);
   const [error, setError] = useState("");
+  const [scanFeedback,setScanFeedback]=useState<"idle"|"success"|"error">("idle");
+  const [scanErrorPopup,setScanErrorPopup]=useState("");
+  const scanDismissRef=useRef<HTMLButtonElement>(null);
+  const shiftTapArmedRef=useRef(false);
   const [pending, setPending] = useState<RecyclingCatalogItem | null>(null);
   const [unit, setUnit] = useState<RecyclingUnit>("kg");
   const [quantity, setQuantity] = useState("1");
@@ -77,6 +80,8 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
   const [heldBills,setHeldBills]=useState<HeldRecyclingBill[]>([]);
   const [heldOpen,setHeldOpen]=useState(false);
   const [cancelOpen,setCancelOpen]=useState(false);
+  const [cancelChoice,setCancelChoice]=useState<"keep"|"confirm">("confirm");
+  const cancelConfirmRef=useRef<HTMLButtonElement>(null);
   const [heldNotice,setHeldNotice]=useState("");
   const [heldError,setHeldError]=useState("");
   const previousShiftId=useRef("");
@@ -91,6 +96,10 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
   const requestIdRef = useRef("");
   const nextKey = useRef(0);
   const scannerRef = useRef<HTMLInputElement>(null);
+  const cashMethodRef=useRef<HTMLInputElement>(null);
+  useEffect(()=>{if(scanErrorPopup)scanDismissRef.current?.focus();},[scanErrorPopup]);
+  useEffect(()=>{if(cancelOpen)cancelConfirmRef.current?.focus();},[cancelOpen]);
+  useEffect(()=>{if(checkoutOpen)cashMethodRef.current?.focus();},[checkoutOpen]);
   useEffect(()=>{postingRef.current=posting;},[posting]);
   const canUseShift=shiftGate==="open" && recyclingShiftIsToday(shiftOpenedAt);
   useEffect(() => {
@@ -203,7 +212,9 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
     }
     setError("");
     setPending(item);
-    setUnit(item.priceBasis === "piece" ? "piece" : "kg");
+    // Material catalogue config is authoritative: no discretionary unit
+    // switching in the cashier, avoiding wrong kg/khid/g amounts.
+    setUnit(item.priceUnit);
     // Never silently assume a 1kg weight. Only counted units can scan directly.
     setQuantity(item.priceBasis === "piece" ? "1" : "");
   }
@@ -249,17 +260,22 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
     updateScannerSearch(normalized);
     const result = resolveRecyclingBarcode(barcodeIndex, normalized);
     if (result.status !== "found") {
-      setError(result.status === "duplicate"
-        ? "บาร์โค้ดนี้ซ้ำกัน กรุณาให้ผู้จัดการตรวจสอบทะเบียนสินค้า"
-        : "ไม่พบบาร์โค้ดนี้ในสต๊อกของสาขา");
+      const message=result.status==="duplicate"
+        ?"บาร์โค้ดนี้ซ้ำกัน กรุณาให้ผู้จัดการตรวจสอบทะเบียนสินค้า"
+        :"ไม่พบบาร์โค้ดนี้ในสต๊อกของสาขา กรุณาตรวจสอบรหัสและยิงใหม่";
+      setError(message);
+      setScanFeedback("error");
+      setScanErrorPopup(message);
       return;
     }
     const product = result.item;
     const price = direction === "buy" ? product.buyPrice : product.sellPrice;
     if (price === null) {
-      setError("ยังไม่ได้กำหนดราคาในสต๊อกสำหรับรายการนี้");
+      const message="ยังไม่ได้กำหนดราคาในสต๊อกสำหรับรายการนี้ กรุณาตรวจสอบทะเบียนวัสดุ";
+      setError(message);setScanFeedback("error");setScanErrorPopup(message);
       return;
     }
+    setScanFeedback("success");
     updateScannerSearch("");
     setError("");
     if (product.priceBasis === "piece") {
@@ -282,6 +298,29 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
     updateScannerSearch("");
     setError("");
     window.setTimeout(() => scannerRef.current?.focus(), 0);
+  }
+
+  function closeScanErrorPopup(){
+    setScanErrorPopup("");
+    setError("");
+    updateScannerSearch("");
+    window.requestAnimationFrame(()=>scannerRef.current?.focus());
+  }
+  function openCancelConfirmation(){
+    if(posting||checkoutOpen||!visibleLines.length)return;
+    setCancelChoice("confirm");
+    setCancelOpen(true);
+  }
+  function removeLastCartLine(){
+    if(posting||checkoutOpen||!visibleLines.length)return;
+    const latest=visibleLines[visibleLines.length-1];
+    requestIdRef.current="";setPosted(null);setPrintNotice(null);
+    setLines(current=>current.filter(line=>line.key!==latest.key));
+    setHeldNotice("ลบรายการล่าสุดออกจากตะกร้าแล้ว");
+  }
+  function openCheckout(){
+    if(!canUseShift||posting||!visibleLines.length)return;
+    setCheckoutOpen(true);setSettlement("cash");setPostError("");
   }
 
   function changeDirection(next: Direction) {
@@ -376,7 +415,14 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
           missing_active_shift: "กรุณาเปิดกะก่อนบันทึกรับซื้อหรือขายออก",
           recycling_shift_daily_cutoff: "สิ้นสุดวันธุรกิจแล้ว กะเมื่อวานกำลังปิดและสรุปยอด",
           recycling_shift_mode_required: "ต้องเปิดกะ Recycling แยกจากกะขายทั่วไป",
-          recycling_subscription_inactive: "สัญญา CUSTOM Recycling ยังไม่พร้อมใช้งาน"
+          recycling_subscription_inactive: "สัญญา CUSTOM Recycling ยังไม่พร้อมใช้งาน",
+          recycling_cash_drawer_insufficient: "เงินสดในกะไม่เพียงพอสำหรับจ่ายซื้อวัสดุ กรุณาตรวจนับและกระทบยอดเงินสดกับผู้จัดการก่อนทำรายการ ห้ามจ่ายเงินหรือบันทึกซ้ำ",
+          recycling_shift_opening_cash_invalid: "ยอดเงินสดต้นกะไม่ถูกต้อง กรุณาให้ผู้จัดการตรวจสอบ",
+          recycling_mixed_legacy_shift_requires_reconciliation: "มีกะ POS ทั่วไปปะปนอยู่ กรุณาให้ฝ่าย IT ตรวจสอบกะก่อนบันทึก",
+          recycling_request_key_reused: "พบการส่งบิลด้วยรหัสเดิมแต่รายละเอียดเปลี่ยน กรุณาตรวจสอบใบรับซื้อก่อนทำรายการใหม่",
+          recycling_branch_invalid: "สาขาที่กำลังใช้งานไม่พร้อมรับซื้อ–ขายออก",
+          recycling_user_not_in_branch: "บัญชีผู้ใช้งานไม่ได้รับสิทธิ์ทำรายการในสาขานี้",
+          recycling_ledger_not_balanced: "การตรวจสอบบัญชีไม่ผ่าน ระบบไม่ได้บันทึกบิล กรุณาติดต่อฝ่ายบัญชีหรือ IT"
         };
         setPostError(reasons[code] ?? body?.error?.message ?? "บันทึกไม่สำเร็จ ยังไม่ควรจ่ายหรือรับเงิน");
         return;
@@ -532,7 +578,6 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
     updateScannerSearch(replacement);setError("");setCatalogPage(1);
   }
 
-  const units = pending?.priceBasis === "piece" ? (["piece", "stem"] as RecyclingUnit[]) : weightUnits;
 
   return <main className="recycling-pos-layout flex h-full min-h-0 w-full flex-col overflow-hidden bg-white" data-testid="recycling-custom-pos">
     <RecyclingSalesModeSwitcher storeName={storeName} branchName={branchName}
