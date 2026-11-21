@@ -5,9 +5,11 @@ import { requirePosApiFeature } from "@/lib/pos-api-feature-guard";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 import { isAuthorizedRecyclingTenant } from "@/lib/server/recycling-pos-service";
 import { getRecyclingPriceBasis, isRecyclingPriceUnit, parseRecyclingUnitPrice } from "@/lib/recycling-price-units";
+import { getRecyclingStockBranches, requireRecyclingStockBranch } from "@/lib/server/recycling-stock-branch-scope";
 
 type CatalogPayload = {
   id?: unknown;
+  branch_id?: unknown;
   sku?: unknown;
   name?: unknown;
   category?: unknown;
@@ -21,16 +23,23 @@ type CatalogPayload = {
 export async function POST(request: Request) {
   try {
     const scope = await requirePosSession();
-    const { tenant_id: tenantId, branch_id: branchId, role } = scope.session;
+    const { tenant_id: tenantId, role } = scope.session;
     if (role !== "owner" && role !== "manager") {
       return fail("recycling_catalog_forbidden", "Only owner and manager may change recycling material prices.", 403);
     }
     if (!await isAuthorizedRecyclingTenant(tenantId)) {
       return fail("recycling_not_authorized", "CUSTOM Recycling mode is not active for this tenant.", 403);
     }
-    await requirePosApiFeature({ tenantId, branchId }, "stock_management");
     const body = await request.json().catch(() => null) as CatalogPayload | null;
     if (!body || typeof body !== "object" || Array.isArray(body)) return fail("invalid_payload", "Invalid payload.", 422);
+    // A catalog create/edit explicitly targets a branch. Never use an
+    // untrusted client-supplied branch without rechecking target membership.
+    const requestedBranchId = typeof body.branch_id === "string" ? body.branch_id.trim() : "";
+    if (!requestedBranchId) return fail("recycling_branch_required", "กรุณาเลือกสาขาก่อนเพิ่มหรือแก้ไขวัสดุ", 422);
+    const branches = await getRecyclingStockBranches(scope);
+    const selectedBranch = requireRecyclingStockBranch(requestedBranchId, branches, true);
+    const branchId = selectedBranch.id;
+    await requirePosApiFeature({ tenantId, branchId }, "stock_management");
     const sku = String(body.sku ?? "").trim();
     const name = String(body.name ?? "").trim();
     const category = String(body.category ?? "").trim();
