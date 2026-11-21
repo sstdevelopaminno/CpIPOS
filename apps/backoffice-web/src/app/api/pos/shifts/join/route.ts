@@ -73,9 +73,14 @@ export async function POST(request: Request) {
     // join endpoint cannot silently bind a tagged Recycling business-day shift.
     const activeMode = shiftRow.metadata?.business_shift_mode;
     const recyclingRequested = body?.business_mode === "recycling";
-    if (recyclingRequested && !await isAuthorizedRecyclingTenant(sessionScope.tenantId)) {
+    const recyclingEnabled = await isAuthorizedRecyclingTenant(sessionScope.tenantId);
+    if (recyclingRequested && !recyclingEnabled) {
       return NextResponse.json({data:null,error:{code:"recycling_shift_not_authorized",
         message:"ไม่มีสิทธิ์เข้าร่วมกะ Recycling"}},{status:403});
+    }
+    if (!recyclingRequested && recyclingEnabled) {
+      return NextResponse.json({data:null,error:{code:"recycling_general_shift_disabled",
+        message:"ร้าน Recycling ไม่สามารถเข้าร่วมกะ POS ทั่วไปได้จากระบบต่อกะหลัก"}},{status:409});
     }
     if ((recyclingRequested && activeMode !== "recycling_daily") ||
         (!recyclingRequested && activeMode === "recycling_daily")) {
