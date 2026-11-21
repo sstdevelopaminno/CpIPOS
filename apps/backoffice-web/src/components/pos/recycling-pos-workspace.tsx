@@ -59,6 +59,13 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
   const rolloverWhilePostingRef=useRef(false);
   const [direction, setDirection] = useState<Direction>("buy");
   const [search, setSearch] = useState("");
+  // Synchronous scan buffer: sub-10ms HID bursts must not lose keys while
+  // React waits to render each controlled input update.
+  const scanBufferRef=useRef("");
+  function updateScannerSearch(next:string){
+    scanBufferRef.current=next;
+    setSearch(next);
+  }
   const [searchMode,setSearchMode]=useState<"barcode"|"name">("barcode");
   const [selectedCategory,setSelectedCategory]=useState("all");
   const [catalogPage,setCatalogPage]=useState(1);
@@ -239,7 +246,7 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
   function scanBarcode(value:string=search) {
     if (posting || checkoutOpen) return;
     const normalized=normalizeRecyclingBarcodeInput(value);
-    setSearch(normalized);
+    updateScannerSearch(normalized);
     const result = resolveRecyclingBarcode(barcodeIndex, normalized);
     if (result.status !== "found") {
       setError(result.status === "duplicate"
@@ -253,7 +260,7 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
       setError("ยังไม่ได้กำหนดราคาในสต๊อกสำหรับรายการนี้");
       return;
     }
-    setSearch("");
+    updateScannerSearch("");
     setError("");
     if (product.priceBasis === "piece") {
       // Barcode scanners terminate with Enter; a counted item has an exact
@@ -272,7 +279,7 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
     addLineToCart(pending, unit, Number(quantity), selectedPrice);
     setPending(null);
     setQuantity("");
-    setSearch("");
+    updateScannerSearch("");
     setError("");
     window.setTimeout(() => scannerRef.current?.focus(), 0);
   }
@@ -280,7 +287,7 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
   function changeDirection(next: Direction) {
     if (posting || checkoutOpen || next === direction) return;
     setDirection(next);
-    setSearch("");
+    updateScannerSearch("");
     setError("");
     setPending(null);
     setCheckoutOpen(false);
@@ -499,7 +506,7 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
   function onBarcodeKeyDown(event:KeyboardEvent<HTMLInputElement>){
     if(event.key==="Enter"){
       event.preventDefault();
-      if(searchMode==="barcode")scanBarcode(event.currentTarget.value);
+      if(searchMode==="barcode")scanBarcode(scanBufferRef.current || event.currentTarget.value);
       return;
     }
     if(searchMode!=="barcode"||event.ctrlKey||event.altKey||event.metaKey||
@@ -512,10 +519,13 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
     if(latin===null)return;
     event.preventDefault();
     const input=event.currentTarget;
-    const start=input.selectionStart??input.value.length;
-    const end=input.selectionEnd??start;
-    const replacement=input.value.slice(0,start)+latin+input.value.slice(end);
-    setSearch(replacement);setError("");setCatalogPage(1);
+    const current=input.value;
+    const base=scanBufferRef.current;
+    const cursorAtEnd=input.selectionStart===current.length && input.selectionEnd===current.length;
+    const start=cursorAtEnd?base.length:(input.selectionStart??base.length);
+    const end=cursorAtEnd?base.length:(input.selectionEnd??start);
+    const replacement=base.slice(0,start)+latin+base.slice(end);
+    updateScannerSearch(replacement);setError("");setCatalogPage(1);
   }
 
   const units = pending?.priceBasis === "piece" ? (["piece", "stem"] as RecyclingUnit[]) : weightUnits;
@@ -562,12 +572,12 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
         </div>
         <div className="mt-3 flex flex-wrap items-center gap-2" role="group" aria-label="วิธีค้นหาวัสดุ">
           <button type="button" aria-pressed={searchMode==="barcode"}
-            onClick={()=>{setSearchMode("barcode");setSearch("");setCatalogPage(1);scannerRef.current?.focus();}}
+            onClick={()=>{setSearchMode("barcode");updateScannerSearch("");setCatalogPage(1);scannerRef.current?.focus();}}
             className={"rounded-md border px-3 py-1.5 text-xs font-bold "+(searchMode==="barcode"?"border-blue-600 bg-blue-600 text-white":"border-slate-200 bg-white text-slate-600")}>
             สแกนบาร์โค้ด (EN อัตโนมัติ)
           </button>
           <button type="button" aria-pressed={searchMode==="name"}
-            onClick={()=>{setSearchMode("name");setSearch("");setCatalogPage(1);scannerRef.current?.focus();}}
+            onClick={()=>{setSearchMode("name");updateScannerSearch("");setCatalogPage(1);scannerRef.current?.focus();}}
             className={"rounded-md border px-3 py-1.5 text-xs font-bold "+(searchMode==="name"?"border-blue-600 bg-blue-600 text-white":"border-slate-200 bg-white text-slate-600")}>
             ค้นหาชื่อวัสดุ (ไทย/อังกฤษ)
           </button>
@@ -581,7 +591,7 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
           placeholder={searchMode==="barcode"?"ยิงบาร์โค้ดแล้วกด Enter":"ค้นหาชื่อวัสดุเป็นภาษาไทยหรืออังกฤษ"}
           value={search}
           onChange={event=>{
-            setSearch(searchMode==="barcode"
+            updateScannerSearch(searchMode==="barcode"
               ?normalizeRecyclingBarcodeInput(event.target.value):event.target.value);
             setCatalogPage(1);setError("");
           }}
