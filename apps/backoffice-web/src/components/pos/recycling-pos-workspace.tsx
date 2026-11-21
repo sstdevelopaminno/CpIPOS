@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { recyclingBusinessDayKey, recyclingShiftIsToday } from "@/lib/recycling-business-day";
 import { buildRecyclingBarcodeIndex, resolveRecyclingBarcode } from "@/lib/recycling-barcode-index";
 import { normalizeRecyclingBarcodeInput, physicalRecyclingBarcodeKey } from "@/lib/recycling-scanner-keyboard";
@@ -178,6 +178,8 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
   const pageCount=Math.max(1,Math.ceil(filteredProducts.length/pageSize));
   const currentPage=Math.min(catalogPage,pageCount);
   const pageItems=filteredProducts.slice((currentPage-1)*pageSize,currentPage*pageSize);
+  const pageStart=Math.max(1,Math.min(currentPage-2,pageCount-4));
+  const paginationPages=Array.from({length:Math.min(5,pageCount)},(_,i)=>pageStart+i);
   const storageKey=useMemo(()=>recyclingHeldKey(tenantId,branchId,deviceCode,shiftId),
     [tenantId,branchId,deviceCode,shiftId]);
   const selectedPrice = pending ? (direction === "buy" ? pending.buyPrice : pending.sellPrice) : null;
@@ -494,7 +496,7 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
     saveHeldBills(heldBills.filter(item=>item.id!==bill.id));
   }
 
-  function onBarcodeKeyDown(event:React.KeyboardEvent<HTMLInputElement>){
+  function onBarcodeKeyDown(event:KeyboardEvent<HTMLInputElement>){
     if(event.key==="Enter"){
       event.preventDefault();
       if(searchMode==="barcode")scanBarcode(event.currentTarget.value);
@@ -522,7 +524,8 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
     <RecyclingSalesModeSwitcher storeName={storeName} branchName={branchName}
       deviceCode={deviceCode} sellerName={sellerName} shiftStatus={canUseShift?"เปิดกะแล้ว":shiftGate==="checking"?"กำลังตรวจสอบกะ":"ยังไม่เปิดกะ"}
       generalSaleEnabled={generalSaleEnabled} direction={direction}
-      onDirectionChange={changeDirection} busy={posting}/>
+      onDirectionChange={changeDirection} busy={posting}
+      heldCount={heldBills.length} onOpenHeldBills={()=>{if(canUseShift){setHeldError("");setHeldOpen(true);}}}/>
     {!canUseShift && <div data-testid="recycling-daily-shift-gate"
       className="fixed inset-0 z-[160] flex items-center justify-center bg-slate-950/55 px-4 py-8"
       role="dialog" aria-modal="true" aria-labelledby="recycling-shift-gate-title"
@@ -557,34 +560,96 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
           <h2 className="text-base font-extrabold text-slate-900">ยิงบาร์โค้ด / ค้นหาวัสดุ</h2>
           <span className="rounded-lg bg-slate-100 px-2 py-1 text-xs text-slate-600">{products.length} รายการ</span>
         </div>
-        <label className="mt-3 block text-sm font-semibold text-slate-700" htmlFor="recycling-barcode">รหัสสินค้า / SKU</label>
-        <input id="recycling-barcode" ref={scannerRef} autoComplete="off" autoFocus disabled={!canUseShift || posting || checkoutOpen}
-          className="mt-1 w-full rounded-lg border-2 border-blue-400 bg-white px-4 py-3 text-base text-slate-900 outline-none focus:border-blue-700"
-          placeholder="ยิงบาร์โค้ดแล้วกด Enter" value={search}
-          onChange={event => { setSearch(event.target.value); setError(""); }}
-          onKeyDown={event => { if (event.key === "Enter") { event.preventDefault(); scanBarcode(); } }} />
-        {error && <p role="alert" className="mt-2 rounded-lg bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700">{error}</p>}
-        <p className="mt-2 text-xs text-slate-500">ยิงบาร์โค้ดแล้ว Enter: สินค้านับชิ้นเข้าตะกร้าทันที · สินค้าชั่งน้ำหนักให้ยืนยันค่าชั่งก่อน</p>
-        <div className="recycling-catalog-scroll mt-3 min-h-0 flex-1 space-y-1 overflow-y-auto">
-          {filteredProducts.length ? filteredProducts.map(item => {
-            const price = direction === "buy" ? item.buyPrice : item.sellPrice;
-            return <button type="button" key={item.id} disabled={!canUseShift || posting || checkoutOpen} onClick={() => openQuantityPopup(item)}
-              className="flex w-full items-center gap-3 rounded-lg border border-transparent p-2 text-left hover:border-blue-200 hover:bg-blue-50">
-              <CatalogImage item={item} />
-              <span className="min-w-0 flex-1">
-                <strong className="block truncate text-sm text-slate-900">{item.name}</strong>
-                <span className="block truncate text-xs text-slate-500">{item.sku || "ไม่มีบาร์โค้ด"} · {item.category}</span>
-              </span>
-              <span className="shrink-0 text-right text-sm font-bold text-blue-800">
-                {price === null ? "ยังไม่ตั้งราคา" : `${formatMoney(price)} ฿`}
-                <small className="block text-xs font-normal text-slate-500">/{item.priceBasis === "kg" ? "กก." : "ชิ้น"} (ราคาอ้างอิง)</small>
-                {price !== null && item.priceUnit !== item.priceBasis && <small className="block text-[11px] font-normal text-blue-600">
-                  {formatRecyclingUnitPrice(price,item.priceUnit)} ฿/{RECYCLING_PRICE_UNIT_LABELS[item.priceUnit]}
-                </small>}
-              </span>
-            </button>;
-          }) : <p className="rounded-lg bg-slate-50 p-5 text-center text-sm text-slate-500">ไม่พบสินค้าในสต๊อกของสาขา</p>}
+        <div className="mt-3 flex flex-wrap items-center gap-2" role="group" aria-label="วิธีค้นหาวัสดุ">
+          <button type="button" aria-pressed={searchMode==="barcode"}
+            onClick={()=>{setSearchMode("barcode");setSearch("");setCatalogPage(1);scannerRef.current?.focus();}}
+            className={"rounded-md border px-3 py-1.5 text-xs font-bold "+(searchMode==="barcode"?"border-blue-600 bg-blue-600 text-white":"border-slate-200 bg-white text-slate-600")}>
+            สแกนบาร์โค้ด (EN อัตโนมัติ)
+          </button>
+          <button type="button" aria-pressed={searchMode==="name"}
+            onClick={()=>{setSearchMode("name");setSearch("");setCatalogPage(1);scannerRef.current?.focus();}}
+            className={"rounded-md border px-3 py-1.5 text-xs font-bold "+(searchMode==="name"?"border-blue-600 bg-blue-600 text-white":"border-slate-200 bg-white text-slate-600")}>
+            ค้นหาชื่อวัสดุ (ไทย/อังกฤษ)
+          </button>
         </div>
+        <label className="mt-2 block text-sm font-semibold text-slate-700" htmlFor="recycling-barcode">
+          {searchMode==="barcode"?"รหัสสินค้า / SKU":"ชื่อวัสดุ / ประเภท / SKU"}
+        </label>
+        <input id="recycling-barcode" ref={scannerRef} autoComplete="off" autoFocus
+          disabled={!canUseShift || posting || checkoutOpen}
+          className="mt-1 w-full rounded-lg border-2 border-blue-400 bg-white px-4 py-3 text-base text-slate-900 outline-none focus:border-blue-700"
+          placeholder={searchMode==="barcode"?"ยิงบาร์โค้ดแล้วกด Enter":"ค้นหาชื่อวัสดุเป็นภาษาไทยหรืออังกฤษ"}
+          value={search}
+          onChange={event=>{
+            setSearch(searchMode==="barcode"
+              ?normalizeRecyclingBarcodeInput(event.target.value):event.target.value);
+            setCatalogPage(1);setError("");
+          }}
+          onKeyDown={onBarcodeKeyDown}/>
+        {error && <p role="alert" className="mt-2 rounded-lg bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700">{error}</p>}
+        <p className="mt-2 text-xs text-slate-500">
+          {searchMode==="barcode"
+            ?"สแกนได้โดยไม่ต้องเปลี่ยนภาษาคีย์บอร์ด · สินค้าชั่งน้ำหนักต้องยืนยันค่าน้ำหนักก่อน"
+            :"ค้นหาชื่อวัสดุและเลือกจากรายการได้ทันที"}
+        </p>
+        <div className="mt-3 flex shrink-0 gap-2 overflow-x-auto pb-2" role="group" aria-label="หมวดประเภทวัสดุ" data-testid="recycling-category-tabs">
+          {["all",...categories].map(cat=><button key={cat} type="button"
+            aria-pressed={selectedCategory===cat}
+            onClick={()=>{setSelectedCategory(cat);setCatalogPage(1);}}
+            className={"min-h-9 shrink-0 whitespace-nowrap rounded-md border px-3 py-1.5 text-xs font-bold "+
+              (selectedCategory===cat?"border-blue-700 bg-blue-700 text-white":"border-slate-200 bg-white text-slate-700 hover:bg-blue-50")}>
+              {cat==="all"?"ทั้งหมด":cat}
+          </button>)}
+        </div>
+        <div className="recycling-catalog-scroll mt-1 min-h-0 flex-1 overflow-y-auto" data-testid="recycling-paged-catalog">
+          {pageItems.length ? <div className="grid grid-cols-[repeat(auto-fill,minmax(148px,1fr))] content-start gap-2">
+            {pageItems.map(item=>{
+              const price=direction==="buy"?item.buyPrice:item.sellPrice;
+              return <button type="button" key={item.id} disabled={!canUseShift||posting||checkoutOpen}
+                onClick={()=>openQuantityPopup(item)}
+                className="flex min-w-0 flex-col gap-2 rounded-lg border border-slate-200 bg-white p-3 text-left shadow-sm hover:border-blue-400 hover:bg-blue-50 disabled:opacity-50">
+                <div className="flex w-full items-center gap-2">
+                  <CatalogImage item={item} mediaUrl={mediaByProduct[item.id]}/>
+                  <span className="min-w-0 flex-1">
+                    <strong className="block truncate text-sm text-slate-900" title={item.name}>{item.name}</strong>
+                    <span className="block truncate text-[11px] text-slate-500">{item.category}</span>
+                  </span>
+                </div>
+                <span className="block w-full truncate text-[11px] text-slate-500">{item.sku||"ไม่มีบาร์โค้ด"}</span>
+                <strong className="block w-full text-right text-sm tabular-nums text-blue-800">
+                  {price===null?"ยังไม่ตั้งราคา":formatMoney(price)+" ฿"}
+                  <small className="block text-[11px] font-normal text-slate-500">
+                    /{item.priceBasis==="kg"?"กก.":"ชิ้น"}
+                    {price!==null&&item.priceUnit!==item.priceBasis
+                      ?" · "+formatRecyclingUnitPrice(price,item.priceUnit)+" ฿/"+RECYCLING_PRICE_UNIT_LABELS[item.priceUnit]:""}
+                  </small>
+                </strong>
+              </button>;
+            })}
+          </div> : <p className="rounded-lg bg-slate-50 p-5 text-center text-sm text-slate-500">
+            ไม่พบวัสดุที่ตรงกับการค้นหาหรือหมวดที่เลือก
+          </p>}
+        </div>
+        <nav className="mt-2 flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-slate-200 pt-2"
+          aria-label="หน้ารายการวัสดุ" data-testid="recycling-catalog-pagination">
+          <span className="text-xs text-slate-500">
+            {filteredProducts.length} รายการ · หน้า {currentPage}/{pageCount}
+          </span>
+          <div className="flex flex-wrap items-center gap-1">
+            <button type="button" aria-label="หน้าก่อนหน้า" disabled={currentPage===1}
+              onClick={()=>setCatalogPage(Math.max(1,currentPage-1))}
+              className="rounded border border-slate-200 px-2 py-1.5 text-xs font-bold disabled:opacity-40">‹</button>
+            {paginationPages.map(page=><button type="button" key={page} aria-current={currentPage===page?"page":undefined}
+              onClick={()=>setCatalogPage(page)}
+              className={"min-w-8 rounded border px-2 py-1.5 text-xs font-bold "+
+                (currentPage===page?"border-blue-700 bg-blue-700 text-white":"border-slate-200 bg-white text-slate-700")}>
+              {page}
+            </button>)}
+            <button type="button" aria-label="หน้าถัดไป" disabled={currentPage===pageCount}
+              onClick={()=>setCatalogPage(Math.min(pageCount,currentPage+1))}
+              className="rounded border border-slate-200 px-2 py-1.5 text-xs font-bold disabled:opacity-40">›</button>
+          </div>
+        </nav>
       </section>
 
       <section className="recycling-cart-panel flex min-h-0 min-w-0 flex-col bg-white p-3">
@@ -716,7 +781,7 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
         <p className="text-xs font-bold uppercase tracking-widest text-blue-700">บาร์โค้ด: {pending.sku || "ไม่ระบุ"}</p>
         <h3 id="recycling-quantity-title" className="mt-1 text-xl font-extrabold text-slate-900">ระบุน้ำหนัก / จำนวน</h3>
         <div className="mt-3 flex items-center gap-3 rounded-lg bg-slate-50 p-3">
-          <CatalogImage item={pending}/>
+          <CatalogImage item={pending} mediaUrl={mediaByProduct[pending.id]}/>
           <div><strong className="block text-slate-900">{pending.name}</strong><small className="text-slate-500">{pending.category}</small></div>
         </div>
         <p className="mt-4 text-sm font-semibold text-slate-700">เลือกหน่วยจากผลชั่งภายนอก</p>
