@@ -6,12 +6,16 @@ alter table public.pos_sessions add column device_code text;
 alter table public.pos_sessions add column user_id uuid;
 alter table public.pos_sessions add column role text;
 alter table public.pos_sessions add column expires_at timestamptz default (now()+interval '1 day');
+alter table public.orders add column pos_session_id uuid;
+alter table public.orders add column created_at timestamptz not null default now();
 
 create table public.payments(
- id uuid primary key,tenant_id uuid,branch_id uuid,shift_id uuid
+ id uuid primary key,tenant_id uuid,branch_id uuid,shift_id uuid,
+ pos_session_id uuid,created_at timestamptz not null default now()
 );
 create table public.cash_drawer_events(
- id uuid primary key,tenant_id uuid,branch_id uuid,shift_id uuid
+ id uuid primary key,tenant_id uuid,branch_id uuid,shift_id uuid,
+ session_id uuid,created_at timestamptz not null default now()
 );
 create table public.audit_logs(
  id uuid primary key default gen_random_uuid(),
@@ -173,5 +177,42 @@ begin
   where id='50505050-5050-4050-8050-505050505050')<>'open' then
     raise exception 'Refused activity recovery modified the legacy shift';
  end if;
+end;
+$assert$;
+
+-- Real POS may store payment/session records without a shift_id; detect them.
+delete from public.orders where id='70707070-7070-4070-8070-707070707070';
+insert into public.payments(id,tenant_id,branch_id,shift_id,pos_session_id)
+values('80808080-8080-4080-8080-808080808080',
+ '11111111-1111-4111-8111-111111111111','22222222-2222-4222-8222-222222222222',
+ null,'60606060-6060-4060-8060-606060606060');
+do $assert$
+begin
+ begin
+  perform public.recycling_recover_legacy_shift_v1(
+    '60606060-6060-4060-8060-606060606060',true);
+  raise exception 'Recovery must reject null-shift payment linked to session';
+ exception when others then
+  if sqlerrm='Recovery must reject null-shift payment linked to session' then raise; end if;
+  if sqlerrm not like '%recycling_recovery_payments_present%' then raise; end if;
+ end;
+end;
+$assert$;
+
+delete from public.payments where id='80808080-8080-4080-8080-808080808080';
+insert into public.cash_drawer_events(id,tenant_id,branch_id,shift_id,session_id)
+values('90909090-9090-4090-8090-909090909090',
+ '11111111-1111-4111-8111-111111111111','22222222-2222-4222-8222-222222222222',
+ null,'60606060-6060-4060-8060-606060606060');
+do $assert$
+begin
+ begin
+  perform public.recycling_recover_legacy_shift_v1(
+    '60606060-6060-4060-8060-606060606060',true);
+  raise exception 'Recovery must reject null-shift drawer event linked to session';
+ exception when others then
+  if sqlerrm='Recovery must reject null-shift drawer event linked to session' then raise; end if;
+  if sqlerrm not like '%recycling_recovery_cash_events_present%' then raise; end if;
+ end;
 end;
 $assert$;
