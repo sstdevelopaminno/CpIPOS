@@ -90,7 +90,7 @@ export async function loadRecyclingHistoryReport(scope:PosSessionScope,kind:Recy
  }
  let shifts:RecyclingHistoryReport["shifts"]=[];
  if(kind==="summary"){
-  const shiftIds=[...new Set(transactions.map(t=>t.shift_id).filter((x):x is string=>Boolean(x)))];
+  const shiftIds=[...new Set(matching.map(t=>t.shift_id).filter((x):x is string=>Boolean(x)))];
   for(let i=0;i<shiftIds.length;i+=65){
    const v=await db.from("shifts")
     .select("id,branch_id,opened_at,closed_at,opening_cash,expected_cash,actual_cash,status")
@@ -102,5 +102,5 @@ export async function loadRecyclingHistoryReport(scope:PosSessionScope,kind:Recy
  }
  return {kind,from,to,date,period,branch,direction,status,q,sessionBranchId:scope.session.branch_id,
   branchOptions:branches.map(b=>({id:b.id,name:b.name})),transactions:matching,lines,shifts,
-  totals:sumRecyclingReportMoney(transactions),page,pages,visible};
+  totals:sumRecyclingReportMoney(kind==="summary"?matching:transactions),page,pages,visible};
 }

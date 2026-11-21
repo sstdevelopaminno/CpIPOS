@@ -27,6 +27,7 @@ export async function RecyclingHistoryReports({scope,kind,search}:{
  const lineMap=new Map(report.transactions.map(t=>[t.id,t]));
  const pageLink=(p:number)=>"?"+new URLSearchParams({
   period:report.period,date:report.date,from:report.from,to:report.to,branch:report.branch,
+       direction:report.direction,status:report.status,q:report.q,
   direction:report.direction,status:report.status,q:report.q,page:String(p)
  }).toString();
  return <main className="mx-auto w-full max-w-[1450px] p-3 text-slate-900 md:p-5" data-testid={"recycling-history-"+kind}>
