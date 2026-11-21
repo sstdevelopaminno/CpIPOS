@@ -38,8 +38,27 @@ describe("shared sales UI standard / CUSTOM / Recycling",()=>{
    expect(recyclerPrint).toContain('"ใบเสร็จขายออกวัสดุรีไซเคิล"');
    expect(recyclerPrint).toContain('"หลักฐานรับซื้อวัสดุรีไซเคิล"');
    expect(recyclerPrint).toContain("voidWarning:");
+   expect(recyclerPrint).toContain("hideCashTenderBreakdown:isBuy");
  });
 
+ it.each([58,80] as const)("does not show cash received or change on Recycling purchase payout (%imm)",width=>{
+   const base = {
+     storeName:"ร้านทดสอบ",branchName:"สาขาหลัก",sellerName:"ผู้ขายวัสดุ",
+     orderNo:"RCY-TEST",paidAtIso:"2026-11-20T04:00:00Z",
+     paperWidthMm:width,
+     items:[{name:"กระดาษ",quantity:1,unitPrice:20,lineTotal:20}],
+     discountAmount:0,totalAmount:20,paymentMethod:"cash"
+   } as const;
+   const purchase=renderReceiptHtml({...base,hideCashTenderBreakdown:true,
+     paymentHeading:"จ่ายเงิน",documentHeading:"ใบเสร็จรับซื้อวัสดุรีไซเคิล"});
+   expect(purchase).toContain("ใบเสร็จรับซื้อวัสดุรีไซเคิล");
+   expect(purchase).toContain("จ่ายเงิน");
+   expect(purchase).not.toContain("<span>รับเงิน</span>");
+   expect(purchase).not.toContain("<span>เงินทอน</span>");
+   const ordinarySale=renderReceiptHtml({...base,documentHeading:"ใบเสร็จขายออกวัสดุรีไซเคิล"});
+   expect(ordinarySale).toContain("<span>รับเงิน</span>");
+   expect(ordinarySale).toContain("<span>เงินทอน</span>");
+ });
  it("labels Recycling credit buying/selling as outstanding rather than paid",()=>{
    expect(recyclerPrint).toContain('const isCredit = args.settlement === "credit"');
    expect(recyclerPrint).toContain('"ยอดค้างจ่ายผู้ขาย"');

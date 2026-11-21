@@ -79,6 +79,8 @@ export function renderRecyclingSharedReceipt(args: {
     taxAmount:0,
     totalAmount:Number(args.totalMinor) / 100,
     paymentMethod:args.settlement,
+    // A Recycling purchase is a cash payout, not cash received/change.
+    hideCashTenderBreakdown:isBuy,
     documentNotice:"เอกสารซื้อขายทั่วไป ไม่ใช่ใบกำกับภาษี",
     voidWarning:args.status === "voided"
       ? `เอกสารยกเลิก VOID — ไม่ใช้ยืนยันธุรกรรมที่ยังมีผล (${args.voidReason ?? "ยกเลิก"})` : null,
