@@ -43,10 +43,18 @@ export function RecyclingSalesModeSwitcher({
   useEffect(()=>{
     if(!open)return;
     function closeOnEscape(event:globalThis.KeyboardEvent){
-      if(event.key!=="Escape"||event.isComposing)return;
-      event.preventDefault();event.stopPropagation();
-      setOpen(false);
-      modeButtonRef.current?.focus();
+      if(event.isComposing)return;
+      if(event.key==="Escape"){
+        event.preventDefault();event.stopPropagation();
+        setOpen(false);
+        modeButtonRef.current?.focus();
+        return;
+      }
+      // While the mode picker is open, never operate the cashier behind it.
+      if(event.key==="Shift"||event.key==="Delete"||
+         ["KeyW","KeyA","KeyD","NumpadAdd","NumpadSubtract"].includes(event.code)){
+        event.stopPropagation();
+      }
     }
     document.addEventListener("keydown",closeOnEscape,true);
     return ()=>document.removeEventListener("keydown",closeOnEscape,true);
