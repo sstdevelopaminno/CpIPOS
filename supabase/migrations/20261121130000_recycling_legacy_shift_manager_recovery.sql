@@ -93,12 +93,14 @@ begin
   -- zero sales does NOT prove this; verify the ledger tables independently.
   select count(*) into v_count from public.orders o
     where o.tenant_id=v_session.tenant_id and o.branch_id=v_session.branch_id
-      and o.shift_id in (v_legacy.id,v_recycling.id);
+      and (o.shift_id in (v_legacy.id,v_recycling.id)
+        or (o.pos_session_id=v_session.id and o.created_at>=v_legacy.opened_at));
   if v_count<>0 then raise exception 'recycling_recovery_orders_present'; end if;
 
   select count(*) into v_count from public.payments p
     where p.tenant_id=v_session.tenant_id and p.branch_id=v_session.branch_id
-      and p.shift_id in (v_legacy.id,v_recycling.id);
+      and (p.shift_id in (v_legacy.id,v_recycling.id)
+        or (p.pos_session_id=v_session.id and p.created_at>=v_legacy.opened_at));
   if v_count<>0 then raise exception 'recycling_recovery_payments_present'; end if;
 
   select count(*) into v_count from public.recycling_transactions t
@@ -108,7 +110,8 @@ begin
 
   select count(*) into v_count from public.cash_drawer_events e
     where e.tenant_id=v_session.tenant_id and e.branch_id=v_session.branch_id
-      and e.shift_id in (v_legacy.id,v_recycling.id);
+      and (e.shift_id in (v_legacy.id,v_recycling.id)
+        or (e.session_id=v_session.id and e.created_at>=v_legacy.opened_at));
   if v_count<>0 then raise exception 'recycling_recovery_cash_events_present'; end if;
 
   if exists (
