@@ -15,7 +15,7 @@ import {
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 import { calculateShiftSalesSummary } from "@/lib/pos-shift-sales-summary";
 import { getRecyclingShiftReconciliation, type RecyclingShiftSettlement } from "@/lib/server/recycling-shift-reconciliation";
-import { isAuthorizedRecyclingTenant } from "@/lib/server/recycling-pos-service";
+
 import { collectPagedShiftRows, collectShiftRowsForIds } from "@/lib/pos-shift-query-pagination";
 
 function isMissingSessionShiftColumnError(error: { code?: string; message?: string } | null | undefined) {
@@ -192,6 +192,8 @@ export async function POST(request: Request) {
       quick_close?: boolean | null;
       clear_open_bills?: boolean | null;
       manager_pin?: string | null;
+      business_mode?: string | null;
+      shift_id?: string | null;
     } | null;
     const quickClose = body?.quick_close === true;
     const shouldClearOpenBills = body?.clear_open_bills === true;
@@ -201,6 +203,36 @@ export async function POST(request: Request) {
     const isStaffRole = scope.session.role !== "owner" && scope.session.role !== "manager" && scope.session.role !== "accountant";
 
     const sessionScope = getTenantBranchScopeFromSession(scope);
+    const supabase = getSupabaseServiceClient();
+    // The persisted shift identity is authoritative. Legacy POS's timed
+    // continue/quick-close request must never close a Recycling day shift,
+    // including zero-transaction shifts where the ledger RPC returns null.
+    const identity = await supabase.from("shifts").select("metadata,opening_cash")
+      .eq("id", shift.id).eq("tenant_id", sessionScope.tenantId)
+      .eq("branch_id", sessionScope.branchId).eq("status", "open").maybeSingle();
+    if (identity.error || !identity.data) {
+      return NextResponse.json({data:null,error:{code:"shift_mode_lookup_failed",
+        message:"ไม่สามารถยืนยันประเภทกะก่อนปิดได้ กรุณาตรวจสอบอีกครั้ง"}},{status:503});
+    }
+    const shiftMetadata = identity.data.metadata && typeof identity.data.metadata === "object" &&
+      !Array.isArray(identity.data.metadata)
+      ? identity.data.metadata as Record<string,unknown> : {};
+    const recyclingShiftMode = shiftMetadata.business_shift_mode === "recycling_daily";
+    const explicitRecyclingClose = body?.business_mode === "recycling";
+    if (recyclingShiftMode && (!explicitRecyclingClose || body?.shift_id !== shift.id ||
+        quickClose || shouldClearOpenBills)) {
+      return NextResponse.json({data:null,error:{code:"recycling_shift_requires_explicit_close",
+        message:"กะ Recycling ห้ามปิดหรือต่อกะผ่านระบบหลัก ต้องยืนยันจากเมนูเปิด/ปิดกะ Recycling เท่านั้น"}},{status:409});
+    }
+    if (explicitRecyclingClose && !recyclingShiftMode) {
+      return NextResponse.json({data:null,error:{code:"recycling_shift_mode_conflict",
+        message:"กะที่เปิดอยู่เป็นกะ POS ทั่วไป ห้ามปิดจากเมนู Recycling"}},{status:409});
+    }
+    if (recyclingShiftMode && (body?.closing_cash === undefined ||
+        body.closing_cash === null || body.closing_cash === "")) {
+      return NextResponse.json({data:null,error:{code:"recycling_shift_cash_count_required",
+        message:"ต้องตรวจนับและยืนยันเงินสดจริงก่อนปิดกะ Recycling"}},{status:409});
+    }
     const opticalPolicy=await getOpticalShiftUiPolicy(sessionScope.tenantId);
     const opticalDay=opticalPolicy.enabled&&opticalPolicy.country&&opticalPolicy.timeZone
       ? resolveOpticalDailyShift({
@@ -230,7 +262,6 @@ export async function POST(request: Request) {
       );
     }
 
-    const supabase = getSupabaseServiceClient();
     if (shouldClearOpenBills) {
       try {
         await clearShiftOpenBills({
@@ -346,17 +377,8 @@ export async function POST(request: Request) {
     // Preserve the original business_shift_mode and branch/day metadata on a
     // manual Recycling close. Previously only Optical retained shift metadata,
     // so the Recycling close slip lost its business-mode identity.
-    if (!opticalPolicy.enabled && await isAuthorizedRecyclingTenant(sessionScope.tenantId)) {
-      const stored = await supabase.from("shifts").select("metadata")
-        .eq("id",shift.id).eq("tenant_id",sessionScope.tenantId)
-        .eq("branch_id",sessionScope.branchId).eq("status","open").maybeSingle();
-      if (stored.error || !stored.data) return NextResponse.json({
-        data:null,error:{code:"recycling_shift_metadata_unavailable",
-          message:"Cannot safely load shift business mode before close."}},{status:503});
-      const metadata=(stored.data.metadata??{}) as Record<string,unknown>;
-      if (metadata.business_shift_mode === "recycling_daily") {
-        priorShiftMetadata=metadata;
-      }
+    if (!opticalPolicy.enabled && recyclingShiftMode) {
+      priorShiftMetadata = shiftMetadata;
     }
         let recyclingShift:RecyclingShiftSettlement|null=null;
     try {
@@ -393,8 +415,16 @@ export async function POST(request: Request) {
       quickClose
     });
 
+    const verifiedOpeningCash = identity.data.opening_cash === null
+      ? null : Number(identity.data.opening_cash);
+    if (recyclingShiftMode && verifiedOpeningCash !== null &&
+        (!Number.isFinite(verifiedOpeningCash) || verifiedOpeningCash < 0)) {
+      return NextResponse.json({data:null,error:{code:"recycling_invalid_opening_cash",
+        message:"เงินสดตั้งต้นไม่ถูกต้อง ต้องตรวจสอบก่อนปิดกะ"}},{status:409});
+    }
     const initialExpectedCash = autoCloseWithoutCashCount ? null : recyclingShift
-      ? recyclingShift.expectedCashMinor/100 : opticalPolicy.enabled ? opticalExpectedCash : closingCash ?? 0;
+      ? recyclingShift.expectedCashMinor/100 : recyclingShiftMode
+        ? verifiedOpeningCash : opticalPolicy.enabled ? opticalExpectedCash : closingCash ?? 0;
     const initialActualCash = autoCloseWithoutCashCount ? null : closingCash ?? 0;
     const { data: closedShift, error: closeError } = await supabase
       .from("shifts")
