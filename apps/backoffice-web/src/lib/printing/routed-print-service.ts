@@ -11,6 +11,7 @@ import { renderReceiptHtml } from "@/lib/printing/receipt-html-template";
 import { getTenantPosCurrencyCode } from "@/lib/server/custom-pos-currency";
 import { getCurrentLanguage } from "@/lib/i18n";
 import { resolvePrinterRoutes, type ResolvedPrinterRoute } from "@/lib/printing/printer-routing-service";
+import { renderRecyclingDailyShiftCloseHtml, recyclingDailyShiftCloseText } from "@/lib/printing/recycling-daily-shift-close-slip";
 import { loadReceiptStoreProfile } from "@/lib/services/store-profile-service";
 import { isQrKitchenAutomaticPrintEnabledForScope } from "@/lib/services/table-qr-automation-policy-service";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
@@ -751,7 +752,7 @@ export async function queueRoutedShiftReport(args: {
   const supabase = getSupabaseServiceClient();
   const { data: shift, error: shiftError } = await supabase
     .from("shifts")
-    .select("id,status,opening_cash,expected_cash,actual_cash,opened_at,closed_at")
+    .select("id,status,opening_cash,expected_cash,actual_cash,opened_at,closed_at,metadata")
     .eq("tenant_id", args.auth.tenantId!)
     .eq("branch_id", args.auth.branchId!)
     .eq("id", args.shiftId)
@@ -767,6 +768,12 @@ export async function queueRoutedShiftReport(args: {
     .eq("branch_id", args.auth.branchId!)
     .eq("shift_id", args.shiftId);
   if (ordersError) throw new Error(ordersError.message);
+  const recyclingMeta=(shift.metadata??{}) as Record<string,unknown>;
+  const isRecyclingDaily=recyclingMeta.business_shift_mode==="recycling_daily";
+  // A Recycling shift must never quietly include regular POS orders in its
+  // thermal close report; mixed shifts require separate manual accounting.
+  if(isRecyclingDaily && (orders??[]).length)
+    throw new Error("recycling_mixed_legacy_shift_requires_reconciliation");
   const completed = (orders ?? []).filter((order) => order.status === "completed");
   const salesTotal = completed.reduce((sum, order) => sum + Number(order.grand_total ?? order.total_amount ?? 0), 0);
   const branchName = await loadBranchName(args.auth);
@@ -787,18 +794,29 @@ export async function queueRoutedShiftReport(args: {
   // Auto-first must print ONE physical copy on ONE assigned report printer.
   for (const route of (args.autoFirst ? routes.slice(0, 1) : routes)) {
     const singleRoute = args.autoFirst ? { ...route, copies: 1 } : route;
-    const payload = shiftReportText({
-      paperWidthMm: route.printer.paper_width_mm,
-      branchName,
-      shiftId: args.shiftId,
-      openedAt: shift.opened_at,
-      closedAt: shift.closed_at,
-      openingCash: Number(shift.opening_cash ?? 0),
-      expectedCash: Number(shift.expected_cash ?? 0),
-      actualCash: Number(shift.actual_cash ?? 0),
-      orderCount: completed.length,
-      salesTotal
-    });
+    const paper:58|80=route.printer.paper_width_mm===80?80:58;
+    const recycled= isRecyclingDaily ? {
+      id:shift.id,branchName,openedAt:shift.opened_at,closedAt:shift.closed_at,
+      openingCash:shift.opening_cash,expectedCash:shift.expected_cash,actualCash:shift.actual_cash,
+      metadata:recyclingMeta
+    } : null;
+    const payload = recycled
+      ? recyclingDailyShiftCloseText(recycled)
+      : shiftReportText({
+        paperWidthMm: paper,
+        branchName,
+        shiftId: args.shiftId,
+        openedAt: shift.opened_at,
+        closedAt: shift.closed_at,
+        openingCash: Number(shift.opening_cash ?? 0),
+        expectedCash: Number(shift.expected_cash ?? 0),
+        actualCash: Number(shift.actual_cash ?? 0),
+        orderCount: completed.length,
+        salesTotal
+      });
+    // Thermal slip is always rendered from the authoritative closed shift,
+    // never untrusted client HTML or the normal POS sales total.
+    const safeReportHtml = recycled ? renderRecyclingDailyShiftCloseHtml(recycled,paper) : reportHtml;
     jobs.push(...await queueOnRoute({
       auth: args.auth,
       route: singleRoute,
@@ -815,7 +833,7 @@ export async function queueRoutedShiftReport(args: {
         shift_id: args.shiftId,
         document_type: "shift_report",
         paper_width_mm: route.printer.paper_width_mm,
-        ...(reportHtml ? { payload_format: "shift_report_html_v1", payload_html: reportHtml } : {})
+        ...(safeReportHtml ? { payload_format: "shift_report_html_v1", payload_html: safeReportHtml } : {})
       }
     }));
   }

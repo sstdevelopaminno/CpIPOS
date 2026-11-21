@@ -3,6 +3,7 @@ import { FeatureGateError, requireTenantFeature } from "@/lib/feature-gate";
 import { PosGuardError, requireActiveShift, requirePermission, requirePosSession } from "@/lib/pos-session-guard";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 import { isAuthorizedRecyclingTenant } from "@/lib/server/recycling-pos-service";
+import { nextOpticalMidnightUtc } from "@/lib/pos-optical-daily-shift";
 
 type TransactionPayload = {
   request_id?: unknown;
@@ -55,6 +56,24 @@ export async function POST(request: Request) {
         "Recycling transaction writes are disabled pending accounting UAT. No transaction was recorded.", 503);
     }
     const { shift } = await requireActiveShift(scope);
+    // The server-side shift row is authoritative. Recycling never posts into
+    // a general POS shift and never posts into yesterday's open shift even if
+    // the minute-based close worker is still running.
+    const verifiedShift=await getSupabaseServiceClient().from("shifts")
+      .select("opened_at,metadata,status")
+      .eq("id",shift.id).eq("tenant_id",scope.session.tenant_id)
+      .eq("branch_id",scope.session.branch_id).maybeSingle();
+    if(verifiedShift.error || !verifiedShift.data) {
+      return fail("recycling_shift_verification_unavailable","Unable to verify Recycling shift.",503);
+    }
+    if(verifiedShift.data.status!=="open" ||
+        (verifiedShift.data.metadata as Record<string,unknown>|null)?.business_shift_mode!=="recycling_daily"){
+      return fail("recycling_shift_mode_required","กรุณาเปิดกะ CUSTOM Recycling แยกจากโหมดขายทั่วไป",409);
+    }
+    const cutoff=nextOpticalMidnightUtc(new Date(verifiedShift.data.opened_at),"Asia/Bangkok");
+    if(!cutoff || Date.now()>=cutoff.getTime()){
+      return fail("recycling_shift_daily_cutoff","กะของเมื่อวานสิ้นสุดแล้ว กำลังรอสรุปและเปิดกะวันใหม่",409);
+    }
     const raw = await request.json().catch(() => null) as TransactionPayload | null;
     if (!raw || typeof raw !== "object" || Array.isArray(raw) ||
         typeof raw.request_id !== "string" || !UUID.test(raw.request_id) ||

@@ -23,3 +23,15 @@ export function hasCustomSalesModeFeatureGrant(
   if (featureCode === "barcode_scanner_mode") return cashierModeSelected;
   return false;
 }
+
+/** IT menu approval grants ONLY management navigation for explicitly enabled CUSTOM Recycling.
+ * Never override an explicitly denied package feature, tenant or branch feature grant.
+ */
+export function hasCustomRecyclingManagementMenuGrant(args:{
+ packageCode:unknown;rawModes:unknown;featureCode:string;
+ menuEnabled:boolean;explicitFeatureOverride:boolean;
+}):boolean{
+ if(String(args.packageCode??"").trim().toLowerCase()!=="custom" || !args.menuEnabled || args.explicitFeatureOverride)return false;
+ if(args.featureCode!=="branch_management"&&args.featureCode!=="user_management")return false;
+ return normalizeCustomPosSalesModes(args.rawModes).recycling===true;
+}

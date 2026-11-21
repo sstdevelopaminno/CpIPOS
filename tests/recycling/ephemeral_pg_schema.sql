@@ -45,6 +45,10 @@ create table public.shifts (
   opening_cash numeric,
   expected_cash numeric,
   actual_cash numeric,
+  opened_at timestamptz not null default now(),
+  closed_at timestamptz,
+  closed_by uuid,
+  closing_cash numeric,
   metadata jsonb not null default '{}'::jsonb,
   status text not null check(status in ('open','closed'))
 );
@@ -245,3 +249,22 @@ insert into public.shifts(id,tenant_id,branch_id,opening_cash,status) values
    'aaaaaaaa-0000-4000-8000-000000000000',
    'bbbbbbbb-0000-4000-8000-000000000000',100,'open');
 grant select,update on public.shifts to authenticated;
+
+-- Stub only cron.job and scheduling to validate migration on disposable PG.
+-- Real Supabase pg_cron is tested separately by production read-only verification.
+create schema if not exists cron;
+create table cron.job(jobid bigint generated always as identity primary key,
+ jobname text not null unique,schedule text not null, command text not null);
+create or replace function cron.schedule(p_name text,p_schedule text,p_command text)
+returns bigint language sql as $$
+ insert into cron.job(jobname,schedule,command) values (p_name,p_schedule,p_command)
+ returning jobid;
+$$;
+create table public.pos_sessions(
+ id uuid primary key,tenant_id uuid not null,branch_id uuid not null,
+ shift_id uuid references public.shifts(id),status text not null default 'active'
+);
+create table public.table_bill_sessions(
+ id uuid primary key,tenant_id uuid not null,branch_id uuid not null,
+ status text not null
+);

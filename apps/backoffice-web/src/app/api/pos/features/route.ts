@@ -1,5 +1,5 @@
 import { isFeatureUnlockEnabled } from "@/lib/feature-unlock";
-import { hasCustomSalesModeFeatureGrant } from "@/lib/custom-sales-entitlements";
+import { hasCustomSalesModeFeatureGrant, hasCustomRecyclingManagementMenuGrant } from "@/lib/custom-sales-entitlements";
 import { fail, ok } from "@/lib/http";
 import { allPosMenuFeatureCodes } from "@/lib/pos-feature-map";
 import { requirePosSession, PosGuardError } from "@/lib/pos-session-guard";
@@ -202,6 +202,20 @@ async function loadTenantFeatureSnapshot(tenantId: string, branchId: string, men
     }
     if (!tenantOverrides.has("barcode_scanner_mode") && !branchOverrides.has("barcode_scanner_mode")) {
       features.barcode_scanner_mode = true;
+    }
+  }
+  // CUSTOM Recycling follows the same explicit IT management-menu approval as
+  // Optical. Do not grant these features for ordinary packages or other CUSTOM modes.
+  if (isCustom && salesModes.recycling) {
+    for (const [feature,menu] of [
+      ["user_management","settings.users"],
+      ["branch_management","settings.branches"]
+    ] as const) {
+      if (hasCustomRecyclingManagementMenuGrant({
+        packageCode:packagePolicyResult.data?.code,rawModes:metadata.sales_modes,
+        featureCode:feature,menuEnabled:menuPolicy[menu]===true,
+        explicitFeatureOverride:tenantOverrides.has(feature)||branchOverrides.has(feature)
+      })) features[feature]=true;
     }
   }
   // Keep pre-entry cashier validation, actual server feature gates, and

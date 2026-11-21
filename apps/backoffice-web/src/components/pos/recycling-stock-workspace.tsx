@@ -2,6 +2,8 @@
 
 import Image from "next/image";
 import Link from "next/link";
+import { RecyclingBarcodeDialog, RecyclingBarcodeMark } from "@/components/pos/recycling-barcode-dialog";
+import { optimizeRecyclingMaterialImage } from "@/lib/recycling-material-image";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import type { RecyclingCatalogItem, RecyclingPriceBasis } from "@/lib/server/recycling-pos-service";
@@ -36,16 +38,21 @@ const blank: FormState = {
   buy_price: "", sell_price: "", image_url: ""
 };
 
-export function RecyclingStockWorkspace({ items, branches, branchId, branchName, canManage }: {
+export function RecyclingStockWorkspace({ items, branches, branchId, branchName, canManage, mediaByProduct = {} }: {
   items: RecyclingCatalogItem[];
   branches: RecyclingStockBranch[];
   branchId: string;
   branchName: string;
   canManage: boolean;
+  mediaByProduct?: Record<string,string>;
 }) {
   const router = useRouter();
   const addButtonRef = useRef<HTMLButtonElement>(null);
   const [filter, setFilter] = useState("");
+  const [barcodeItem, setBarcodeItem] = useState<RecyclingCatalogItem | null>(null);
+  const [photoFile, setPhotoFile] = useState<File | null>(null);
+  const photoPreview = useMemo(() => photoFile ? URL.createObjectURL(photoFile) : "", [photoFile]);
+  useEffect(() => () => { if(photoPreview) URL.revokeObjectURL(photoPreview); }, [photoPreview]);
   const [editing, setEditing] = useState<FormState | null>(null);
   const [editingBranchId, setEditingBranchId] = useState("");
   const [busy, setBusy] = useState(false);
@@ -59,6 +66,7 @@ export function RecyclingStockWorkspace({ items, branches, branchId, branchName,
   function edit(item?: RecyclingCatalogItem) {
     // New materials require an explicit branch choice in the dialog, even
     // when the visible listing has a default branch.
+    setPhotoFile(null);
     setEditingBranchId(item ? branchId : "");
     setError("");
     setNotice("");
@@ -89,6 +97,7 @@ export function RecyclingStockWorkspace({ items, branches, branchId, branchName,
   function closeEditor() {
     if (busy) return;
     setEditing(null);
+    setPhotoFile(null);
     window.requestAnimationFrame(() => addButtonRef.current?.focus());
   }
 
@@ -98,6 +107,7 @@ export function RecyclingStockWorkspace({ items, branches, branchId, branchName,
       if (event.key === "Escape" && !busy) {
         event.preventDefault();
         setEditing(null);
+        setPhotoFile(null);
         window.requestAnimationFrame(() => addButtonRef.current?.focus());
       }
     };
@@ -135,14 +145,39 @@ export function RecyclingStockWorkspace({ items, branches, branchId, branchName,
         })
       });
       const payload = await response.json().catch(() => null) as {
+        data?: { material?: { id?: string } };
         error?: { message?: string; code?: string } | null;
       } | null;
       if (!response.ok) {
         setError(payload?.error?.message ?? "บันทึกสินค้าไม่สำเร็จ โปรดลองใหม่");
         return;
       }
-      setEditing(null);
-      setNotice("บันทึกวัสดุและราคาเรียบร้อยแล้ว");
+      const savedId = payload?.data?.material?.id || editing.id;
+      if (!savedId) { setError("ไม่พบรหัสวัสดุที่บันทึก โปรดรีเฟรช"); return; }
+      if (photoFile) {
+        try {
+          const media = await optimizeRecyclingMaterialImage(photoFile);
+          const form = new FormData();
+          form.set("branch_id", editingBranchId);
+          for(const key of ["display","thumbnail"] as const){
+            const photo=media[key];
+            form.set(key,photo.blob,key+"."+photo.extension);
+            form.set(key+"_width",String(photo.size));
+            form.set(key+"_height",String(photo.size));
+          }
+          const upload=await fetch("/api/pos/product-media/"+encodeURIComponent(savedId),{
+            method:"POST",credentials:"same-origin",body:form});
+          const result=await upload.json().catch(()=>null) as {data?:{asset?:unknown};error?:{message?:string}}|null;
+          if(!upload.ok||!result?.data?.asset)throw new Error(result?.error?.message||"อัปโหลดภาพไม่สำเร็จ");
+        }catch(cause){
+          setEditing(current=>current?{...current,id:savedId}:current);
+          setError("บันทึกทะเบียนวัสดุแล้ว แต่ภาพยังไม่สำเร็จ: "+
+            (cause instanceof Error?cause.message:"กรุณาลองใหม่")+" · กดบันทึกอีกครั้งจะอัปโหลดรูปโดยไม่สร้างสินค้าใหม่");
+          return;
+        }
+      }
+      setEditing(null);setPhotoFile(null);
+      setNotice("บันทึกวัสดุเรียบร้อยแล้ว");
       if (editingBranchId !== branchId) {
         router.push("/preview/pos/recycling/stock?branch_id=" + encodeURIComponent(editingBranchId));
       } else {
@@ -213,10 +248,16 @@ export function RecyclingStockWorkspace({ items, branches, branchId, branchName,
           </tr></thead>
           <tbody>
             {rows.length ? rows.map(item => <tr key={item.id} className="border-t border-slate-100 hover:bg-blue-50/40">
-              <td className="px-3 py-2">{item.imageUrl
-                ? <Image src={item.imageUrl} alt={item.name} width={48} height={48} unoptimized className="h-11 w-11 rounded-lg object-cover"/>
+              <td className="px-3 py-2">{(mediaByProduct[item.id] || item.imageUrl)
+                ? <Image src={mediaByProduct[item.id] || item.imageUrl!} alt={item.name} width={48} height={48} unoptimized className="h-11 w-11 rounded-lg object-cover"/>
                 : <span className="inline-flex h-11 w-11 items-center justify-center rounded-lg bg-slate-100 text-xl" aria-label="ยังไม่มีภาพวัสดุ">♻️</span>}</td>
-              <td className="px-3 py-2 font-mono text-slate-700">{item.sku || "ยังไม่ระบุ"}</td>
+              <td className="px-3 py-2">
+  <button type="button" className="group flex max-w-[160px] flex-col items-center rounded-lg border border-transparent p-1 hover:border-blue-300 hover:bg-blue-50"
+    aria-label={"แสดงและพิมพ์บาร์โค้ด "+item.sku} onClick={()=>setBarcodeItem(item)}>
+    <RecyclingBarcodeMark sku={item.sku} compact/>
+    <span className="mt-1 break-all font-mono text-xs font-semibold text-blue-700 group-hover:underline">{item.sku}</span>
+  </button>
+</td>
               <td className="px-3 py-2 font-bold text-slate-900">{item.name}</td>
               <td className="px-3 py-2 text-slate-600">{item.category}</td>
               <td className="px-3 py-2 text-right font-bold tabular-nums text-blue-700">{item.buyPrice === null ? "ยังไม่กำหนด" : formatRecyclingUnitPrice(item.buyPrice,item.priceUnit)}</td>
@@ -246,6 +287,7 @@ export function RecyclingStockWorkspace({ items, branches, branchId, branchName,
       </footer>
     </section>
 
+    {barcodeItem && <RecyclingBarcodeDialog item={barcodeItem} branchId={branchId} branchName={branchName} onClose={()=>setBarcodeItem(null)}/>}
     {editing && <div className="fixed inset-0 z-[1200] flex items-center justify-center bg-slate-950/70 p-3"
       role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) closeEditor(); }}>
       <form onSubmit={save} role="dialog" aria-modal="true" aria-labelledby="material-editor-title" aria-describedby="material-editor-description"
@@ -326,14 +368,30 @@ export function RecyclingStockWorkspace({ items, branches, branchId, branchName,
             <legend className="text-sm font-extrabold text-slate-900">รูปภาพวัสดุ (ไม่บังคับ)</legend>
             <div className="flex items-center gap-3">
               <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-slate-200 bg-slate-50 text-2xl">
-                {isValidHttpsImagePreview(editing.image_url.trim())
-                  ? <Image src={editing.image_url.trim()} alt="ตัวอย่างรูปวัสดุ" width={64} height={64} unoptimized className="h-full w-full object-cover"/>
+                {Boolean(photoPreview || mediaByProduct[editing.id ?? ""] || isValidHttpsImagePreview(editing.image_url.trim()))
+                  ? <Image src={photoPreview || mediaByProduct[editing.id ?? ""] || editing.image_url.trim()} alt="ตัวอย่างรูปวัสดุ" width={64} height={64} unoptimized className="h-full w-full object-cover"/>
                   : <span aria-hidden="true">♻️</span>}
               </div>
-              <label className="min-w-0 flex-1 text-xs font-semibold text-slate-700">ลิงก์รูปภาพ HTTPS
-                <input type="url" maxLength={1000} value={editing.image_url} onChange={event => setEditing(current => current ? {...current,image_url:event.target.value} : null)}
-                  placeholder="https://..." className="mt-1 block h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 outline-none focus:border-blue-600"/>
-              </label>
+              <div className="min-w-0 flex-1 space-y-2">
+                <label className="flex min-h-11 cursor-pointer items-center justify-center rounded-lg border border-blue-300 bg-blue-50 px-3 text-sm font-bold text-blue-800 hover:bg-blue-100">
+                  {photoFile ? photoFile.name : "คลิกเลือกรูปภาพจากเครื่อง"}
+                  <input type="file" accept="image/jpeg,image/png,image/webp" disabled={busy} className="sr-only"
+                    onChange={event=>{
+                      const file=event.target.files?.[0]??null;event.target.value="";
+                      if(!file)return;
+                      if(!["image/jpeg","image/png","image/webp"].includes(file.type)||file.size<=0||file.size>20*1024*1024){
+                        setError("รองรับ JPG, PNG, WebP ไม่เกิน 20 MB");return;
+                      }
+                      setPhotoFile(file);setError("");
+                    }}/>
+                </label>
+                <p className="text-xs text-slate-500">ย่อภาพ 1200px/400px ตามมาตรฐาน Product Media และโควตาแพ็กเกจเดิม</p>
+                <label className="block text-xs font-semibold text-slate-700">หรือใช้ลิงก์ HTTPS
+                  <input type="url" maxLength={1000} value={editing.image_url}
+                    onChange={e=>setEditing(current=>current?{...current,image_url:e.target.value}:null)}
+                    placeholder="https://..." className="mt-1 block h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900"/>
+                </label>
+              </div>
             </div>
           </fieldset>
           {error && <p role="alert" className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm font-semibold text-rose-800">{error}</p>}
