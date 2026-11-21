@@ -17,6 +17,10 @@ describe("CUSTOM Recycling shift menu isolation and cashier entry gate", () => {
     expect(route).toContain("await isAuthorizedRecyclingTenant(posMenuScope.session.tenant_id)");
     expect(route).toContain("<RecyclingShiftHistoryPageContent />");
     expect(route).toContain("<PosShiftHistoryModule lang={lang} />");
+    expect(route).toContain("isAuthorizedCustomGeneralSaleTenant");
+    expect(route).toContain('mode === "general" && !generalSaleEnabled');
+    expect(route).toContain("notFound()");
+    expect(recyclingPage).toContain("showGeneralShiftLink");
     expect(regular).toContain("export function PosShiftHistoryModule");
     expect(legacyRecyclingRoute).toContain("recycling-shift-history-page-content");
     expect(recyclingPage).toContain("<RecyclingShiftControl");
