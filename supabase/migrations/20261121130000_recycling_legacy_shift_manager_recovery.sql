@@ -135,9 +135,10 @@ begin
   if not found then raise exception 'recycling_recovery_concurrent_close'; end if;
 
   insert into public.shifts(
-    tenant_id,branch_id,device_code,opened_by,status,opening_cash,metadata
+    id,tenant_id,branch_id,device_code,opened_by,status,opening_cash,metadata
   ) values (
-    v_session.tenant_id,v_session.branch_id,v_session.device_code,v_session.user_id,
+    pg_catalog.gen_random_uuid(),v_session.tenant_id,v_session.branch_id,
+    v_session.device_code,v_session.user_id,
     'open',0,jsonb_build_object(
       'business_shift_mode','recycling_daily',
       'recycling_timezone','Asia/Bangkok',
