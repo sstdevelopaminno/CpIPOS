@@ -38,12 +38,15 @@ export function RecyclingShiftControl({branchName}: {branchName:string}) {
   const [loading,setLoading] = useState(true);
   const [lookupFailed,setLookupFailed] = useState(false);
   const [lookupErrorCode,setLookupErrorCode] = useState<string|null>(null);
+  const [recoveryAllowed,setRecoveryAllowed] = useState(false);
+  const [recoveryCash,setRecoveryCash] = useState("");
+  const [recoveryPhrase,setRecoveryPhrase] = useState("");
   const [busy,setBusy] = useState(false);
   const [openingCash,setOpeningCash] = useState("");
   const [closingCash,setClosingCash] = useState("");
   const [message,setMessage] = useState("");
   const [actionError,setActionError] = useState("");
-  const [modalKind,setModalKind] = useState<"open"|"close"|"active"|null>(null);
+  const [modalKind,setModalKind] = useState<"open"|"close"|"active"|"recover"|null>(null);
   const [lastClosed,setLastClosed] = useState<string|null>(null);
 
   async function loadShift() {
@@ -53,22 +56,23 @@ export function RecyclingShiftControl({branchName}: {branchName:string}) {
         credentials:"same-origin", cache:"no-store"
       });
       const body = await response.json().catch(()=>null) as Result<{
-        shift?:ShiftInfo|null; needs_join?:boolean; message?:string
+        shift?:ShiftInfo|null; needs_join?:boolean; message?:string; recovery_allowed?:boolean
       }>|null;
       if (!response.ok) {
         setShift(null);setNeedsJoin(false);setLookupFailed(true);
         setLookupErrorCode(body?.error?.code??"recycling_shift_lookup_failed");
+        setRecoveryAllowed(Boolean(body?.data?.recovery_allowed));
         setMessage(body?.error?.message??"ตรวจสอบสถานะกะไม่สำเร็จ");
       } else {
         const current=body?.data?.shift;
         setShift(current && recyclingShiftIsToday(current.opened_at) ? current : null);
         setNeedsJoin(Boolean(current && body?.data?.needs_join));
-        setLookupFailed(false);setLookupErrorCode(null);
+        setLookupFailed(false);setLookupErrorCode(null);setRecoveryAllowed(false);
         setMessage(body?.data?.message??"");
       }
     } catch {
       setShift(null);setNeedsJoin(false);setLookupFailed(true);
-      setLookupErrorCode("recycling_network_unavailable");
+      setLookupErrorCode("recycling_network_unavailable");setRecoveryAllowed(false);
       setMessage("ไม่สามารถเชื่อมต่อระบบตรวจสอบกะได้ กรุณารีเฟรชสถานะ");
     } finally {setLoading(false);}
   }
@@ -101,12 +105,44 @@ export function RecyclingShiftControl({branchName}: {branchName:string}) {
     return ()=>document.removeEventListener("keydown",onEscape);
   },[modalKind,busy]);
 
-  function showModal(kind:"open"|"close"|"active"){
+  function showModal(kind:"open"|"close"|"active"|"recover"){
     if(loading || busy)return;
     // Allow the cashier to inspect the reason for a blocked shift. Never
     // enable a financial mutation while a conflicting POS shift is open.
-    setActionError(lookupFailed ? message : "");
+    setActionError(lookupFailed && kind!=="recover" ? message : "");
     setModalKind(kind);
+  }
+
+  async function recoverLegacyShift() {
+    if (busy || loading || !recoveryAllowed ||
+        lookupErrorCode!=="recycling_existing_legacy_shift_requires_review") return;
+    if (recoveryCash.trim()!=="0.00" || recoveryPhrase.trim()!=="ยืนยันกู้คืนกะ") {
+      setActionError("กรุณาตรวจนับว่าเงินสดจริงเป็น 0.00 บาท และพิมพ์ ยืนยันกู้คืนกะ");
+      return;
+    }
+    setBusy(true);setActionError("");
+    try {
+      const response=await fetch("/api/pos/recycling/shifts/recover",{
+        method:"POST",credentials:"same-origin",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({counted_cash:0,confirmation:"ยืนยันกู้คืนกะ"})
+      });
+      const body=await response.json().catch(()=>null) as Result<{
+        shift_id?:string;business_shift_mode?:string;message?:string
+      }>|null;
+      if (!response.ok || !body?.data?.shift_id ||
+          body?.data?.business_shift_mode!=="recycling_daily") {
+        setActionError(body?.error?.message??"ไม่สามารถกู้คืนกะได้ ต้องให้ฝ่าย IT ตรวจสอบข้อมูลกะ");
+        return;
+      }
+      setRecoveryCash("");setRecoveryPhrase("");
+      setModalKind(null);setMessage("กู้คืนกะ Recycling สำเร็จ เปิดรับซื้อ–ขายออกได้แล้ว");
+      setLookupFailed(false);setLookupErrorCode(null);setRecoveryAllowed(false);
+      await loadShift();
+      router.refresh();
+    } catch {
+      setActionError("เชื่อมต่อระบบกู้คืนกะไม่สำเร็จ กรุณารีเฟรชสถานะก่อนลองอีกครั้ง");
+    } finally {setBusy(false);}
   }
 
   async function openShift() {
@@ -223,10 +259,16 @@ export function RecyclingShiftControl({branchName}: {branchName:string}) {
           ดูกะปัจจุบัน
         </button>
         <button type="button" onClick={()=>showModal("open")}
-          disabled={loading||busy||hasShift}
+          disabled={loading||busy||hasShift||lookupFailed}
           className="min-h-10 rounded-xl bg-blue-600 px-4 py-2 text-sm font-bold text-white disabled:opacity-50">
           เปิดกะทันที
         </button>
+        {recoveryAllowed && lookupErrorCode==="recycling_existing_legacy_shift_requires_review" &&
+          <button type="button" data-testid="recycling-recover-legacy-button"
+            disabled={loading||busy} onClick={()=>showModal("recover")}
+            className="min-h-10 rounded-xl border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-bold text-amber-900 disabled:opacity-50">
+            ตรวจสอบและกู้คืนกะ
+          </button>}
         <button type="button" onClick={()=>showModal("close")}
           disabled={loading||busy||(!hasShift&&!lookupFailed)||needsJoin}
           className="min-h-10 rounded-xl bg-slate-900 px-4 py-2 text-sm font-bold text-white disabled:opacity-50">
@@ -257,7 +299,7 @@ export function RecyclingShiftControl({branchName}: {branchName:string}) {
           <div>
             <p className="text-xs font-bold tracking-wider text-blue-700">CUSTOM · RECYCLING</p>
             <h3 id="recycling-shift-modal-title" className="mt-1 text-xl font-extrabold text-slate-900">
-              {modalKind==="open"?"เปิดกะประจำวัน":modalKind==="close"?"ยืนยันปิดกะ":"รายละเอียดกะปัจจุบัน"}
+              {modalKind==="open"?"เปิดกะประจำวัน":modalKind==="close"?"ยืนยันปิดกะ":modalKind==="recover"?"ตรวจสอบและกู้คืนกะ Recycling":"รายละเอียดกะปัจจุบัน"}
             </h3>
           </div>
           <button type="button" aria-label="ปิดหน้าต่าง" disabled={busy}
@@ -269,6 +311,8 @@ export function RecyclingShiftControl({branchName}: {branchName:string}) {
             ?"ยืนยันเงินสดตั้งต้นตามยอดที่ตรวจนับจริง ระบบจะเปิดกะเฉพาะเครื่องและสาขานี้"
             :modalKind==="close"
             ?"ตรวจนับเงินสดจริงก่อนปิดกะ ใบสรุปจะส่งเข้าคิวพิมพ์หลังปิดกะสำเร็จ"
+            :modalKind==="recover"
+            ?"เฉพาะกรณีกะ POS ทั่วไปถูกเปิดผิดโดยระบบเดิม ไม่มีรายการซื้อขาย และนับเงินสดได้ศูนย์บาทเท่านั้น"
             :"รายละเอียดเฉพาะกะ Recycling ไม่รวมกะขายทั่วไป"}
         </p>
         <div className="mt-4 grid gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm">
@@ -314,14 +358,36 @@ export function RecyclingShiftControl({branchName}: {branchName:string}) {
             placeholder="กรอกยอดเงินสดจริงก่อนปิดกะ"
             className="mt-2 min-h-11 w-full rounded-xl border border-slate-300 px-3 py-3 text-sm disabled:opacity-50"/>
         </form>}
+        {modalKind==="recover" && recoveryAllowed && <form id="recycling-recover-shift-form"
+          className="mt-4 space-y-3" onSubmit={event=>{event.preventDefault();void recoverLegacyShift();}}>
+          <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-6 text-amber-900">
+            ต้องนับเงินสดจริงก่อนยืนยัน ห้ามใช้การกู้คืนนี้หากมียอดค้างหรือเงินสดมากกว่า 0 บาท
+            ประวัติกะ Recycling ที่ถูกปิดจะถูกเก็บไว้ และจะเปิดกะใหม่พร้อมบันทึกเหตุผลการกู้คืน
+          </p>
+          <label className="block text-sm font-semibold text-slate-800" htmlFor="recycling-recover-count">
+            เงินสดที่นับได้จริง (บาท)
+            <input id="recycling-recover-count" value={recoveryCash}
+              onChange={event=>setRecoveryCash(event.target.value)}
+              placeholder="พิมพ์ 0.00 หลังตรวจนับเงินจริง" type="text" autoComplete="off"
+              disabled={busy}
+              className="mt-2 min-h-11 w-full rounded-lg border border-slate-300 px-3 text-sm"/>
+          </label>
+          <label className="block text-sm font-semibold text-slate-800" htmlFor="recycling-recover-phrase">
+            พิมพ์ ยืนยันกู้คืนกะ
+            <input id="recycling-recover-phrase" value={recoveryPhrase}
+              onChange={event=>setRecoveryPhrase(event.target.value)}
+              placeholder="ยืนยันกู้คืนกะ" autoComplete="off" disabled={busy}
+              className="mt-2 min-h-11 w-full rounded-lg border border-slate-300 px-3 text-sm"/>
+          </label>
+        </form>}
         {actionError&&<p role="alert" className="mt-3 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm font-semibold text-rose-700">
           {actionError}
         </p>}
-        {lookupFailed&&<p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-900">
+        {lookupFailed && modalKind!=="recover" && <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-900">
           กะ Recycling ไม่สามารถเปิดหรือปิดขณะนี้ได้ ระบบจะไม่ปิดกะ POS ทั่วไปแทน
           และไม่แก้ไขข้อมูลเงินสดหรือบิลอัตโนมัติ ให้ผู้จัดการตรวจสอบกะที่ค้างก่อน
         </p>}
-        {lookupFailed&&<button type="button" disabled={loading||busy}
+        {lookupFailed && modalKind!=="recover" && <button type="button" disabled={loading||busy}
           onClick={()=>{setModalKind(null);void loadShift();}}
           className="mt-2 rounded-lg border border-amber-300 px-3 py-2 text-xs font-bold text-amber-900 disabled:opacity-50">
           ตรวจสอบสถานะอีกครั้ง
@@ -331,6 +397,12 @@ export function RecyclingShiftControl({branchName}: {branchName:string}) {
             className="min-h-10 rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 disabled:opacity-50">
             {modalKind==="active"?"ปิดหน้าต่าง":"ยกเลิก"}
           </button>
+          {modalKind==="recover"&&<button type="submit" form="recycling-recover-shift-form"
+            disabled={loading||busy||!recoveryAllowed||recoveryCash.trim()!=="0.00"||
+              recoveryPhrase.trim()!=="ยืนยันกู้คืนกะ"}
+            className="min-h-10 rounded-xl bg-amber-700 px-4 py-2 text-sm font-bold text-white disabled:opacity-50">
+            {busy?"กำลังกู้คืนกะ...":"ยืนยันกู้คืนกะ"}
+          </button>}
           {modalKind==="open"&&<button type="submit" form="recycling-open-shift-form" disabled={busy||loading||lookupFailed||hasShift}
             className="min-h-10 rounded-xl bg-blue-600 px-4 py-2 text-sm font-bold text-white disabled:opacity-50">
             {busy?"กำลังเปิดกะ...":"ยืนยันเปิดกะ"}
