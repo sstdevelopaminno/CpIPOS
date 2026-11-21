@@ -80,8 +80,8 @@ describe("Recycling custom cashier UX", () => {
   it("uses payout popup for buying and customer payment popup for selling", () => {
     expect(cashier).toContain('direction === "buy" ? "จ่ายเงิน" : "ชำระเงิน"');
     expect(cashier).toContain('direction === "buy" ? "วิธีจ่ายเงิน" : "วิธีรับชำระเงิน"');
-    expect(cashier).toContain('direction === "buy" ? "จ่ายเงินสด" : "ชำระเงินสด"');
-    expect(cashier).toContain('direction === "buy" ? "จ่ายเงินโอน" : "ชำระเงินโอน"');
+    expect(cashier).toContain('direction==="buy"?"จ่ายเงินสด":"ชำระเงินสด"');
+    expect(cashier).toContain('direction==="buy"?"จ่ายเงินโอน":"ชำระเงินโอน"');
     expect(cashier).toContain("ต้องตรวจหลักฐานธนาคารก่อนยืนยันธุรกรรม");
     expect(postApi).toContain('raw.settlement === "bank_transfer"');
   });
