@@ -11,7 +11,7 @@ const rows = [
 ] as const;
 const thaiToPhysical = new Map<string,string>();
 for(const [latin,thai] of rows){
-  Array.from(thai).forEach((char,index)=>thaiToPhysical.set(char,latin[index]));
+  Array.from(thai).forEach((char,index)=>{if(/[ก-๙]/u.test(char))thaiToPhysical.set(char,latin[index]);});
 }
 
 export function normalizeRecyclingBarcodeInput(text:string):string{
