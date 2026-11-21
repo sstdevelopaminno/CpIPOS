@@ -15,7 +15,7 @@ describe("CUSTOM Recycling cashier improvements without ordinary POS regression"
    expect(cashier).toContain('searchMode==="barcode"');
    expect(cashier).toContain('normalizeRecyclingBarcodeInput(event.target.value)');
    expect(cashier).toContain('physicalRecyclingBarcodeKey(event.code,event.shiftKey)');
-   expect(cashier).toContain('scanBarcode(event.currentTarget.value)');
+   expect(cashier).toContain('scanBarcode(scanBufferRef.current || event.currentTarget.value)');
    expect(cashier).toContain('searchMode==="name"');
    expect(cashier).toContain('item.name,item.category,item.sku');
    expect(cashier).toContain('resolveRecyclingBarcode(barcodeIndex, normalized)');
