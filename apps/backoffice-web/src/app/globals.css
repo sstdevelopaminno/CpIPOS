@@ -10370,6 +10370,30 @@ body:has(.pos-app-root) {
   }
 }
 
+/* CUSTOM Recycling shift page only: one edge-to-edge workspace.
+   Never change the ordinary package's native shift history layout. */
+.pos-app-content-area:has(> .recycling-shift-layout) {
+  justify-content: stretch;
+  padding: 0 !important;
+  overflow: hidden;
+}
+.pos-app-content-area:has(> .recycling-shift-layout) > .recycling-shift-layout {
+  max-width: none;
+  min-width: 0;
+  min-height: 0;
+  width: 100%;
+}
+.recycling-shift-layout {
+  overscroll-behavior: contain;
+  border: 1px solid #e2e8f0;
+}
+@media (max-width: 640px) {
+  .recycling-shift-layout {
+    border-left: 0;
+    border-right: 0;
+  }
+}
+
 /* Only the CUSTOM Recycling materials page: reuse the native POS shell with a
    full-width stock grid. The ordinary product/ingredient pages are untouched. */
 .pos-app-content-area:has(> .recycling-stock-layout) {
