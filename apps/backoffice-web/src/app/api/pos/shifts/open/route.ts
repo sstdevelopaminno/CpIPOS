@@ -10,7 +10,8 @@ import {
 } from "@/lib/pos-session-guard";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 import { getOpticalShiftUiPolicy } from "@/lib/server/optical-shift-ui-policy";
-import { resolveOpticalDailyShift } from "@/lib/pos-optical-daily-shift";
+import { resolveOpticalDailyShift, nextOpticalMidnightUtc } from "@/lib/pos-optical-daily-shift";
+import { isAuthorizedRecyclingTenant } from "@/lib/server/recycling-pos-service";
 
 function isMissingSessionShiftColumnError(error: { code?: string; message?: string } | null | undefined) {
   if (!error) return false;
@@ -44,7 +45,7 @@ export async function POST(request: Request) {
   try {
     const scope = await requirePosSession();
     requirePermission(scope, "shift:open");
-    const body = (await request.json().catch(() => null)) as { opening_cash?: number | string | null } | null;
+    const body = (await request.json().catch(() => null)) as { opening_cash?: number | string | null; business_mode?: string } | null;
     const openingCashRaw = body?.opening_cash;
     const openingCash =
       openingCashRaw === undefined || openingCashRaw === null || openingCashRaw === ""
@@ -58,7 +59,16 @@ export async function POST(request: Request) {
     }
 
     const sessionScope = getTenantBranchScopeFromSession(scope);
+    const recyclingRequested = body?.business_mode === "recycling";
+    if (recyclingRequested && !await isAuthorizedRecyclingTenant(sessionScope.tenantId)) {
+      return NextResponse.json({data:null,error:{code:"recycling_shift_not_authorized",
+        message:"CUSTOM Recycling entitlement is not active."}},{status:403});
+    }
     const opticalShift=await getOpticalShiftUiPolicy(sessionScope.tenantId);
+    if (recyclingRequested && opticalShift.enabled) {
+      return NextResponse.json({data:null,error:{code:"recycling_optical_shift_conflict",
+        message:"Cannot auto-open a Recycling shift on an Optical daily-shift terminal."}},{status:409});
+    }
     if(opticalShift.enabled && (!opticalShift.timeZone||!opticalShift.country)) {
       return NextResponse.json({data:null,error:{code:"optical_daily_shift_policy_incomplete",message:"IT must configure Optical store timezone and country."}},{status:409});
     }
@@ -138,6 +148,27 @@ export async function POST(request: Request) {
       );
     }
     if (existingLookup.data) {
+      const metaResult = await supabase.from("shifts").select("metadata")
+        .eq("id",existingLookup.data.id).eq("tenant_id",sessionScope.tenantId)
+        .eq("branch_id",sessionScope.branchId).maybeSingle();
+      if(metaResult.error || !metaResult.data)
+        return NextResponse.json({data:null,error:{code:"shift_metadata_unavailable",
+          message:"Cannot verify shift business mode."}},{status:503});
+      const oldMode=(metaResult.data.metadata as Record<string,unknown>|null)?.business_shift_mode;
+      if (recyclingRequested && oldMode!=="recycling_daily") {
+        return NextResponse.json({data:null,error:{code:"recycling_existing_legacy_shift_requires_review",
+          message:"An ordinary POS shift is still open on this terminal; close and reconcile it before opening Recycling."}},{status:409});
+      }
+      if (!recyclingRequested && oldMode==="recycling_daily") {
+        return NextResponse.json({data:null,error:{code:"recycling_shift_not_general_pos",
+          message:"Recycling shift cannot be reused for ordinary POS sales."}},{status:409});
+      }
+      if (recyclingRequested) {
+        const cutoff=nextOpticalMidnightUtc(new Date(existingLookup.data.opened_at),"Asia/Bangkok");
+        if(!cutoff || Date.now()>=cutoff.getTime())
+          return NextResponse.json({data:null,error:{code:"recycling_previous_day_shift_pending_close",
+            message:"Yesterday's Recycling shift is pending the midnight close worker; retry after its reconciliation."}},{status:409});
+      }
       if(opticalShift.enabled && opticalShift.country && opticalShift.timeZone) {
         const {data:old,error:oldError}=await supabase.from("shifts")
           .select("metadata").eq("id",existingLookup.data.id)
@@ -169,7 +200,9 @@ export async function POST(request: Request) {
           opened_via: "pos_session_gate",
           session_id: scope.session.id,
           ...(opticalShift.enabled ? {business_shift_mode:"optical_daily",optical_timezone:opticalShift.timeZone,
-            optical_country:opticalShift.country,optical_currency:opticalShift.currency}: {})
+            optical_country:opticalShift.country,optical_currency:opticalShift.currency}: {}),
+          ...(recyclingRequested ? {business_shift_mode:"recycling_daily",recycling_timezone:"Asia/Bangkok",
+            cash_count_required:true, opened_via:"recycling_auto_on_cashier_entry"} : {})
         }
       })
       .select("id,status,opened_at,opening_cash,device_code")
@@ -185,6 +218,8 @@ export async function POST(request: Request) {
 
     if (isMissingShiftDeviceCodeColumnError(createResult.error) || shouldUseLegacyShiftInsert(createResult.error)) {
       // Do not create an untagged Optical shift if the old DB lacks metadata.
+      if(recyclingRequested) return NextResponse.json({data:null,error:{code:"recycling_shift_metadata_required",
+        message:"Recycling daily shifts require the metadata-enabled shift schema."}},{status:409});
       if(opticalShift.enabled) return NextResponse.json({data:null,error:{code:"optical_shift_metadata_required",message:"Optical shift requires the metadata-enabled shifts schema."}},{status:409});
       const legacyCreateResult = await supabase
         .from("shifts")
