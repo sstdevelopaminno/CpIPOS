@@ -272,6 +272,11 @@ export function RecyclingStockWorkspace({ items, branches, branchId, branchName,
           <Link href="/preview/pos/more" className="inline-flex min-h-10 items-center rounded-lg border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50">
             ← กลับเมนูเพิ่มเติม
           </Link>
+          {canManage && items.length>0 && <button type="button" data-testid="recycling-delete-all"
+            disabled={busy} onClick={event=>requestDelete("all",event.currentTarget)}
+            className="inline-flex min-h-10 items-center rounded-lg border border-rose-300 bg-white px-3 text-sm font-bold text-rose-700 hover:bg-rose-50 disabled:opacity-50">
+            ลบทั้งหมด
+          </button>}
           {canManage && <button ref={addButtonRef} type="button" onClick={() => edit()}
             className="inline-flex min-h-10 items-center rounded-lg bg-blue-700 px-4 text-sm font-extrabold text-white hover:bg-blue-800">
             + เพิ่มวัสดุ
@@ -329,10 +334,18 @@ export function RecyclingStockWorkspace({ items, branches, branchId, branchName,
                 {item.quantityBase === null ? "รอยืนยันสต๊อก" : item.quantityBase.toLocaleString("th-TH", {maximumFractionDigits:6}) + (item.priceBasis === "kg" ? " กก." : " ชิ้น")}
               </td>
               {canManage && <td className="px-3 py-2 text-center">
-                <button type="button" onClick={() => edit(item)}
-                  className="rounded-lg border border-blue-200 bg-white px-3 py-2 text-xs font-bold text-blue-700 hover:bg-blue-50">
-                  แก้ไข
-                </button>
+                <div className="flex items-center justify-center gap-2">
+                  <button type="button" onClick={() => edit(item)} disabled={busy}
+                    className="rounded-lg border border-blue-200 bg-white px-3 py-2 text-xs font-bold text-blue-700 hover:bg-blue-50 disabled:opacity-50">
+                    แก้ไข
+                  </button>
+                  <button type="button" data-testid={"recycling-delete-item-"+item.id}
+                    aria-label={"ลบวัสดุ "+item.name} disabled={busy}
+                    onClick={event=>requestDelete(item,event.currentTarget)}
+                    className="rounded-lg border border-rose-200 bg-white px-3 py-2 text-xs font-bold text-rose-700 hover:bg-rose-50 disabled:opacity-50">
+                    ลบ
+                  </button>
+                </div>
               </td>}
             </tr>) : <tr><td colSpan={canManage ? 9 : 8} className="px-4 py-16 text-center">
               <p className="text-sm font-semibold text-slate-700">{items.length === 0 ? "ยังไม่มีวัสดุในสาขานี้" : "ไม่พบวัสดุตรงกับคำค้นหา"}</p>
@@ -349,6 +362,51 @@ export function RecyclingStockWorkspace({ items, branches, branchId, branchName,
       </footer>
     </section>
 
+    {deleteTarget && <div className="fixed inset-0 z-[1300] grid place-items-center bg-slate-950/60 p-3"
+      onMouseDown={event=>{if(event.target===event.currentTarget)cancelDelete();}}
+      data-testid="recycling-material-delete-overlay">
+      <section role="alertdialog" aria-modal="true" aria-labelledby="recycling-delete-title"
+        aria-describedby="recycling-delete-description" data-testid="recycling-material-delete-confirm"
+        className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl sm:p-6">
+        <div className="flex items-start gap-3">
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-rose-50 text-xl text-rose-700" aria-hidden>!</div>
+          <div className="min-w-0">
+            <h3 id="recycling-delete-title" className="text-lg font-extrabold text-slate-950">
+              {deleteTarget==="all"?"ยืนยันลบวัสดุทั้งหมด":"ยืนยันลบวัสดุรายการนี้"}
+            </h3>
+            <p id="recycling-delete-description" className="mt-2 text-sm leading-6 text-slate-600">
+              {deleteTarget==="all"
+                ? `ลบวัสดุทั้งหมด ${items.length} รายการของสาขา ${branchName} ไม่ใช่เฉพาะรายการที่ค้นหา`
+                : `ลบวัสดุ ${deleteTarget.name} (รหัส ${deleteTarget.sku}) จากสาขา ${branchName}`}
+            </p>
+          </div>
+        </div>
+        <p className="mt-4 rounded-lg bg-slate-50 p-3 text-xs leading-5 text-slate-700">
+          ระบบจะซ่อนวัสดุจากการใช้งาน แต่ยังคงประวัติซื้อขายและเอกสารย้อนหลัง
+          วัสดุที่มีสต๊อกคงเหลือจะไม่อนุญาตให้ลบ
+        </p>
+        {deleteTarget==="all" && <label htmlFor="recycling-delete-all-phrase"
+          className="mt-4 block text-sm font-semibold text-slate-800">
+          พิมพ์ <strong>ลบทั้งหมด</strong> เพื่อยืนยัน
+          <input id="recycling-delete-all-phrase" autoFocus type="text" autoComplete="off"
+            value={deleteConfirmation} onChange={event=>setDeleteConfirmation(event.target.value)}
+            disabled={busy} placeholder="ลบทั้งหมด"
+            className="mt-2 h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm outline-none focus:border-rose-500 disabled:opacity-50"/>
+        </label>}
+        {deleteError && <p role="alert" className="mt-3 rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm font-semibold text-rose-800">{deleteError}</p>}
+        <div className="mt-5 flex justify-end gap-2">
+          <button type="button" onClick={cancelDelete} disabled={busy}
+            className="min-h-11 rounded-lg border border-slate-300 px-4 text-sm font-bold text-slate-700 disabled:opacity-50">
+            ยกเลิก
+          </button>
+          <button type="button" onClick={()=>void confirmDelete()}
+            disabled={busy || (deleteTarget==="all"&&deleteConfirmation.trim()!=="ลบทั้งหมด")}
+            className="min-h-11 rounded-lg bg-rose-700 px-4 text-sm font-extrabold text-white hover:bg-rose-800 disabled:cursor-not-allowed disabled:opacity-50">
+            {busy?"กำลังลบ...":deleteTarget==="all"?`ยืนยันลบ ${items.length} รายการ`:"ยืนยันลบรายการ"}
+          </button>
+        </div>
+      </section>
+    </div>}
     {barcodeItem && <RecyclingBarcodeDialog item={barcodeItem} branchId={branchId} branchName={branchName} onClose={()=>setBarcodeItem(null)}/>}
     {editing && <div className="fixed inset-0 z-[1200] flex items-center justify-center bg-slate-950/70 p-3"
       role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) closeEditor(); }}>
