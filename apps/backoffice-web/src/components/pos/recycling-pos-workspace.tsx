@@ -70,75 +70,74 @@ export function RecyclingPosWorkspace({ products, branchName, storeName, deviceC
   const scannerRef = useRef<HTMLInputElement>(null);
   useEffect(()=>{postingRef.current=posting;},[posting]);
   const canUseShift=shiftGate==="open" && recyclingShiftIsToday(shiftOpenedAt);
-  useEffect(()=>{
-    let mounted=true;
-    async function ensureDailyShift(){
-      if(gateInFlightRef.current)return;
-      gateInFlightRef.current=true;
-      if(mounted){setShiftGate("checking");setShiftMessage("กำลังตรวจสอบและเปิดกะ Recycling ประจำวัน...");}
-      try{
-        const response=await fetch("/api/pos/shifts/open",{
-          method:"POST",credentials:"same-origin",
-          headers:{"Content-Type":"application/json"},
-          body:JSON.stringify({business_mode:"recycling"})
+  useEffect(() => {
+    let mounted = true;
+    async function checkShift() {
+      if (gateInFlightRef.current) return;
+      gateInFlightRef.current = true;
+      if (mounted) {
+        setShiftGate("checking");
+        setShiftMessage("กำลังตรวจสอบสถานะกะ Recycling...");
+      }
+      try {
+        const response = await fetch("/api/pos/recycling/shifts/current", {
+          credentials: "same-origin", cache: "no-store"
         });
-        const result=await response.json().catch(()=>null) as {
-          data?:{shift?:{id:string;opened_at:string;status:string}};
-          error?:{code?:string;message?:string}
-        }|null;
-        if(!mounted)return;
-        const opened=result?.data?.shift?.opened_at??"";
-        if(response.ok && result?.data?.shift?.status==="open" && recyclingShiftIsToday(opened)){
-          setShiftOpenedAt(opened);setShiftGate("open");
-          setShiftMessage("กะ Recycling วันนี้เปิดแล้ว · ระบบจะปิดกะหลังเที่ยงคืนและส่งยอดรอตรวจนับเงินสด");
-        }else{
-          setShiftGate("blocked");setShiftOpenedAt("");
-          const code=result?.error?.code;
-          setShiftMessage(code==="recycling_previous_day_shift_pending_close"
-            ? "กำลังรอระบบปิดกะของวันก่อนและตรวจสอบบิลค้าง ห้ามบันทึกธุรกรรมซ้ำ"
-            : code==="recycling_shift_already_closed_today"
-            ? "กะของวันนี้ปิดไปแล้ว จะเปิดอัตโนมัติอีกครั้งเมื่อเข้าสู่วันใหม่"
-            : result?.error?.message??"เปิดกะ Recycling ไม่สำเร็จ กรุณาตรวจสอบสิทธิ์และสถานะกะ");
+        const result = await response.json().catch(() => null) as {
+          data?: { shift?: { id: string; opened_at: string; status: string } | null; needs_join?: boolean; message?: string };
+          error?: { code?: string; message?: string };
+        } | null;
+        if (!mounted) return;
+        const shift = result?.data?.shift;
+        if (response.ok && shift?.status === "open" && !result?.data?.needs_join &&
+            recyclingShiftIsToday(shift.opened_at)) {
+          setShiftOpenedAt(shift.opened_at);
+          setShiftGate("open");
+          setShiftMessage("กะ Recycling เปิดแล้ว");
+        } else {
+          setShiftOpenedAt("");
+          setShiftGate("blocked");
+          setShiftMessage(result?.error?.message ?? result?.data?.message ??
+            "ยังไม่ได้เปิดกะวันนี้ กรุณาไปที่เมนูเปิด/ปิดกะ");
         }
-      }catch{
-        if(mounted){setShiftGate("blocked");setShiftMessage("เชื่อมต่อระบบเปิดกะไม่สำเร็จ กรุณาลองอีกครั้ง");}
-      }finally{gateInFlightRef.current=false;}
+      } catch {
+        if (mounted) {
+          setShiftGate("blocked");
+          setShiftOpenedAt("");
+          setShiftMessage("ไม่สามารถตรวจสอบสถานะกะได้ กรุณาลองอีกครั้ง");
+        }
+      } finally {
+        gateInFlightRef.current = false;
+      }
     }
-    void ensureDailyShift();
-    const onDayCheck=()=>{
-      const today=recyclingBusinessDayKey(new Date());
-      if(today!==lastDayRef.current){
-        lastDayRef.current=today;
-        // Drafts here are browser-only; never delete real receipts or stock.
-        rolloverWhilePostingRef.current=postingRef.current;
-        if(!postingRef.current){
-          setLines([]);setPending(null);setCheckoutOpen(false);setCounterpartyName("");
-          requestIdRef.current="";setPosted(null);
+    // Visiting the cashier never creates a shift. Opening/joining requires
+    // an explicit action from the dedicated Recycling shift screen.
+    void checkShift();
+    const onDayCheck = () => {
+      const today = recyclingBusinessDayKey(new Date());
+      if (today !== lastDayRef.current) {
+        lastDayRef.current = today;
+        rolloverWhilePostingRef.current = postingRef.current;
+        if (!postingRef.current) {
+          setLines([]); setPending(null); setCheckoutOpen(false); setCounterpartyName("");
+          requestIdRef.current = ""; setPosted(null);
         }
-        setShiftGate("checking");setShiftOpenedAt("");
-        setError("เปลี่ยนวันธุรกิจแล้ว ระบบเคลียร์เฉพาะตะกร้าที่ยังไม่บันทึก และสรุปกะเดิมโดยไม่ลบใบเสร็จ");
-        void ensureDailyShift();
+        setShiftGate("checking"); setShiftOpenedAt("");
+        setError("เปลี่ยนวันธุรกิจแล้ว เคลียร์เฉพาะตะกร้าที่ยังไม่บันทึก ไม่ลบใบเสร็จหรือสต๊อก");
+        void checkShift();
       }
     };
-    const interval=window.setInterval(onDayCheck,5000);
-    document.addEventListener("visibilitychange",onDayCheck);
-    return ()=>{mounted=false;window.clearInterval(interval);
-      document.removeEventListener("visibilitychange",onDayCheck);};
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") void checkShift();
+    };
+    const interval = window.setInterval(onDayCheck, 5000);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      mounted = false;
+      window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
   }, []);
-  // No polling: the local timer detects midnight and the server cron owns the real close.
-  async function retryShiftGate(){
-    setShiftGate("checking");
-    try{
-      const response=await fetch("/api/pos/shifts/open",{method:"POST",credentials:"same-origin",
-        headers:{"Content-Type":"application/json"},body:JSON.stringify({business_mode:"recycling"})});
-      const body=await response.json().catch(()=>null) as {data?:{shift?:{opened_at:string;status:string}};error?:{message?:string}}|null;
-      const opened=body?.data?.shift?.opened_at??"";
-      if(response.ok&&body?.data?.shift?.status==="open"&&recyclingShiftIsToday(opened)){
-        setShiftOpenedAt(opened);setShiftGate("open");
-        setShiftMessage("เปิดกะ Recycling วันนี้แล้ว");
-      }else{setShiftGate("blocked");setShiftMessage(body?.error?.message??"ยังเปิดกะไม่สำเร็จ");}
-    }catch{setShiftGate("blocked");setShiftMessage("ติดต่อเซิร์ฟเวอร์ไม่สำเร็จ");}
-  }
 
   const barcodeIndex = useMemo(() => buildRecyclingBarcodeIndex(products), [products]);
   const visibleLines = lines.filter(line => line.direction === direction);
@@ -369,19 +368,33 @@ export function RecyclingPosWorkspace({ products, branchName, storeName, deviceC
 
   return <main className="recycling-pos-layout flex h-full min-h-0 w-full flex-col overflow-hidden bg-white" data-testid="recycling-custom-pos">
     <RecyclingSalesModeSwitcher storeName={storeName} branchName={branchName}
-      deviceCode={deviceCode} sellerName={sellerName} shiftStatus={canUseShift?"เปิดกะแล้ว":shiftGate==="checking"?"กำลังเปิดกะ":"ยังไม่เปิดกะ"}
+      deviceCode={deviceCode} sellerName={sellerName} shiftStatus={canUseShift?"เปิดกะแล้ว":shiftGate==="checking"?"กำลังตรวจสอบกะ":"ยังไม่เปิดกะ"}
       generalSaleEnabled={generalSaleEnabled} direction={direction}
       onDirectionChange={changeDirection} busy={posting}/>
-    <div data-testid="recycling-daily-shift-gate" role={canUseShift?"status":"alert"}
-      className={"flex flex-wrap items-center justify-between gap-2 border-b px-4 py-2 text-xs font-semibold "+
-        (canUseShift?"border-emerald-200 bg-emerald-50 text-emerald-900":"border-amber-200 bg-amber-50 text-amber-950")}>
-      <span>{shiftMessage} · สาขา {branchName} · รอบวัน 00:00–24:00 น. (เวลาไทย)</span>
-      <div className="flex gap-2">
-        <Link href="/preview/pos/recycling/shifts" className="rounded-lg border border-current px-3 py-2">เปิด/ปิดกะและใบสรุป</Link>
-        {!canUseShift && <button type="button" onClick={()=>void retryShiftGate()}
-          className="rounded-lg border border-current px-3 py-2" disabled={shiftGate==="checking"}>ตรวจสอบ/เปิดกะอีกครั้ง</button>}
-      </div>
-    </div>
+    {!canUseShift && <div data-testid="recycling-daily-shift-gate"
+      className="fixed inset-0 z-[160] flex items-center justify-center bg-slate-950/55 px-4 py-8"
+      role="dialog" aria-modal="true" aria-labelledby="recycling-shift-gate-title"
+      aria-describedby="recycling-shift-gate-message">
+      <section className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl sm:p-7">
+        <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-blue-50 text-2xl text-blue-700" aria-hidden="true">♻</div>
+        <h2 id="recycling-shift-gate-title" className="text-xl font-extrabold text-slate-900">
+          {shiftGate === "checking" ? "กำลังตรวจสอบกะ" : "กรุณาเปิดกะก่อนเริ่มรับซื้อ–ขายออก"}
+        </h2>
+        <p id="recycling-shift-gate-message" className="mt-3 text-sm leading-6 text-slate-600">{shiftMessage}</p>
+        <p className="mt-2 text-xs text-slate-500">ตรวจสอบตามสาขาและเครื่องที่เข้าสู่ระบบ · กะ Recycling แยกจาก POS ทั่วไป</p>
+        <div className="mt-6 flex flex-col gap-2 sm:flex-row">
+          <Link href="/preview/pos/shift"
+            className="flex min-h-11 flex-1 items-center justify-center rounded-lg bg-blue-700 px-4 py-3 text-sm font-bold text-white">
+            ไปหน้าเปิด/ปิดกะ
+          </Link>
+          <button type="button" disabled={shiftGate === "checking"}
+            onClick={() => window.location.reload()}
+            className="min-h-11 rounded-lg border border-slate-300 px-4 py-3 text-sm font-semibold text-slate-700 disabled:opacity-50">
+            ตรวจสอบอีกครั้ง
+          </button>
+        </div>
+      </section>
+    </div>}
     {!transactionWritesEnabled && <div role="alert" className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-900">
       ระบบรับซื้อ–ขายออกยังปิดการบันทึกธุรกรรมจริงระหว่างตรวจสอบ Backend ไม่มีรายการสต๊อกหรือบัญชีถูกบันทึก
     </div>}
