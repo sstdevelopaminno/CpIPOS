@@ -35,7 +35,20 @@ export async function GET() {
     const mode = row?.metadata && typeof row.metadata === "object" && !Array.isArray(row.metadata)
       ? (row.metadata as Record<string, unknown>).business_shift_mode : null;
     if (row && mode !== "recycling_daily") {
-      return NextResponse.json({ data: null, error: { code: "recycling_existing_legacy_shift_requires_review", message: "มี POS กะทั่วไปเปิดค้างอยู่ ต้องปิดและตรวจสอบก่อนเปิดกะ Recycling" } }, { status: 409 });
+      const recoveryEligibleRole = scope.session.role === "owner" || scope.session.role === "manager";
+      const legacyCreatedByGate = (row.metadata as Record<string,unknown>|null)?.opened_via === "pos_session_gate";
+      return NextResponse.json({
+        data:{
+          recovery_allowed: recoveryEligibleRole && legacyCreatedByGate,
+          legacy_shift_opened_at: row.opened_at
+        },
+        error:{
+          code:"recycling_existing_legacy_shift_requires_review",
+          message:recoveryEligibleRole
+            ? "มีกะ POS ทั่วไปค้างจากระบบเดิม หากไม่มีธุรกรรมและตรวจนับเงินสดได้ 0.00 บาท สามารถใช้ขั้นตอนกู้คืนกะได้"
+            : "มีกะ POS ทั่วไปเปิดค้างอยู่ กรุณาให้เจ้าของร้านหรือผู้จัดการตรวจสอบการกู้คืนกะ Recycling"
+        }
+      }, { status:409 });
     }
     if (row && !recyclingShiftIsToday(row.opened_at)) {
       return NextResponse.json({ data: null, error: { code: "recycling_previous_day_shift_pending_close", message: "กะเมื่อวานกำลังรอปิดและตรวจสอบยอด กรุณาติดต่อผู้จัดการ" } }, { status: 409 });
