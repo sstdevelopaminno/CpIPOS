@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requirePosSession, requirePermission } from "@/lib/pos-session-guard";
 import { isAuthorizedRecyclingTenant } from "@/lib/server/recycling-pos-service";
@@ -40,30 +39,14 @@ export default async function RecyclingShiftHistoryPageContent() {
     return meta && typeof meta === "object" &&
       (meta.business_shift_mode === "recycling_daily" || meta.recycling_buy_count !== undefined || meta.recycling_sell_count !== undefined);
   });
-  return <main className="mx-auto w-full max-w-[1480px] space-y-4 px-3 pb-8 pt-4 md:px-6">
-    <header className="rounded-2xl border border-slate-200 bg-white px-5 py-4 shadow-sm">
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div className="min-w-0">
-          <p className="text-xs font-bold tracking-wider text-blue-700">CUSTOM · RECYCLING</p>
-          <h1 className="mt-1 text-xl font-extrabold text-slate-900 sm:text-2xl">เปิด/ปิดกะ · รับซื้อ–ขายออก</h1>
-          <p className="mt-1 text-sm text-slate-500">กะประจำวันเฉพาะโหมดค้าของเก่า ไม่เกี่ยวกับกะของ POS แพ็กเกจหลัก</p>
-        </div>
-        <Link href="/preview/pos" className="inline-flex min-h-10 items-center rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">
-          กลับหน้ารับซื้อ–ขายออก
-        </Link>
-      </div>
-    </header>
+  return <main className="recycling-shift-layout flex h-full min-h-0 w-full flex-col overflow-y-auto bg-white" data-testid="recycling-shift-single-container">
     <RecyclingShiftControl branchName={scope.branch?.name ?? "สาขาที่เข้าสู่ระบบ"}/>
-    <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm leading-6 text-slate-600">
-      รายงานนี้แสดงยอดที่ฐานข้อมูลบันทึกเมื่อปิดกะ ไม่ใช่รายการรับโอนธนาคารที่ยืนยันแล้ว และไม่นับเครดิตเป็นเงินสด
-      ต้องให้ฝ่ายบัญชีตรวจรายการเงินฝากธนาคาร ลูกหนี้ เจ้าหนี้ และผลต่างเงินสดแยกจากกัน
-    </div>
-    <section className="space-y-3">
-      <div className="flex flex-wrap items-center justify-between gap-2 px-1">
-        <h2 className="text-base font-extrabold text-slate-900">ประวัติกะ Recycling</h2>
+    <section className="flex min-h-0 min-w-0 flex-1 flex-col">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 px-4 py-3">
+        <h1 className="text-base font-extrabold text-slate-900">ประวัติเปิด/ปิดกะ Recycling</h1>
         <span className="text-xs text-slate-500">แสดง {shifts.length} รายการล่าสุดของสาขา</span>
       </div>
-      <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-sm">
+      <div className="min-h-0 w-full flex-1 overflow-x-auto overflow-y-auto">
       <table className="w-full min-w-[1050px] text-sm">
         <thead className="bg-slate-100 text-left text-slate-800">
           <tr>
@@ -111,8 +94,8 @@ export default async function RecyclingShiftHistoryPageContent() {
       </table>
       </div>
     </section>
-    <p className="text-xs text-slate-500">
-      แสดง 60 กะล่าสุดของสาขาที่เข้าสู่ระบบเท่านั้น หากจำนวนข้อมูลสูงกว่านี้ต้องตรวจจากรายงานแบบแบ่งหน้า
+    <p className="border-t border-slate-200 px-4 py-2 text-xs text-slate-500">
+      แสดงไม่เกิน 60 กะล่าสุดของสาขาที่เข้าสู่ระบบ หากต้องการข้อมูลเพิ่มเติมให้ตรวจจากรายงานแบบแบ่งหน้า
     </p>
   </main>;
 }

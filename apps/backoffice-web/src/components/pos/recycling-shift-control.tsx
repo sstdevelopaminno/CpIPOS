@@ -196,7 +196,7 @@ export function RecyclingShiftControl({branchName}: {branchName:string}) {
     minimumFractionDigits:2,maximumFractionDigits:2
   })+" บาท";
 
-  return <section className="rounded-2xl border border-slate-200 bg-white px-4 py-4 shadow-sm sm:px-5"
+  return <section className="w-full shrink-0 border-b border-slate-200 bg-white px-4 py-3"
     data-testid="recycling-shift-control">
     <div className="flex flex-wrap items-center justify-between gap-3">
       <div className="min-w-0">
@@ -229,7 +229,7 @@ export function RecyclingShiftControl({branchName}: {branchName:string}) {
         </button>
       </div>
     </div>
-    {message&&<p role="status" className="mt-3 rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-700">{message}</p>}
+    {message && (!shift || message !== "กะ Recycling เปิดแล้ว") && <p role="status" className="mt-2 text-xs text-slate-600">{message}</p>}
     <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
       {lastClosed?<RecyclingShiftPrintButton shiftId={lastClosed}/>:<span className="text-xs text-slate-500">
         {shift?"กะเริ่ม "+new Date(shift.opened_at).toLocaleString("th-TH",{timeZone:"Asia/Bangkok"}):"ยังไม่มีกะที่เปิดในเครื่องนี้"}

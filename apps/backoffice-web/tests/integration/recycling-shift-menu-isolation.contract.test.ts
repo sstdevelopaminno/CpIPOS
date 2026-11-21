@@ -53,6 +53,24 @@ describe("CUSTOM Recycling shift menu isolation and cashier entry gate", () => {
     expect(current).not.toContain("shifts/open");
   });
 
+  it("renders one edge-to-edge Recycling shift workspace without redundant header and warning strips", () => {
+    const css = source("src/app/globals.css");
+    expect(recyclingPage).toContain('data-testid="recycling-shift-single-container"');
+    expect(recyclingPage).toContain('className="recycling-shift-layout flex h-full min-h-0 w-full flex-col');
+    expect(recyclingPage).toContain("<RecyclingShiftControl");
+    expect(recyclingPage).toContain("ประวัติเปิด/ปิดกะ Recycling");
+    expect(recyclingPage).not.toContain("CUSTOM · RECYCLING");
+    expect(recyclingPage).not.toContain("กลับหน้ารับซื้อ–ขายออก");
+    expect(recyclingPage).not.toContain("รายงานนี้แสดงยอดที่ฐานข้อมูลบันทึกเมื่อปิดกะ");
+    expect(recyclingPage).not.toContain('rounded-2xl border border-slate-200 bg-white px-5');
+    expect(control).toContain('className="w-full shrink-0 border-b border-slate-200 bg-white px-4 py-3"');
+    expect(css).toContain(".pos-app-content-area:has(> .recycling-shift-layout)");
+    expect(css).toContain("padding: 0 !important;");
+    expect(css).toContain("max-width: none;");
+    expect(route).toContain("<PosShiftHistoryModule lang={lang} />");
+    expect(regular).toContain("export function PosShiftHistoryModule");
+  });
+
   it("opens Recycling controls in isolated popups rather than permanent forms", () => {
     expect(control).toContain('data-testid="recycling-shift-actions"');
     expect(control).toContain('data-testid="recycling-shift-popup"');
