@@ -1,3 +1,6 @@
+import { RecyclingHistoryReports } from "@/components/pos/recycling-history-reports";
+import { isAuthorizedRecyclingTenant } from "@/lib/server/recycling-pos-service";
+import type { RecyclingReportQuery } from "@/lib/server/recycling-history-reports";
 import { assertPosMenuPageAllowed } from "@/lib/server/pos-menu-policy-service";
 import { requirePermission, requirePosSession } from "@/lib/pos-session-guard";
 import { authorizeOpticalMoreMenu } from "@/lib/server/optical-more-feature-access";
@@ -6,9 +9,14 @@ import { getCurrentLanguage } from "@/lib/i18n";
 import { requirePosPagePermission } from "@/lib/pos-page-guard";
 import { requireOpticalRetailEntitlement } from "@/lib/server/optical-entitlement";
 
-export default async function ProductSalesPage() {
+export default async function ProductSalesPage({searchParams}:{searchParams?:Promise<RecyclingReportQuery>}) {
   const posMenuScope = await requirePosSession();
   await assertPosMenuPageAllowed(posMenuScope.session.tenant_id, "/preview/pos/product-sales");
+  // CUSTOM Recycling has an independent purchases/sales ledger. Do not show empty legacy order reports.
+  if (await isAuthorizedRecyclingTenant(posMenuScope.session.tenant_id)) {
+    await requirePosPagePermission("sales:list:view");
+    return <RecyclingHistoryReports scope={posMenuScope} kind="products" search={await searchParams} />;
+  }
   const opticalAllowed = await authorizeOpticalMoreMenu(posMenuScope.session.tenant_id, posMenuScope.session.branch_id, "more.product_sales");
   const scope = opticalAllowed ? posMenuScope : await requirePosPagePermission("sales:list:view");
   if (opticalAllowed) requirePermission(scope, "sales:list:view");
