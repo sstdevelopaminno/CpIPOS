@@ -3560,7 +3560,7 @@ export function PosSettingsWorkspace({ lang, initialData }: { lang: Language; in
     let cancelled = false;
     async function loadFeatures() {
       try {
-        const response = await fetch("/api/pos/features", { cache: "no-store" });
+        const response = await fetch("/api/pos/features?refresh=1", { cache: "no-store", credentials: "same-origin" });
         const body = (await response.json().catch(() => null)) as { data?: { features?: Record<string, boolean>; menu_policy?: Record<string, boolean>; is_custom?: boolean } | null } | null;
         if (!cancelled && response.ok) {
           setEnabledFeatures(body?.data?.features ?? {});

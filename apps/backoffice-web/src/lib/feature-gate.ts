@@ -1,7 +1,7 @@
 import "server-only";
 
 import { isFeatureUnlockEnabled } from "@/lib/feature-unlock";
-import { hasCustomSalesModeFeatureGrant } from "@/lib/custom-sales-entitlements";
+import { hasCustomSalesModeFeatureGrant, hasCustomRecyclingManagementMenuGrant } from "@/lib/custom-sales-entitlements";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 import { getInternalItTestMode } from "@/lib/server/internal-it-test-store";
 import { isDineInExplicitlyEnabled, isDineInLinkedFeature, isOpticalRetailExplicitlyEnabled, normalizeCustomPosSalesModes, resolvePosSalesModePolicy } from "@/lib/pos-sales-modes";
@@ -292,14 +292,14 @@ export async function hasBranchFeature(tenantId: string, branchId: string | null
     enabled = branchOverride.is_enabled;
   }
 
-  // The IT menu switch may grant management access only for the exact
-  // authorized CUSTOM Optical tenant. Preserve explicit feature denials and
-  // the independent contract quotas for actually creating users/branches.
+  // IT may authorize management for explicit CUSTOM Optical or Recycling.
+  // Feature denials, branch scope and package quotas remain authoritative.
   const opticalManagementMenu = featureCode === "user_management" ? "settings.users"
     : featureCode === "branch_management" ? "settings.branches"
     : featureCode === "stock_management" ? "more.stock" : null;
   if (!enabled && !tenantOverride && !branchOverride && opticalManagementMenu &&
-      isOpticalRetailExplicitlyEnabled(contract?.metadata?.sales_modes)) {
+      (isOpticalRetailExplicitlyEnabled(contract?.metadata?.sales_modes) ||
+       normalizeCustomPosSalesModes(contract?.metadata?.sales_modes).recycling)) {
     const [plan, command] = await Promise.all([
       supabase.from("subscription_packages").select("code")
         .eq("id", contract!.package_id).maybeSingle<{ code: string }>(),
@@ -311,7 +311,15 @@ export async function hasBranchFeature(tenantId: string, branchId: string | null
       "optical_management_policy_check_failed",
       (plan.error ?? command.error)!.message, 500
     );
-    enabled = String(plan.data?.code ?? "").toLowerCase() === "custom" && command.data?.is_enabled === true;
+    const isCustom=String(plan.data?.code??"").toLowerCase()==="custom";
+    enabled=isCustom&&command.data?.is_enabled===true&&(
+      isOpticalRetailExplicitlyEnabled(contract?.metadata?.sales_modes) ||
+      hasCustomRecyclingManagementMenuGrant({
+        packageCode:plan.data?.code,rawModes:contract?.metadata?.sales_modes,
+        featureCode,menuEnabled:command.data?.is_enabled===true,
+        explicitFeatureOverride:Boolean(tenantOverride||branchOverride)
+      })
+    );
   }
 
   // CUSTOM is not sufficient by itself. IT must explicitly authorize the
