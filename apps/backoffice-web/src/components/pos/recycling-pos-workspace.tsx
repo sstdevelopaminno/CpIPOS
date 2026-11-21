@@ -505,9 +505,9 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
     if(searchMode!=="barcode"||event.ctrlKey||event.altKey||event.metaKey||
        event.nativeEvent.isComposing)return;
     // Hardware scanner sends physical key codes independent of Windows TH/EN.
-    // Intercept only when the active layout emitted Thai, leaving shortcuts
-    // and navigation intact; pasted Thai codes are normalized on input.
-    if(!/[ก-๙]/u.test(event.key))return;
+    // Decode ALL printable physical keys, including Thai-layout "/" on Digit2
+    // and "-" on Digit3, while preserving navigation and modifier shortcuts.
+    // This makes scan-mode English throughout without changing OS language.
     const latin=physicalRecyclingBarcodeKey(event.code,event.shiftKey);
     if(latin===null)return;
     event.preventDefault();
