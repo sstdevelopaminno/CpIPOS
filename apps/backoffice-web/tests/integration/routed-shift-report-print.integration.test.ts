@@ -38,7 +38,8 @@ describe("routed shift report print stability", () => {
     expect(routed).toContain('fallbackPurposes: ["receipt"]');
     expect(routed).toContain('printerRole: "report"');
     expect(routed).toContain('payload_format: "shift_report_html_v1"');
-    expect(routed).toContain("payload_html: reportHtml");
+    expect(routed).toContain("payload_html: safeReportHtml");
+    expect(routed).toContain("renderRecyclingDailyShiftCloseHtml(recycled,paper) : reportHtml");
     expect(routed).toContain("args.autoFirst ? routes.slice(0, 1) : routes");
     expect(routed).toContain("args.autoFirst ? { ...route, copies: 1 } : route");
   });
