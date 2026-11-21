@@ -118,14 +118,27 @@ export async function POST(request: Request) {
       if (error.code === "PGRST202" || error.code === "42883") {
         return fail("recycling_migration_required", "Recycling transaction backend is not installed. No transaction was recorded.", 503);
       }
-      const safeCodes = ["recycling_stock_insufficient","recycling_price_changed_refresh_cart",
+      // Preserve the exact server-side financial refusal: never bypass the
+      // cash-drawer guard or fabricate opening cash to make a purchase pass.
+      const safeCodes = [
+        "recycling_cash_drawer_insufficient",
+        "recycling_shift_opening_cash_invalid",
+        "recycling_mixed_legacy_shift_requires_reconciliation",
+        "recycling_request_key_reused",
+        "recycling_stock_insufficient","recycling_price_changed_refresh_cart",
         "recycling_price_missing","recycling_shift_closed","recycling_contract_not_authorized",
         "recycling_subscription_inactive","recycling_line_amount_too_small",
-        "recycling_unit_mismatch","recycling_product_not_found","recycling_counterparty_required"];
+        "recycling_unit_mismatch","recycling_product_not_found","recycling_counterparty_required",
+        "recycling_branch_invalid","recycling_user_not_in_branch",
+        "recycling_below_gram_precision","recycling_invalid_line","recycling_invalid_unit",
+        "recycling_quantity_must_be_positive","recycling_piece_must_be_whole",
+        "recycling_line_amount_too_small","recycling_ledger_not_balanced"
+      ];
       const matched = safeCodes.find(code => error.message.includes(code));
       if (matched) return fail(matched, matched, 409);
       console.error("[recycling-post] transaction rejected", { code: error.code });
-      return fail("recycling_post_failed", "Purchase/sale was not recorded; please verify and retry.", 500);
+      return fail("recycling_post_failed",
+        "บันทึกใบรับซื้อ–ขายออกไม่สำเร็จ กรุณาตรวจสอบกะ ยอดเงินสด และแจ้งฝ่าย IT พร้อมรหัส recycling_post_failed โดยยังไม่มีการบันทึกบิล", 500);
     }
     return ok({ transaction: data });
   } catch (error) {

@@ -51,7 +51,9 @@ describe("CUSTOM Recycling cashier improvements without ordinary POS regression"
  });
  it("shows horizontal cash/bank transfer icons with only local arrow selection, not a new shortcut layer",()=>{
    expect(cashier).toContain('event.key==="ArrowLeft"||event.key==="ArrowRight"');
-   expect(cashier).toContain('setSettlement(event.key==="ArrowLeft"?"cash":"bank_transfer")');
+   expect(cashier).toContain('const next=event.key==="ArrowLeft"?"cash":"bank_transfer"');
+   expect(cashier).toContain('setSettlement(next)');
+   expect(cashier).toContain('event.currentTarget.closest("form")?.requestSubmit()');
    expect(cashier).toContain('grid grid-cols-2 gap-2');
    expect(cashier).toContain('💵');
    expect(cashier).toContain('🏦');

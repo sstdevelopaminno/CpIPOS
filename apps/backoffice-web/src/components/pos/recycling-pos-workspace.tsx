@@ -24,7 +24,6 @@ type CartLine = {
   total: number;
 };
 
-const weightUnits: RecyclingUnit[] = ["kg", "khid", "g", "ton"];
 const formatMoney = (amount: number) =>
   new Intl.NumberFormat("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(amount);
 
@@ -70,6 +69,10 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
   const [selectedCategory,setSelectedCategory]=useState("all");
   const [catalogPage,setCatalogPage]=useState(1);
   const [error, setError] = useState("");
+  const [scanFeedback,setScanFeedback]=useState<"idle"|"success"|"error">("idle");
+  const [scanErrorPopup,setScanErrorPopup]=useState("");
+  const scanDismissRef=useRef<HTMLButtonElement>(null);
+  const shiftTapArmedRef=useRef(false);
   const [pending, setPending] = useState<RecyclingCatalogItem | null>(null);
   const [unit, setUnit] = useState<RecyclingUnit>("kg");
   const [quantity, setQuantity] = useState("1");
@@ -77,6 +80,8 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
   const [heldBills,setHeldBills]=useState<HeldRecyclingBill[]>([]);
   const [heldOpen,setHeldOpen]=useState(false);
   const [cancelOpen,setCancelOpen]=useState(false);
+  const [cancelChoice,setCancelChoice]=useState<"keep"|"confirm">("confirm");
+  const cancelConfirmRef=useRef<HTMLButtonElement>(null);
   const [heldNotice,setHeldNotice]=useState("");
   const [heldError,setHeldError]=useState("");
   const previousShiftId=useRef("");
@@ -91,6 +96,10 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
   const requestIdRef = useRef("");
   const nextKey = useRef(0);
   const scannerRef = useRef<HTMLInputElement>(null);
+  const cashMethodRef=useRef<HTMLInputElement>(null);
+  useEffect(()=>{if(scanErrorPopup)scanDismissRef.current?.focus();},[scanErrorPopup]);
+  useEffect(()=>{if(cancelOpen)cancelConfirmRef.current?.focus();},[cancelOpen]);
+  useEffect(()=>{if(checkoutOpen)cashMethodRef.current?.focus();},[checkoutOpen]);
   useEffect(()=>{postingRef.current=posting;},[posting]);
   const canUseShift=shiftGate==="open" && recyclingShiftIsToday(shiftOpenedAt);
   useEffect(() => {
@@ -203,7 +212,9 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
     }
     setError("");
     setPending(item);
-    setUnit(item.priceBasis === "piece" ? "piece" : "kg");
+    // Material catalogue config is authoritative: no discretionary unit
+    // switching in the cashier, avoiding wrong kg/khid/g amounts.
+    setUnit(item.priceUnit);
     // Never silently assume a 1kg weight. Only counted units can scan directly.
     setQuantity(item.priceBasis === "piece" ? "1" : "");
   }
@@ -249,17 +260,22 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
     updateScannerSearch(normalized);
     const result = resolveRecyclingBarcode(barcodeIndex, normalized);
     if (result.status !== "found") {
-      setError(result.status === "duplicate"
-        ? "บาร์โค้ดนี้ซ้ำกัน กรุณาให้ผู้จัดการตรวจสอบทะเบียนสินค้า"
-        : "ไม่พบบาร์โค้ดนี้ในสต๊อกของสาขา");
+      const message=result.status==="duplicate"
+        ?"บาร์โค้ดนี้ซ้ำกัน กรุณาให้ผู้จัดการตรวจสอบทะเบียนสินค้า"
+        :"ไม่พบบาร์โค้ดนี้ในสต๊อกของสาขา กรุณาตรวจสอบรหัสและยิงใหม่";
+      setError(message);
+      setScanFeedback("error");
+      setScanErrorPopup(message);
       return;
     }
     const product = result.item;
     const price = direction === "buy" ? product.buyPrice : product.sellPrice;
     if (price === null) {
-      setError("ยังไม่ได้กำหนดราคาในสต๊อกสำหรับรายการนี้");
+      const message="ยังไม่ได้กำหนดราคาในสต๊อกสำหรับรายการนี้ กรุณาตรวจสอบทะเบียนวัสดุ";
+      setError(message);setScanFeedback("error");setScanErrorPopup(message);
       return;
     }
+    setScanFeedback("success");
     updateScannerSearch("");
     setError("");
     if (product.priceBasis === "piece") {
@@ -282,6 +298,29 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
     updateScannerSearch("");
     setError("");
     window.setTimeout(() => scannerRef.current?.focus(), 0);
+  }
+
+  function closeScanErrorPopup(){
+    setScanErrorPopup("");
+    setError("");
+    updateScannerSearch("");
+    window.requestAnimationFrame(()=>scannerRef.current?.focus());
+  }
+  function openCancelConfirmation(){
+    if(posting||checkoutOpen||!visibleLines.length)return;
+    setCancelChoice("confirm");
+    setCancelOpen(true);
+  }
+  function removeLastCartLine(){
+    if(posting||checkoutOpen||!visibleLines.length)return;
+    const latest=visibleLines[visibleLines.length-1];
+    requestIdRef.current="";setPosted(null);setPrintNotice(null);
+    setLines(current=>current.filter(line=>line.key!==latest.key));
+    setHeldNotice("ลบรายการล่าสุดออกจากตะกร้าแล้ว");
+  }
+  function openCheckout(){
+    if(!canUseShift||posting||!visibleLines.length)return;
+    setCheckoutOpen(true);setSettlement("cash");setPostError("");
   }
 
   function changeDirection(next: Direction) {
@@ -376,7 +415,14 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
           missing_active_shift: "กรุณาเปิดกะก่อนบันทึกรับซื้อหรือขายออก",
           recycling_shift_daily_cutoff: "สิ้นสุดวันธุรกิจแล้ว กะเมื่อวานกำลังปิดและสรุปยอด",
           recycling_shift_mode_required: "ต้องเปิดกะ Recycling แยกจากกะขายทั่วไป",
-          recycling_subscription_inactive: "สัญญา CUSTOM Recycling ยังไม่พร้อมใช้งาน"
+          recycling_subscription_inactive: "สัญญา CUSTOM Recycling ยังไม่พร้อมใช้งาน",
+          recycling_cash_drawer_insufficient: "เงินสดในกะไม่เพียงพอสำหรับจ่ายซื้อวัสดุ กรุณาตรวจนับและกระทบยอดเงินสดกับผู้จัดการก่อนทำรายการ ห้ามจ่ายเงินหรือบันทึกซ้ำ",
+          recycling_shift_opening_cash_invalid: "ยอดเงินสดต้นกะไม่ถูกต้อง กรุณาให้ผู้จัดการตรวจสอบ",
+          recycling_mixed_legacy_shift_requires_reconciliation: "มีกะ POS ทั่วไปปะปนอยู่ กรุณาให้ฝ่าย IT ตรวจสอบกะก่อนบันทึก",
+          recycling_request_key_reused: "พบการส่งบิลด้วยรหัสเดิมแต่รายละเอียดเปลี่ยน กรุณาตรวจสอบใบรับซื้อก่อนทำรายการใหม่",
+          recycling_branch_invalid: "สาขาที่กำลังใช้งานไม่พร้อมรับซื้อ–ขายออก",
+          recycling_user_not_in_branch: "บัญชีผู้ใช้งานไม่ได้รับสิทธิ์ทำรายการในสาขานี้",
+          recycling_ledger_not_balanced: "การตรวจสอบบัญชีไม่ผ่าน ระบบไม่ได้บันทึกบิล กรุณาติดต่อฝ่ายบัญชีหรือ IT"
         };
         setPostError(reasons[code] ?? body?.error?.message ?? "บันทึกไม่สำเร็จ ยังไม่ควรจ่ายหรือรับเงิน");
         return;
@@ -508,6 +554,16 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
   }
 
   function onBarcodeKeyDown(event:KeyboardEvent<HTMLInputElement>){
+    if(scanErrorPopup){
+      if(event.key==="Enter"||event.key==="Escape"){
+        event.preventDefault();closeScanErrorPopup();
+      }
+      return;
+    }
+    // If the scanner field is empty, Numpad +/- are POS actions; if a
+    // barcode is being entered they are barcode characters instead.
+    if(!scanBufferRef.current && !event.repeat &&
+       (event.code==="NumpadAdd"||event.code==="NumpadSubtract"))return;
     if(event.key==="Enter"){
       event.preventDefault();
       if(searchMode==="barcode")scanBarcode(scanBufferRef.current || event.currentTarget.value);
@@ -530,11 +586,52 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
     const end=cursorAtEnd?base.length:(input.selectionEnd??start);
     const replacement=base.slice(0,start)+latin+base.slice(end);
     updateScannerSearch(replacement);setError("");setCatalogPage(1);
+    setScanFeedback("idle");
   }
 
-  const units = pending?.priceBasis === "piece" ? (["piece", "stem"] as RecyclingUnit[]) : weightUnits;
+  // Only CUSTOM Recycling owns these shortcuts; the normal POS package and
+  // browser shortcuts never install global keyboard handlers.
+  function onWorkspaceKeyDown(event:KeyboardEvent<HTMLElement>){
+    if(event.key==="Shift"){
+      shiftTapArmedRef.current=!event.repeat&&!event.ctrlKey&&!event.altKey&&!event.metaKey&&
+        !pending&&!checkoutOpen&&!cancelOpen&&!heldOpen&&!scanErrorPopup;
+      return;
+    }
+    // A Shift+letter scanner HID sequence must NOT be mistaken for Shift tap.
+    if(shiftTapArmedRef.current)shiftTapArmedRef.current=false;
+    if(event.defaultPrevented||event.repeat||event.ctrlKey||event.altKey||event.metaKey ||
+       posting||!canUseShift || scanErrorPopup || pending||checkoutOpen||heldOpen||cancelOpen)return;
+    const target=event.target instanceof HTMLElement?event.target:null;
+    const editable=Boolean(target?.closest("input,textarea,select,[contenteditable='true']"));
+    const idleScanner=target?.id==="recycling-barcode" && searchMode==="barcode" &&
+      !scanBufferRef.current.trim();
+    if(editable&&!idleScanner)return;
+    if(event.key==="Delete" && visibleLines.length){
+      event.preventDefault();
+      openCancelConfirmation();
+    }else if(event.code==="NumpadSubtract" && visibleLines.length){
+      event.preventDefault();
+      removeLastCartLine();
+    }else if(event.code==="NumpadAdd" && visibleLines.length){
+      event.preventDefault();
+      parkCurrentBill();
+    }
+  }
 
-  return <main className="recycling-pos-layout flex h-full min-h-0 w-full flex-col overflow-hidden bg-white" data-testid="recycling-custom-pos">
+  function onWorkspaceKeyUp(event:KeyboardEvent<HTMLElement>){
+    if(event.key!=="Shift")return;
+    const tap=shiftTapArmedRef.current;
+    shiftTapArmedRef.current=false;
+    if(tap && !event.ctrlKey&&!event.altKey&&!event.metaKey &&
+       !scanBufferRef.current.trim()&&canUseShift&&!posting &&
+       !pending&&!checkoutOpen&&!cancelOpen&&!heldOpen&&!scanErrorPopup&&visibleLines.length){
+      event.preventDefault();
+      openCheckout();
+    }
+  }
+
+  return <main className="recycling-pos-layout flex h-full min-h-0 w-full flex-col overflow-hidden bg-white"
+    data-testid="recycling-custom-pos" onKeyDown={onWorkspaceKeyDown} onKeyUp={onWorkspaceKeyUp}>
     <RecyclingSalesModeSwitcher storeName={storeName} branchName={branchName}
       deviceCode={deviceCode} sellerName={sellerName} shiftStatus={canUseShift?"เปิดกะแล้ว":shiftGate==="checking"?"กำลังตรวจสอบกะ":"ยังไม่เปิดกะ"}
       generalSaleEnabled={generalSaleEnabled} direction={direction}
@@ -572,16 +669,23 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
       <section className="recycling-scanner-panel flex min-h-0 min-w-0 flex-col bg-white p-3">
         <div className="flex items-center justify-between gap-3">
           <h2 className="text-base font-extrabold text-slate-900">ยิงบาร์โค้ด / ค้นหาวัสดุ</h2>
-          <span className="rounded-lg bg-slate-100 px-2 py-1 text-xs text-slate-600">{products.length} รายการ</span>
+          <span data-testid="recycling-scanner-feedback" role="status" aria-live="polite"
+            className="inline-flex items-center gap-2 rounded-lg bg-slate-100 px-2 py-1 text-xs text-slate-600">
+            <span aria-hidden="true" className={"h-2.5 w-2.5 rounded-full " +
+              (scanFeedback==="success"?"bg-emerald-500 ring-2 ring-blue-100":
+                scanFeedback==="error"?"bg-rose-600 ring-2 ring-rose-100":"bg-slate-300")}/>
+            {products.length} รายการ
+            <span className="sr-only">{scanFeedback==="success"?"สแกนสำเร็จ":scanFeedback==="error"?"สแกนผิดพลาด":"พร้อมสแกน"}</span>
+          </span>
         </div>
         <div className="mt-3 flex flex-wrap items-center gap-2" role="group" aria-label="วิธีค้นหาวัสดุ">
           <button type="button" aria-pressed={searchMode==="barcode"}
-            onClick={()=>{setSearchMode("barcode");updateScannerSearch("");setCatalogPage(1);scannerRef.current?.focus();}}
+            onClick={()=>{setSearchMode("barcode");updateScannerSearch("");setScanFeedback("idle");setCatalogPage(1);scannerRef.current?.focus();}}
             className={"rounded-md border px-3 py-1.5 text-xs font-bold "+(searchMode==="barcode"?"border-blue-600 bg-blue-600 text-white":"border-slate-200 bg-white text-slate-600")}>
             สแกนบาร์โค้ด (EN อัตโนมัติ)
           </button>
           <button type="button" aria-pressed={searchMode==="name"}
-            onClick={()=>{setSearchMode("name");updateScannerSearch("");setCatalogPage(1);scannerRef.current?.focus();}}
+            onClick={()=>{setSearchMode("name");updateScannerSearch("");setScanFeedback("idle");setCatalogPage(1);scannerRef.current?.focus();}}
             className={"rounded-md border px-3 py-1.5 text-xs font-bold "+(searchMode==="name"?"border-blue-600 bg-blue-600 text-white":"border-slate-200 bg-white text-slate-600")}>
             ค้นหาชื่อวัสดุ (ไทย/อังกฤษ)
           </button>
@@ -597,7 +701,7 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
           onChange={event=>{
             updateScannerSearch(searchMode==="barcode"
               ?normalizeRecyclingBarcodeInput(event.target.value):event.target.value);
-            setCatalogPage(1);setError("");
+            setCatalogPage(1);setError("");setScanFeedback("idle");
           }}
           onKeyDown={onBarcodeKeyDown}/>
         {error && <p role="alert" className="mt-2 rounded-lg bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700">{error}</p>}
@@ -716,7 +820,7 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
         {heldError && <p role="alert" className="mt-2 text-xs font-semibold text-rose-800">{heldError}</p>}
         <div className="mt-3 flex flex-wrap items-center justify-end gap-2" data-testid="recycling-cart-actions">
           <button type="button" disabled={posting||checkoutOpen||visibleLines.length===0}
-            onClick={()=>setCancelOpen(true)}
+            onClick={openCancelConfirmation}
             className="min-h-11 rounded-md border border-rose-200 bg-white px-4 py-2.5 text-sm font-bold text-rose-700 hover:bg-rose-50 disabled:opacity-40">
             ยกเลิกบิล
           </button>
@@ -725,7 +829,7 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
             className="min-h-11 rounded-md border border-amber-300 bg-amber-50 px-4 py-2.5 text-sm font-bold text-amber-900 hover:bg-amber-100 disabled:opacity-40">
             ▤ พักบิล
           </button>
-          <button type="button" onClick={() => { setCheckoutOpen(true); setPostError(""); }}
+          <button type="button" onClick={openCheckout}
             disabled={!canUseShift || posting || visibleLines.length === 0}
             className="min-h-11 min-w-[210px] max-w-full flex-1 rounded-md bg-blue-700 px-5 py-3 text-sm font-extrabold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-50 sm:flex-none">
             {direction === "buy" ? "บันทึกใบรับซื้อและเข้าสต๊อก" : "บันทึกขายออกและตัดสต๊อก"}
@@ -736,16 +840,60 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
     </div>
 
 
+    {scanErrorPopup && <div className="fixed inset-0 z-[1450] flex items-center justify-center bg-slate-950/65 p-4"
+      role="presentation">
+      <section role="alertdialog" aria-modal="true" aria-labelledby="recycling-scan-error-title"
+        aria-describedby="recycling-scan-error-message" data-testid="recycling-invalid-scan-dialog"
+        onKeyDown={event=>{
+          if(event.key==="Enter"||event.key==="Escape"){
+            event.preventDefault();event.stopPropagation();closeScanErrorPopup();
+          }
+        }}
+        className="w-full max-w-sm rounded-xl border border-rose-200 bg-white p-5 shadow-2xl">
+        <div className="flex items-center gap-3">
+          <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-rose-50 text-xl text-rose-700" aria-hidden="true">!</span>
+          <h2 id="recycling-scan-error-title" className="text-lg font-extrabold text-slate-900">สแกนบาร์โค้ดไม่สำเร็จ</h2>
+        </div>
+        <p id="recycling-scan-error-message" className="mt-3 text-sm leading-6 text-rose-800">{scanErrorPopup}</p>
+        <button type="button" ref={scanDismissRef} onClick={closeScanErrorPopup}
+          className="mt-5 w-full rounded-md bg-blue-700 px-4 py-3 text-sm font-bold text-white">
+          ตกลง (Enter) · สแกนใหม่
+        </button>
+      </section>
+    </div>}
     {cancelOpen && <div className="fixed inset-0 z-[1250] flex items-center justify-center bg-slate-950/65 p-3" role="presentation">
       <section role="alertdialog" aria-modal="true" aria-labelledby="recycling-cancel-title"
+        data-testid="recycling-cancel-confirmation"
+        onKeyDown={event=>{
+          if(event.key==="ArrowLeft"||event.key==="ArrowRight"){
+            event.preventDefault();event.stopPropagation();
+            setCancelChoice(event.key==="ArrowLeft"?"keep":"confirm");
+          }else if(event.key==="Enter"){
+            event.preventDefault();event.stopPropagation();
+            if(cancelChoice==="confirm")cancelCurrentBill();
+            else setCancelOpen(false);
+          }else if(event.key==="Escape"){
+            event.preventDefault();event.stopPropagation();setCancelOpen(false);
+          }
+        }}
         className="w-full max-w-sm rounded-xl border border-slate-200 bg-white p-5 shadow-2xl">
         <h2 id="recycling-cancel-title" className="text-lg font-extrabold text-slate-900">ยืนยันยกเลิกบิล</h2>
         <p className="mt-2 text-sm leading-6 text-slate-600">
           ยกเลิก {visibleLines.length} รายการที่ยังไม่บันทึก? ระบบจะไม่ลบใบรับซื้อหรือยอดสต๊อกที่เคยบันทึกแล้ว
         </p>
-        <div className="mt-5 flex justify-end gap-2">
-          <button type="button" onClick={()=>setCancelOpen(false)} className="rounded-md border border-slate-200 px-4 py-2 text-sm font-semibold">กลับไปตรวจสอบ</button>
-          <button type="button" onClick={cancelCurrentBill} className="rounded-md bg-rose-700 px-4 py-2 text-sm font-bold text-white">ยืนยันยกเลิกบิล</button>
+        <p className="mt-3 text-xs text-slate-500">ลูกศร ← ย้อนกลับ · → ยืนยันยกเลิก · Enter เลือก · Esc ปิด</p>
+        <div className="mt-5 grid grid-cols-2 gap-2">
+          <button type="button" onFocus={()=>setCancelChoice("keep")} onClick={()=>setCancelOpen(false)}
+            className={"rounded-md border px-3 py-3 text-sm font-semibold "+
+              (cancelChoice==="keep"?"border-blue-700 bg-blue-50 text-blue-900 ring-2 ring-blue-200":"border-slate-200 bg-white text-slate-700")}>
+            ← ไม่ยกเลิก
+          </button>
+          <button type="button" ref={cancelConfirmRef} onFocus={()=>setCancelChoice("confirm")}
+            onClick={cancelCurrentBill}
+            className={"rounded-md border px-3 py-3 text-sm font-bold "+
+              (cancelChoice==="confirm"?"border-rose-700 bg-rose-700 text-white ring-2 ring-rose-200":"border-slate-200 bg-white text-rose-700")}>
+            ยืนยันยกเลิกบิล →
+          </button>
         </div>
       </section>
     </div>}
@@ -809,16 +957,26 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
           {direction === "buy" ? "ชื่อผู้ขายวัสดุ" : "ชื่อผู้ซื้อวัสดุ"}
           <span className="ml-1 text-xs font-normal text-slate-500">(ไม่บังคับ · เว้นว่างแสดง - บนบิล)</span>
         </label>
-        <input id="recycling-counterparty" autoFocus maxLength={240}
+        <input id="recycling-counterparty" maxLength={240}
           value={counterpartyName} disabled={posting}
           onChange={event => setCounterpartyName(event.target.value)}
           placeholder="ไม่ระบุก็ได้"
           className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-3 text-sm text-slate-900 focus:border-blue-600 focus:outline-none"/>
         <fieldset className="mt-4" tabIndex={0}
           onKeyDown={event=>{
+            if(posting)return;
             if(event.key==="ArrowLeft"||event.key==="ArrowRight"){
-              event.preventDefault();setPostError("");
-              setSettlement(event.key==="ArrowLeft"?"cash":"bank_transfer");
+              event.preventDefault();event.stopPropagation();setPostError("");
+              const next=event.key==="ArrowLeft"?"cash":"bank_transfer";
+              setSettlement(next);
+              if(next==="cash")cashMethodRef.current?.focus();
+            }else if(event.key==="Enter"){
+              event.preventDefault();event.stopPropagation();
+              if(settlement==="bank_transfer"){
+                setPostError("ยังไม่สามารถยืนยันเงินโอนโดยไม่มีหลักฐานธนาคารที่ตรวจสอบแล้ว");
+              }else if(canUseShift && transactionWritesEnabled && visibleLines.length && !posting){
+                event.currentTarget.closest("form")?.requestSubmit();
+              }
             }
           }}>
           <legend className="mb-2 text-sm font-extrabold text-slate-800">
@@ -827,7 +985,7 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
           <div className="grid grid-cols-2 gap-2" role="group" aria-label="เลือกวิธีชำระด้วยลูกศรซ้ายขวา">
             <label className={"flex min-w-0 cursor-pointer items-center gap-2 rounded-lg border p-3 "+
               (settlement==="cash"?"border-blue-600 bg-blue-50 ring-1 ring-blue-100":"border-slate-200 bg-white")}>
-              <input type="radio" name="recycling-settlement" checked={settlement==="cash"}
+              <input type="radio" ref={cashMethodRef} autoFocus name="recycling-settlement" checked={settlement==="cash"}
                 disabled={posting} onChange={()=>{setSettlement("cash");setPostError("");}}/>
               <span className="text-xl" aria-hidden="true">💵</span>
               <span className="min-w-0 text-sm font-bold text-slate-800">
@@ -845,7 +1003,7 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
               </span>
             </label>
           </div>
-          <p className="mt-2 text-xs text-slate-500">ใช้ปุ่มลูกศร ← / → เพื่อเลือกวิธีชำระเงิน</p>
+          <p className="mt-2 text-xs text-slate-500">ใช้ลูกศร ← / → เลือกเงินสดหรือเงินโอน แล้วกด Enter เพื่อยืนยันเมื่อผ่านการตรวจสอบเงื่อนไข</p>
         </fieldset>
         {settlement === "bank_transfer" && <p role="alert" className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs font-semibold text-amber-900">
           ยังไม่เปิดการตรวจสอบหลักฐานโอนเงินสำหรับ Recycling จึงไม่อนุญาตให้ยืนยันการ{direction === "buy" ? "จ่ายเงิน" : "รับชำระเงิน"}หรือสร้างบิลสำเร็จ
@@ -872,15 +1030,13 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
           <CatalogImage item={pending} mediaUrl={mediaByProduct[pending.id]}/>
           <div><strong className="block text-slate-900">{pending.name}</strong><small className="text-slate-500">{pending.category}</small></div>
         </div>
-        <p className="mt-4 text-sm font-semibold text-slate-700">เลือกหน่วยจากผลชั่งภายนอก</p>
-        <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4" role="group" aria-label="หน่วยจำนวน">
-          {units.map(value => <button type="button" key={value} onClick={() => setUnit(value)} aria-pressed={unit === value}
-            className={`rounded-lg border px-2 py-2 text-sm font-bold ${unit === value
-              ? "border-blue-700 bg-blue-700 text-white" : "border-slate-200 bg-white text-slate-700"}`}>
-            {recyclingUnitLabel(value)}
-          </button>)}
-        </div>
-        <label className="mt-4 block text-sm font-semibold text-slate-700" htmlFor="recycling-quantity">จำนวนที่ชั่ง / นับ</label>
+        <p className="mt-4 rounded-lg bg-blue-50 px-3 py-2 text-sm font-semibold text-blue-900"
+          data-testid="recycling-configured-unit">
+          หน่วยจากทะเบียนวัสดุ: {recyclingUnitLabel(unit)} · ระบบใช้ราคาที่ตั้งค่าไว้ให้อัตโนมัติ
+        </p>
+        <label className="mt-4 block text-sm font-semibold text-slate-700" htmlFor="recycling-quantity">
+          จำนวนที่ชั่ง / นับ ({recyclingUnitLabel(unit)})
+        </label>
         <input id="recycling-quantity" autoFocus type="number" min="0.001" step="any" value={quantity}
           onChange={event => setQuantity(event.target.value)} onKeyDown={event => { if (event.key === "Enter") { event.preventDefault(); addToCart(); } }}
           className="mt-1 w-full rounded-lg border-2 border-blue-300 px-3 py-3 text-xl font-bold text-slate-900 focus:border-blue-700 focus:outline-none" />
@@ -896,13 +1052,15 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
           <div className="mt-3 flex justify-between border-t border-slate-200 pt-3 text-lg font-extrabold text-blue-900">
             <span>รวม</span><span>{preview ? formatMoney(preview.amount) : "—"} ฿</span>
           </div>
-          {!preview && <p role="alert" className="mt-2 text-xs font-semibold text-rose-700">โปรดกรอกจำนวนที่ถูกต้องและเลือกหน่วยที่ตรงกับสินค้าชนิดนี้</p>}
+          {!preview && <p role="alert" className="mt-2 text-xs font-semibold text-rose-700">โปรดกรอกน้ำหนักหรือจำนวนให้ถูกต้องตามหน่วยที่กำหนดไว้ในทะเบียนวัสดุ</p>}
         </div>
         <div className="mt-4 grid grid-cols-2 gap-2">
           <button type="button" onClick={() => { setPending(null); scannerRef.current?.focus(); }}
             className="rounded-lg border border-slate-200 px-4 py-3 font-bold text-slate-700">ยกเลิก</button>
           <button type="button" disabled={!preview} onClick={addToCart}
-            className="rounded-lg bg-blue-700 px-4 py-3 font-bold text-white disabled:cursor-not-allowed disabled:opacity-50">เพิ่มลงตะกร้า</button>
+            className="rounded-lg bg-blue-700 px-4 py-3 font-bold text-white disabled:cursor-not-allowed disabled:opacity-50">
+            เพิ่มลงตะกร้า (Enter)
+          </button>
         </div>
       </section>
     </div>}
