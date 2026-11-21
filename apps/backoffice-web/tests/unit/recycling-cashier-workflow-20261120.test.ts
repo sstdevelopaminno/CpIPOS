@@ -88,7 +88,9 @@ describe("Recycling custom cashier UX", () => {
   it("queues print only AFTER confirmed atomic posting with stable retry id", () => {
     expect(cashier).toContain("await queueReceiptPrint(committedId, currentRequestId)");
     expect(cashier).toContain("printRequestId: currentRequestId");
-    expect(cashier).toContain("queueReceiptPrint(posted.id, posted.printRequestId)");
+    expect(cashier).toContain("queueReceiptPrint(posted.id, window.crypto.randomUUID())");
+    expect(cashier).toContain('jobs.some(job => job.status === "failed")');
+    expect(cashier).toContain("ตรวจเครื่องพิมพ์และคิวงานก่อนส่งพิมพ์ใหม่");
     expect(cashier).toContain("บันทึกธุรกรรมสำเร็จ แต่ส่งคำสั่งพิมพ์ไม่สำเร็จ");
     expect(printApi).toContain("queueRoutedRecyclingReceipt");
   });

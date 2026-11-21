@@ -3,11 +3,21 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import type { RecyclingCatalogItem, RecyclingPriceBasis } from "@/lib/server/recycling-pos-service";
+import { type RecyclingPriceUnit, formatRecyclingUnitPrice, getRecyclingPriceBasis, parseRecyclingUnitPrice, RECYCLING_PRICE_UNIT_LABELS } from "@/lib/recycling-price-units";
 
 const money = (v: number | null) => v === null ? "ยังไม่กำหนด"
   : new Intl.NumberFormat("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(v);
+
+function isValidHttpsImagePreview(raw: string): boolean {
+  try {
+    const parsed = new URL(raw);
+    return parsed.protocol === "https:" && Boolean(parsed.hostname) && !parsed.username && !parsed.password;
+  } catch {
+    return false;
+  }
+}
 
 type FormState = {
   id?: string;
@@ -15,12 +25,13 @@ type FormState = {
   name: string;
   category: string;
   price_basis: RecyclingPriceBasis;
+  price_unit: RecyclingPriceUnit;
   buy_price: string;
   sell_price: string;
   image_url: string;
 };
 const blank: FormState = {
-  sku: "", name: "", category: "", price_basis: "kg",
+  sku: "", name: "", category: "", price_basis: "kg", price_unit: "kg",
   buy_price: "", sell_price: "", image_url: ""
 };
 
@@ -31,6 +42,7 @@ export function RecyclingStockWorkspace({ items, branchName, canManage, canViewA
   canViewAccounting: boolean;
 }) {
   const router = useRouter();
+  const addButtonRef = useRef<HTMLButtonElement>(null);
   const [filter, setFilter] = useState("");
   const [editing, setEditing] = useState<FormState | null>(null);
   const [busy, setBusy] = useState(false);
@@ -46,15 +58,55 @@ export function RecyclingStockWorkspace({ items, branchName, canManage, canViewA
     setNotice("");
     setEditing(item ? {
       id: item.id, sku: item.sku, name: item.name, category: item.category,
-      price_basis: item.priceBasis, buy_price: item.buyPrice === null ? "" : String(item.buyPrice),
-      sell_price: item.sellPrice === null ? "" : String(item.sellPrice),
+      price_basis: item.priceBasis, price_unit: item.priceUnit,
+      buy_price: formatRecyclingUnitPrice(item.buyPrice, item.priceUnit),
+      sell_price: formatRecyclingUnitPrice(item.sellPrice, item.priceUnit),
       image_url: item.imageUrl ?? ""
     } : { ...blank });
   }
 
+  function selectPriceUnit(nextUnit: RecyclingPriceUnit) {
+    setEditing(current => {
+      if (!current || (current.id && getRecyclingPriceBasis(nextUnit) !== current.price_basis)) return current;
+      const nextBasis = getRecyclingPriceBasis(nextUnit);
+      const sameBasis = current.price_basis === nextBasis;
+      const buy = sameBasis ? parseRecyclingUnitPrice(current.buy_price, current.price_unit) : null;
+      const sell = sameBasis ? parseRecyclingUnitPrice(current.sell_price, current.price_unit) : null;
+      return {
+        ...current, price_unit: nextUnit, price_basis: nextBasis,
+        buy_price: current.buy_price.trim() && buy !== null ? formatRecyclingUnitPrice(buy, nextUnit) : "",
+        sell_price: current.sell_price.trim() && sell !== null ? formatRecyclingUnitPrice(sell, nextUnit) : ""
+      };
+    });
+  }
+
+  function closeEditor() {
+    if (busy) return;
+    setEditing(null);
+    window.requestAnimationFrame(() => addButtonRef.current?.focus());
+  }
+
+  useEffect(() => {
+    if (!editing) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !busy) {
+        event.preventDefault();
+        setEditing(null);
+        window.requestAnimationFrame(() => addButtonRef.current?.focus());
+      }
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [editing, busy]);
+
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!editing || busy) return;
+    if (parseRecyclingUnitPrice(editing.buy_price, editing.price_unit) === null ||
+        parseRecyclingUnitPrice(editing.sell_price, editing.price_unit) === null) {
+      setError("กรุณาระบุราคาที่แปลงเป็นหน่วยฐานได้ตรงสตางค์: บาท/กก. 2, บาท/ขีด 3, บาท/กรัม 5 ตำแหน่ง");
+      return;
+    }
     setBusy(true);
     setError("");
     try {
@@ -63,8 +115,8 @@ export function RecyclingStockWorkspace({ items, branchName, canManage, canViewA
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ...editing,
-          buy_price: Number(editing.buy_price),
-          sell_price: Number(editing.sell_price)
+          buy_price: editing.buy_price,
+          sell_price: editing.sell_price
         })
       });
       const payload = await response.json().catch(() => null) as {
@@ -84,106 +136,185 @@ export function RecyclingStockWorkspace({ items, branchName, canManage, canViewA
     }
   }
 
-  return <main className="mx-auto max-w-[1500px] space-y-4 px-3 pb-8 pt-4 md:px-6" data-testid="recycling-custom-stock">
-    <header className="rounded-xl border border-blue-200 bg-gradient-to-r from-blue-950 to-blue-800 p-5 text-white">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div><p className="text-xs font-bold tracking-widest text-blue-200">CUSTOM · RECYCLING STOCK</p>
-          <h1 className="mt-1 text-2xl font-extrabold">ทะเบียนวัสดุและราคา</h1>
-          <p className="mt-1 text-sm text-blue-100">{branchName} · แสดงราคาซื้อเข้าและราคาขายออกแยกกัน</p></div>
-        <div className="flex flex-wrap gap-2">
-          {canViewAccounting && <Link className="rounded-lg border border-white/30 px-4 py-2 text-sm font-bold hover:bg-white/10"
-            href="/preview/pos/recycling/accounting">สมุดบัญชีย่อย</Link>}
-          {canManage && <button type="button" onClick={() => edit()}
-            className="rounded-lg bg-white px-4 py-2 text-sm font-bold text-blue-800 hover:bg-blue-50">+ เพิ่มวัสดุ</button>}
-          <Link className="rounded-lg border border-white/30 px-4 py-2 text-sm font-bold hover:bg-white/10"
-            href="/preview/pos/recycling">กลับหน้ารับซื้อ / ขายออก</Link>
+  return <main className="recycling-stock-layout flex h-full min-h-0 w-full flex-col overflow-hidden bg-white" data-testid="recycling-custom-stock">
+    <header className="shrink-0 border-b border-slate-200 bg-white px-4 py-3" data-testid="recycling-stock-toolbar">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="min-w-0">
+          <h1 className="text-lg font-extrabold text-slate-950">จัดการสินค้า <span className="ml-1 text-xs font-semibold text-blue-700">CUSTOM Recycling</span></h1>
+          <p className="mt-0.5 text-xs text-slate-500">สาขา: {branchName} · ทะเบียนวัสดุเดียวสำหรับรับซื้อและขายออก</p>
         </div>
+        <nav className="flex flex-wrap items-center gap-2" aria-label="ทางลัดหน้าจัดการวัสดุ">
+          <Link href="/preview/pos/more" className="inline-flex min-h-10 items-center rounded-lg border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50">
+            ← กลับเมนูเพิ่มเติม
+          </Link>
+          <Link href="/preview/pos/recycling" className="inline-flex min-h-10 items-center rounded-lg border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50">
+            กลับหน้ารับซื้อ / ขายออก
+          </Link>
+          {canViewAccounting && <Link href="/preview/pos/recycling/accounting"
+            className="inline-flex min-h-10 items-center rounded-lg border border-blue-200 bg-blue-50 px-3 text-sm font-semibold text-blue-900 hover:bg-blue-100">
+            สมุดบัญชีย่อย
+          </Link>}
+          {canManage && <button ref={addButtonRef} type="button" onClick={() => edit()}
+            className="inline-flex min-h-10 items-center rounded-lg bg-blue-700 px-4 text-sm font-extrabold text-white hover:bg-blue-800">
+            + เพิ่มวัสดุ
+          </button>}
+        </nav>
       </div>
     </header>
-    <div role="note" className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-900">
-      ราคาซื้อเข้าและราคาขายออกสามารถจัดการจากหน้านี้โดยเจ้าของร้านหรือผู้จัดการ
-      ยอดคงเหลือและต้นทุนต้องอ้างอิงจากธุรกรรมที่ผ่านการบันทึกจริงเท่านั้น ห้ามถือว่าการตั้งราคาคือการเพิ่มสต๊อก
-    </div>
-    {notice && <p role="status" className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-800">{notice}</p>}
-    <div className="grid gap-3 sm:grid-cols-3">
-      <div className="rounded-xl border border-slate-200 bg-white p-4"><p className="text-xs text-slate-500">วัสดุทั้งหมด</p><strong className="text-2xl text-slate-900">{items.length}</strong></div>
-      <div className="rounded-xl border border-slate-200 bg-white p-4"><p className="text-xs text-slate-500">กำหนดราคาครบ</p><strong className="text-2xl text-emerald-700">{items.length-incomplete}</strong></div>
-      <div className="rounded-xl border border-slate-200 bg-white p-4"><p className="text-xs text-slate-500">ต้องตั้งราคาเพิ่ม</p><strong className="text-2xl text-amber-700">{incomplete}</strong></div>
-    </div>
-    <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 p-4">
-        <div><h2 className="font-extrabold text-slate-900">ตารางสต๊อกวัสดุ</h2><p className="text-xs text-slate-500">ภาพสินค้า · รหัส · ชื่อ · ประเภท · ราคารับซื้อ · ราคาขายออก</p></div>
-        <label className="w-full max-w-xs text-sm font-semibold text-slate-700">
+
+    {notice && <p role="status" className="mx-3 mt-2 shrink-0 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-800">{notice}</p>}
+
+    <section className="flex min-h-0 flex-1 flex-col overflow-hidden" aria-label="ทะเบียนวัสดุ" data-testid="recycling-stock-table-area">
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-slate-50/60 px-4 py-3">
+        <div>
+          <h2 className="text-sm font-extrabold text-slate-900">รายการวัสดุในสาขา <span className="ml-2 font-normal text-slate-500">ทั้งหมด {items.length} · ตั้งราคาครบ {items.length - incomplete} · รอตั้งราคา {incomplete}</span></h2>
+          <p className="mt-1 text-xs text-slate-500">ราคาซื้อเข้าและราคาขายออกแยกกัน · ยอดคงเหลือเปลี่ยนตามธุรกรรมที่บันทึกจริงเท่านั้น</p>
+        </div>
+        <label className="w-full max-w-xs text-xs font-semibold text-slate-700">
           ค้นหาวัสดุ
-          <input value={filter} onChange={e => setFilter(e.target.value)} placeholder="ชื่อ / บาร์โค้ด / ประเภท"
-            className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-600" />
+          <input value={filter} onChange={event => setFilter(event.target.value)}
+            placeholder="ชื่อวัสดุ / บาร์โค้ด / ประเภท"
+            className="mt-1 block h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100"/>
         </label>
       </div>
-      <div className="overflow-x-auto"><table className="w-full min-w-[1100px] border-collapse text-sm">
-        <thead className="bg-slate-100 text-left text-slate-700"><tr>
-          <th className="px-4 py-3">ภาพ</th><th className="px-4 py-3">รหัสบาร์โค้ด</th>
-          <th className="px-4 py-3">ชื่อวัสดุ</th><th className="px-4 py-3">ประเภท</th>
-          <th className="px-4 py-3 text-right">ราคารับซื้อ (บาท)</th><th className="px-4 py-3 text-right">ราคาขายออก (บาท)</th>
-          <th className="px-4 py-3">หน่วยราคา</th><th className="px-4 py-3 text-right">คงเหลือ</th>{canManage && <th className="px-4 py-3">จัดการ</th>}
-        </tr></thead>
-        <tbody>{rows.length ? rows.map(item => <tr key={item.id} className="border-t border-slate-100">
-          <td className="px-4 py-2">{item.imageUrl
-            ? <Image src={item.imageUrl} alt={item.name} width={50} height={50} unoptimized className="h-12 w-12 rounded-lg object-cover"/>
-            : <span className="inline-flex h-12 w-12 items-center justify-center rounded-lg bg-slate-100 text-xl" aria-label="ยังไม่มีภาพวัสดุ">♻️</span>}</td>
-          <td className="px-4 py-3 font-mono text-slate-700">{item.sku || "ยังไม่ระบุ"}</td>
-          <td className="px-4 py-3 font-bold text-slate-900">{item.name}</td>
-          <td className="px-4 py-3 text-slate-600">{item.category}</td>
-          <td className="px-4 py-3 text-right font-bold text-blue-700">{money(item.buyPrice)}</td>
-          <td className="px-4 py-3 text-right font-bold text-emerald-700">{money(item.sellPrice)}</td>
-          <td className="px-4 py-3 text-slate-600">{item.priceBasis === "kg" ? "บาท/กิโลกรัม" : "บาท/ชิ้น"}</td>
-          <td className="px-4 py-3 text-right font-semibold text-slate-800">{item.quantityBase === null ? "รอยืนยันสต๊อก" : `${item.quantityBase.toLocaleString("th-TH", {maximumFractionDigits:6})} ${item.priceBasis === "kg" ? "กก." : "ชิ้น"}`}</td>
-          {canManage && <td className="px-4 py-3"><button type="button" onClick={() => edit(item)}
-            className="rounded-lg border border-blue-200 px-3 py-2 font-semibold text-blue-700 hover:bg-blue-50">แก้ไข</button></td>}
-        </tr>) : <tr><td colSpan={canManage ? 9 : 8} className="px-4 py-16 text-center text-slate-500">
-          ยังไม่มีวัสดุที่ตรงกับเงื่อนไขการค้นหา
-        </td></tr>}</tbody>
-      </table></div>
+      <div className="min-h-0 flex-1 overflow-auto" data-testid="recycling-stock-table-scroll">
+        <table className="w-full min-w-[1050px] border-collapse text-sm">
+          <thead className="sticky top-0 z-10 bg-slate-100 text-left text-slate-700"><tr>
+            <th scope="col" className="px-3 py-3">ภาพ</th>
+            <th scope="col" className="px-3 py-3">รหัสบาร์โค้ด</th>
+            <th scope="col" className="px-3 py-3">ชื่อวัสดุ</th>
+            <th scope="col" className="px-3 py-3">ประเภท</th>
+            <th scope="col" className="px-3 py-3 text-right">ราคารับซื้อ (บาท)</th>
+            <th scope="col" className="px-3 py-3 text-right">ราคาขายออก (บาท)</th>
+            <th scope="col" className="px-3 py-3">หน่วยราคา</th>
+            <th scope="col" className="px-3 py-3 text-right">คงเหลือ</th>
+            {canManage && <th scope="col" className="px-3 py-3 text-center">จัดการ</th>}
+          </tr></thead>
+          <tbody>
+            {rows.length ? rows.map(item => <tr key={item.id} className="border-t border-slate-100 hover:bg-blue-50/40">
+              <td className="px-3 py-2">{item.imageUrl
+                ? <Image src={item.imageUrl} alt={item.name} width={48} height={48} unoptimized className="h-11 w-11 rounded-lg object-cover"/>
+                : <span className="inline-flex h-11 w-11 items-center justify-center rounded-lg bg-slate-100 text-xl" aria-label="ยังไม่มีภาพวัสดุ">♻️</span>}</td>
+              <td className="px-3 py-2 font-mono text-slate-700">{item.sku || "ยังไม่ระบุ"}</td>
+              <td className="px-3 py-2 font-bold text-slate-900">{item.name}</td>
+              <td className="px-3 py-2 text-slate-600">{item.category}</td>
+              <td className="px-3 py-2 text-right font-bold tabular-nums text-blue-700">{item.buyPrice === null ? "ยังไม่กำหนด" : formatRecyclingUnitPrice(item.buyPrice,item.priceUnit)}</td>
+              <td className="px-3 py-2 text-right font-bold tabular-nums text-emerald-700">{item.sellPrice === null ? "ยังไม่กำหนด" : formatRecyclingUnitPrice(item.sellPrice,item.priceUnit)}</td>
+              <td className="px-3 py-2 text-slate-600">บาท/{RECYCLING_PRICE_UNIT_LABELS[item.priceUnit]} <small className="block text-[11px] text-slate-400">สต๊อกฐาน: {item.priceBasis === "kg" ? "กก." : "ชิ้น"}</small></td>
+              <td className="px-3 py-2 text-right font-semibold tabular-nums text-slate-800">
+                {item.quantityBase === null ? "รอยืนยันสต๊อก" : item.quantityBase.toLocaleString("th-TH", {maximumFractionDigits:6}) + (item.priceBasis === "kg" ? " กก." : " ชิ้น")}
+              </td>
+              {canManage && <td className="px-3 py-2 text-center">
+                <button type="button" onClick={() => edit(item)}
+                  className="rounded-lg border border-blue-200 bg-white px-3 py-2 text-xs font-bold text-blue-700 hover:bg-blue-50">
+                  แก้ไข
+                </button>
+              </td>}
+            </tr>) : <tr><td colSpan={canManage ? 9 : 8} className="px-4 py-16 text-center">
+              <p className="text-sm font-semibold text-slate-700">{items.length === 0 ? "ยังไม่มีวัสดุในสาขานี้" : "ไม่พบวัสดุตรงกับคำค้นหา"}</p>
+              <p className="mt-1 text-xs text-slate-500">{items.length === 0 ? "เพิ่มวัสดุเพื่อใช้ในหน้ารับซื้อและขายออก" : "ลองค้นหาด้วยชื่อ ประเภท หรือบาร์โค้ดอื่น"}</p>
+              {canManage && items.length === 0 && <button type="button" onClick={() => edit()}
+                className="mt-4 rounded-lg bg-blue-700 px-4 py-2 text-sm font-bold text-white hover:bg-blue-800">+ เพิ่มวัสดุรายการแรก</button>}
+            </td></tr>}
+          </tbody>
+        </table>
+      </div>
+      <footer className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-slate-200 bg-white px-4 py-2 text-xs text-slate-500">
+        <span>แสดง {rows.length} จาก {items.length} รายการ · {branchName}</span>
+        <span>{canManage ? "สิทธิ์แก้ไข: เจ้าของร้าน / ผู้จัดการ" : "โหมดอ่านอย่างเดียว · เจ้าของร้านหรือผู้จัดการเป็นผู้แก้ไขข้อมูล"}</span>
+      </footer>
     </section>
 
-    {editing && <div className="fixed inset-0 z-[1200] flex items-center justify-center bg-slate-900/70 p-3">
-      <form onSubmit={save} role="dialog" aria-modal="true" aria-labelledby="material-editor-title"
-        className="max-h-[92vh] w-full max-w-xl space-y-4 overflow-y-auto rounded-2xl bg-white p-5 shadow-2xl">
-        <div><p className="text-xs font-bold tracking-widest text-blue-700">CUSTOM RECYCLING</p>
-          <h3 className="mt-1 text-xl font-extrabold text-slate-900" id="material-editor-title">
-            {editing.id ? "แก้ไขทะเบียนวัสดุ" : "เพิ่มวัสดุใหม่"}
-          </h3>
-          <p className="mt-1 text-sm text-slate-500">ใช้รหัสสินค้าเดียวกันสำหรับรับซื้อและขายออก แต่กำหนดราคาแยกกัน</p></div>
-        <div className="grid gap-3 sm:grid-cols-2">
-          {([
-            ["sku", "รหัสบาร์โค้ด / SKU"],
-            ["name", "ชื่อวัสดุ"],
-            ["category", "ประเภทวัสดุ"],
-            ["image_url", "ลิงก์รูปสินค้า (HTTPS)"],
-            ["buy_price", "ราคารับซื้อ (บาท/หน่วยฐาน)"],
-            ["sell_price", "ราคาขายออก (บาท/หน่วยฐาน)"]
-          ] as const).map(([key, label]) => <label key={key} className="block text-sm font-semibold text-slate-700">
-            {label}
-            <input required={key !== "image_url"} type={key.endsWith("_price") ? "number" : "text"}
-              min={key.endsWith("_price") ? "0" : undefined} step={key.endsWith("_price") ? "0.01" : undefined}
-              value={editing[key]} onChange={e => setEditing(current => current ? { ...current, [key]: e.target.value } : null)}
-              className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900 focus:border-blue-600 focus:outline-none" />
-          </label>)}
-          <label className="block text-sm font-semibold text-slate-700">
-            หน่วยราคามาตรฐาน
-            <select disabled={Boolean(editing.id)} value={editing.price_basis}
-              onChange={e => setEditing(current => current ? { ...current, price_basis: e.target.value as RecyclingPriceBasis } : null)}
-              className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2">
-              <option value="kg">บาท / กิโลกรัม</option><option value="piece">บาท / ชิ้น</option>
-            </select>
-            {editing.id && <small className="block text-xs text-amber-700">หากต้องเปลี่ยนหน่วยราคา ต้องตรวจยอดคงเหลือก่อน</small>}
-          </label>
+    {editing && <div className="fixed inset-0 z-[1200] flex items-center justify-center bg-slate-950/70 p-3"
+      role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) closeEditor(); }}>
+      <form onSubmit={save} role="dialog" aria-modal="true" aria-labelledby="material-editor-title" aria-describedby="material-editor-description"
+        className="flex max-h-[92vh] w-full max-w-[760px] flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl"
+        data-testid="recycling-material-editor">
+        <div className="flex shrink-0 items-start justify-between gap-4 border-b border-slate-200 bg-gradient-to-r from-slate-50 to-blue-50 px-5 py-3.5">
+          <div>
+            <p className="text-[11px] font-bold uppercase tracking-wider text-blue-700">CUSTOM Recycling · จัดการสินค้า</p>
+            <h3 id="material-editor-title" className="mt-1 text-xl font-extrabold text-slate-950">{editing.id ? "แก้ไขข้อมูลวัสดุ" : "เพิ่มวัสดุใหม่"}</h3>
+            <p id="material-editor-description" className="mt-1 text-xs text-slate-600">บาร์โค้ดเดียวกันใช้ได้ทั้งรับซื้อและขายออก โดยแยกราคาแต่ละประเภท</p>
+          </div>
+          <button type="button" disabled={busy} onClick={closeEditor} aria-label="ปิดหน้าต่างเพิ่มวัสดุ"
+            className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-slate-300 bg-white text-lg text-slate-600 hover:bg-slate-100 disabled:opacity-50">×</button>
         </div>
-        {error && <p role="alert" className="rounded-lg bg-rose-50 p-3 text-sm font-semibold text-rose-800">{error}</p>}
-        <div className="grid grid-cols-2 gap-2">
-          <button type="button" disabled={busy} onClick={() => setEditing(null)}
-            className="rounded-lg border border-slate-200 py-3 font-bold text-slate-700">ยกเลิก</button>
-          <button type="submit" disabled={busy}
-            className="rounded-lg bg-blue-700 py-3 font-bold text-white disabled:opacity-50">{busy ? "กำลังบันทึก..." : "บันทึกวัสดุ"}</button>
+        <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-5 py-4">
+          <fieldset className="space-y-3">
+            <legend className="text-sm font-extrabold text-slate-900">ข้อมูลวัสดุ</legend>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="block text-xs font-semibold text-slate-700">รหัสบาร์โค้ด / SKU
+                <input autoFocus required maxLength={90} value={editing.sku} onChange={event => setEditing(current => current ? {...current, sku:event.target.value} : null)}
+                  placeholder="ยิงบาร์โค้ดหรือกรอกรหัส" className="mt-1 block h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100"/>
+              </label>
+              <label className="block text-xs font-semibold text-slate-700">ชื่อวัสดุ
+                <input required maxLength={200} value={editing.name} onChange={event => setEditing(current => current ? {...current, name:event.target.value} : null)}
+                  placeholder="เช่น เหล็ก / กระดาษ / พลาสติก" className="mt-1 block h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100"/>
+              </label>
+              <label className="block text-xs font-semibold text-slate-700">ประเภทวัสดุ
+                <input required maxLength={120} value={editing.category} onChange={event => setEditing(current => current ? {...current, category:event.target.value} : null)}
+                  placeholder="กลุ่มวัสดุ" className="mt-1 block h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100"/>
+              </label>
+              <label className="block text-xs font-semibold text-slate-700">หน่วยราคามาตรฐาน
+                <select value={editing.price_unit}
+                  onChange={event => selectPriceUnit(event.target.value as RecyclingPriceUnit)}
+                  className="mt-1 block h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 focus:border-blue-600 focus:outline-none">
+                  <option value="kg" disabled={Boolean(editing.id) && editing.price_basis === "piece"}>กิโลกรัม (บาท/กก.)</option>
+                  <option value="khid" disabled={Boolean(editing.id) && editing.price_basis === "piece"}>ขีด (บาท/ขีด)</option>
+                  <option value="g" disabled={Boolean(editing.id) && editing.price_basis === "piece"}>กรัม (บาท/กรัม)</option>
+                  <option value="piece" disabled={Boolean(editing.id) && editing.price_basis === "kg"}>ชิ้น (บาท/ชิ้น)</option>
+                </select>
+              </label>
+            </div>
+            <p className="text-xs font-medium text-slate-600">สามารถสลับหน่วย กก. / ขีด / กรัม โดยแปลงราคาอ้างอิงอย่างแม่นยำ · ยอดสต๊อกใช้กิโลกรัมเหมือนเดิม {editing.id ? "· ห้ามเปลี่ยนระหว่างหน่วยน้ำหนักกับหน่วยชิ้นหลังบันทึกทะเบียน" : ""}</p>
+          </fieldset>
+
+          <fieldset className="space-y-3 border-t border-slate-200 pt-4">
+            <legend className="text-sm font-extrabold text-slate-900">กำหนดราคาแยกตามธุรกรรม</legend>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="block rounded-lg border border-blue-200 bg-blue-50/60 p-3 text-sm font-bold text-blue-900">
+                ราคารับซื้อเข้าร้าน (บาท/{RECYCLING_PRICE_UNIT_LABELS[editing.price_unit]})
+                <input required min="0" max="99999999" step="any" type="number" inputMode="decimal" value={editing.buy_price}
+                  onChange={event => setEditing(current => current ? {...current, buy_price:event.target.value} : null)}
+                  placeholder="0.00" className="mt-2 block h-11 w-full rounded-lg border border-blue-200 bg-white px-3 text-base tabular-nums text-slate-900 outline-none focus:border-blue-600"/>
+                <small className="mt-2 block text-xs font-normal text-blue-800">ใช้ตอนร้านจ่ายเงิน · ราคาอ้างอิง {parseRecyclingUnitPrice(editing.buy_price,editing.price_unit) === null ? "—" : money(parseRecyclingUnitPrice(editing.buy_price,editing.price_unit))} บาท/{editing.price_basis === "kg" ? "กก." : "ชิ้น"}</small>
+              </label>
+              <label className="block rounded-lg border border-emerald-200 bg-emerald-50/60 p-3 text-sm font-bold text-emerald-900">
+                ราคาขายออก (บาท/{RECYCLING_PRICE_UNIT_LABELS[editing.price_unit]})
+                <input required min="0" max="99999999" step="any" type="number" inputMode="decimal" value={editing.sell_price}
+                  onChange={event => setEditing(current => current ? {...current, sell_price:event.target.value} : null)}
+                  placeholder="0.00" className="mt-2 block h-11 w-full rounded-lg border border-emerald-200 bg-white px-3 text-base tabular-nums text-slate-900 outline-none focus:border-emerald-600"/>
+                <small className="mt-2 block text-xs font-normal text-emerald-800">ใช้ตอนร้านรับชำระเงิน · ราคาอ้างอิง {parseRecyclingUnitPrice(editing.sell_price,editing.price_unit) === null ? "—" : money(parseRecyclingUnitPrice(editing.sell_price,editing.price_unit))} บาท/{editing.price_basis === "kg" ? "กก." : "ชิ้น"}</small>
+              </label>
+            </div>
+          </fieldset>
+
+          <fieldset className="space-y-2 border-t border-slate-200 pt-4">
+            <legend className="text-sm font-extrabold text-slate-900">รูปภาพวัสดุ (ไม่บังคับ)</legend>
+            <div className="flex items-center gap-3">
+              <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-slate-200 bg-slate-50 text-2xl">
+                {isValidHttpsImagePreview(editing.image_url.trim())
+                  ? <Image src={editing.image_url.trim()} alt="ตัวอย่างรูปวัสดุ" width={64} height={64} unoptimized className="h-full w-full object-cover"/>
+                  : <span aria-hidden="true">♻️</span>}
+              </div>
+              <label className="min-w-0 flex-1 text-xs font-semibold text-slate-700">ลิงก์รูปภาพ HTTPS
+                <input type="url" maxLength={1000} value={editing.image_url} onChange={event => setEditing(current => current ? {...current,image_url:event.target.value} : null)}
+                  placeholder="https://..." className="mt-1 block h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 outline-none focus:border-blue-600"/>
+              </label>
+            </div>
+          </fieldset>
+          {error && <p role="alert" className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm font-semibold text-rose-800">{error}</p>}
+        </div>
+        <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-slate-200 bg-white px-5 py-3">
+          <p className="max-w-xs text-xs text-slate-500">การเพิ่มวัสดุไม่ใช่การเพิ่มยอดสต๊อก ยอดคงเหลือเปลี่ยนจากธุรกรรมที่บันทึกจริง</p>
+          <div className="flex gap-2">
+            <button type="button" disabled={busy} onClick={closeEditor}
+              className="min-h-11 rounded-lg border border-slate-300 bg-white px-5 text-sm font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-50">← กลับ</button>
+            <button type="submit" disabled={busy}
+              className="min-h-11 rounded-lg bg-blue-700 px-5 text-sm font-extrabold text-white hover:bg-blue-800 disabled:opacity-50">
+              {busy ? "กำลังบันทึก..." : editing.id ? "บันทึกการแก้ไข" : "เพิ่มวัสดุ"}
+            </button>
+          </div>
         </div>
       </form>
     </div>}

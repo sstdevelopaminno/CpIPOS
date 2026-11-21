@@ -10369,3 +10369,30 @@ body:has(.pos-app-root) {
     grid-template-columns: minmax(0, 1fr) !important;
   }
 }
+
+/* Only the CUSTOM Recycling materials page: reuse the native POS shell with a
+   full-width stock grid. The ordinary product/ingredient pages are untouched. */
+.pos-app-content-area:has(> .recycling-stock-layout) {
+  justify-content: stretch;
+  padding: 0 !important;
+}
+.pos-app-content-area:has(> .recycling-stock-layout) > .recycling-stock-layout {
+  max-width: none;
+}
+.recycling-stock-layout {
+  min-width: 0;
+  min-height: 0;
+  border: 0;
+}
+.recycling-stock-layout [data-testid="recycling-stock-table-scroll"] {
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+@media (max-width: 880px) {
+  .recycling-stock-layout {
+    overflow-y: auto;
+  }
+  .recycling-stock-layout [data-testid="recycling-stock-table-area"] {
+    min-height: 350px;
+  }
+}

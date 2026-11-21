@@ -4,6 +4,7 @@ import { PosGuardError, requirePosSession } from "@/lib/pos-session-guard";
 import { requirePosApiFeature } from "@/lib/pos-api-feature-guard";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 import { isAuthorizedRecyclingTenant } from "@/lib/server/recycling-pos-service";
+import { getRecyclingPriceBasis, isRecyclingPriceUnit, parseRecyclingUnitPrice } from "@/lib/recycling-price-units";
 
 type CatalogPayload = {
   id?: unknown;
@@ -11,19 +12,11 @@ type CatalogPayload = {
   name?: unknown;
   category?: unknown;
   price_basis?: unknown;
+  price_unit?: unknown;
   buy_price?: unknown;
   sell_price?: unknown;
   image_url?: unknown;
 };
-
-function readNonNegativePrice(raw: unknown): number | null {
-  if (raw === "" || raw === null || raw === undefined) return null;
-  if (typeof raw !== "number" && typeof raw !== "string") return null;
-  const n = Number(raw);
-  if (!Number.isFinite(n) || n < 0 || n > 99999999 ||
-      Math.abs(n * 100 - Math.round(n * 100)) > 0.00001) return null;
-  return Math.round(n * 100) / 100;
-}
 
 export async function POST(request: Request) {
   try {
@@ -42,8 +35,13 @@ export async function POST(request: Request) {
     const name = String(body.name ?? "").trim();
     const category = String(body.category ?? "").trim();
     const priceBasis = body.price_basis === "piece" ? "piece" : body.price_basis === "kg" ? "kg" : null;
-    const buyPrice = readNonNegativePrice(body.buy_price);
-    const sellPrice = readNonNegativePrice(body.sell_price);
+    // Old clients omit price_unit and keep canonical baht/kg or baht/piece input.
+    const priceUnit = body.price_unit === undefined ? priceBasis : body.price_unit;
+    if (!isRecyclingPriceUnit(priceUnit) || getRecyclingPriceBasis(priceUnit) !== priceBasis) {
+      return fail("recycling_price_unit_invalid", "Price unit does not match stock price basis.", 422);
+    }
+    const buyPrice = parseRecyclingUnitPrice(body.buy_price, priceUnit);
+    const sellPrice = parseRecyclingUnitPrice(body.sell_price, priceUnit);
     if (!sku || sku.length > 90 || !name || name.length > 200 || !category || category.length > 120 ||
         !priceBasis || buyPrice === null || sellPrice === null) {
       return fail("invalid_material", "Name, category, SKU, price basis and both nonnegative prices are required.", 422);
@@ -81,6 +79,7 @@ export async function POST(request: Request) {
         ...metadata,
         business_mode: "recycling",
         recycling_price_basis: priceBasis,
+        recycling_price_unit: priceUnit,
         recycling_buy_price: buyPrice,
         image_url: imageUrl || null
       }

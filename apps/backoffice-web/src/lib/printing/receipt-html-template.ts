@@ -40,6 +40,8 @@ export type ReceiptHtmlInput = {
   voidWarning?: string | null;
   footerText?: string | null;
   paymentHeading?: string | null;
+  /** Suppress tender received/change rows when the business pays out, not in. */
+  hideCashTenderBreakdown?: boolean;
 };
 
 const DEFAULT_RECEIPT_LOGO_URL = "/brand/cpipos-logo.png";
@@ -150,7 +152,7 @@ export function renderReceiptHtml(input: ReceiptHtmlInput) {
   const note = input.note?.trim() ? `<div class="hr"></div><div class="note-block"><strong>${L("หมายเหตุ", "Note", "ໝາຍເຫດ")}:</strong> ${escapeHtml(input.note)}</div>` : "";
   const tax = Number(input.taxAmount ?? 0);
   const taxLine = Math.abs(tax) >= 0.005 ? `<div class="summary-line is-muted"><span>${L("ภาษี","Tax","ພາສີ")}</span><strong>${currencySymbol}${escapeHtml(money(tax, currencyCode))}</strong></div>` : "";
-  const cashLines = input.paymentMethod === "cash" ? `
+  const cashLines = input.paymentMethod === "cash" && input.hideCashTenderBreakdown !== true ? `
     <div class="summary-line is-aux"><span>${L("รับเงิน","Cash received","ຮັບເງິນ")}</span><strong>${currencySymbol}${escapeHtml(money(input.cashReceived ?? input.totalAmount, currencyCode))}</strong></div>
     <div class="summary-line is-aux"><span>${L("เงินทอน","Change","ເງິນທອນ")}</span><strong>${currencySymbol}${escapeHtml(money(input.changeAmount ?? 0, currencyCode))}</strong></div>` : "";
   const reprintLine = input.reprint ? `<div class="reprint">${L("สำเนาใบเสร็จ", "Receipt copy", "ສຳເນົາໃບຮັບເງິນ")} / REPRINT</div>` : "";

@@ -1,5 +1,6 @@
 import "server-only";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
+import { type RecyclingPriceUnit, isRecyclingPriceUnit, getRecyclingPriceBasis } from "@/lib/recycling-price-units";
 
 export type RecyclingUnit = "kg" | "khid" | "g" | "ton" | "piece" | "stem";
 export type RecyclingPriceBasis = "kg" | "piece";
@@ -14,6 +15,7 @@ export type RecyclingCatalogItem = {
   sellPrice: number | null;
   quantityBase: number | null;
   priceBasis: RecyclingPriceBasis;
+  priceUnit: RecyclingPriceUnit;
   active: boolean;
 };
 
@@ -104,6 +106,9 @@ export async function getRecyclingCatalog(tenantId: string, branchId: string): P
     const unit = String(product.sell_unit ?? "").toLowerCase();
     const basis = metadata.recycling_price_basis === "piece" || ["piece", "ชิ้น", "ต้น"].includes(unit)
       ? "piece" : "kg";
+    const savedUnit = metadata.recycling_price_unit;
+    const priceUnit: RecyclingPriceUnit = isRecyclingPriceUnit(savedUnit) &&
+      getRecyclingPriceBasis(savedUnit) === basis ? savedUnit : basis;
     return {
       id: String(product.id),
       sku: String(product.sku ?? ""),
@@ -115,6 +120,7 @@ export async function getRecyclingCatalog(tenantId: string, branchId: string): P
       quantityBase: process.env.RECYCLING_STOCK_SCHEMA_READY === "1"
         ? quantityByProduct.get(String(product.id)) ?? 0 : null,
       priceBasis: basis,
+      priceUnit,
       active: Boolean(product.is_active)
     };
   });
