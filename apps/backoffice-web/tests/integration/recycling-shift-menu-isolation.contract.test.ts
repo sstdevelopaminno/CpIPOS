@@ -15,12 +15,14 @@ describe("CUSTOM Recycling shift menu isolation and cashier entry gate", () => {
 
   it("preserves the original shift page for ordinary tenants", () => {
     expect(route).toContain("await isAuthorizedRecyclingTenant(posMenuScope.session.tenant_id)");
-    expect(route).toContain("<RecyclingShiftHistoryPageContent showGeneralShiftLink={generalSaleEnabled} />");
+    expect(route).toContain("<RecyclingShiftHistoryPageContent />");
     expect(route).toContain("<PosShiftHistoryModule lang={lang} />");
-    expect(route).toContain("isAuthorizedCustomGeneralSaleTenant");
-    expect(route).toContain('mode === "general" && !generalSaleEnabled');
-    expect(route).toContain("notFound()");
-    expect(recyclingPage).toContain("showGeneralShiftLink");
+    expect(route).not.toContain("isAuthorizedCustomGeneralSaleTenant");
+    expect(route).not.toContain('mode === "general"');
+    expect(route).not.toContain("<nav");
+    expect(recyclingPage).not.toContain("showGeneralShiftLink");
+    expect(recyclingPage).not.toContain("ดูกะขายทั่วไป");
+    expect(recyclingPage).not.toContain("/preview/pos/shift?mode=general");
     expect(regular).toContain("export function PosShiftHistoryModule");
     expect(legacyRecyclingRoute).toContain("recycling-shift-history-page-content");
     expect(recyclingPage).toContain("<RecyclingShiftControl");
@@ -49,6 +51,21 @@ describe("CUSTOM Recycling shift menu isolation and cashier entry gate", () => {
     expect(current).toContain("rows.length > 1");
     expect(current).toContain("needs_join:");
     expect(current).not.toContain("shifts/open");
+  });
+
+  it("opens Recycling controls in isolated popups rather than permanent forms", () => {
+    expect(control).toContain('data-testid="recycling-shift-actions"');
+    expect(control).toContain('data-testid="recycling-shift-popup"');
+    expect(control).toContain('role="dialog" aria-modal="true"');
+    expect(control).toContain('onClick={()=>showModal("open")}');
+    expect(control).toContain('onClick={()=>showModal("close")}');
+    expect(control).toContain('onClick={()=>showModal("active")}');
+    expect(control).toContain('form="recycling-open-shift-form"');
+    expect(control).toContain('form="recycling-close-shift-form"');
+    expect(control).toContain("setModalKind(null)");
+    expect(control).toContain('disabled={loading||lookupFailed||busy||hasShift}');
+    expect(control).toContain('disabled={loading||lookupFailed||busy||!hasShift||needsJoin}');
+    expect(control).not.toContain('className="mt-4 grid gap-3 lg:grid-cols-2"');
   });
 
   it("makes shift opening and joining explicit without assuming zero float", () => {
