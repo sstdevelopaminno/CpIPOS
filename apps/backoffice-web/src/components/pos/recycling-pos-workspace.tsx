@@ -196,7 +196,12 @@ export function RecyclingPosWorkspace({ products, branchName, storeName, deviceC
         return;
       }
       const jobs = result.data.jobs ?? [];
-      const allPrinted = jobs.length > 0 && jobs.every(job=>job.status==="printed");
+      if (jobs.length === 0 || jobs.some(job => job.status === "failed")) {
+        setPrintNotice({ok:false,message:
+          "พบงานพิมพ์ไม่สำเร็จ กรุณาตรวจเครื่องพิมพ์และคิวงานก่อนส่งพิมพ์ใหม่"});
+        return;
+      }
+      const allPrinted = jobs.every(job=>job.status==="printed");
       setPrintNotice({ok:true,message:allPrinted
         ? "เครื่องพิมพ์ยืนยันการพิมพ์แล้ว"
         : "ส่งคำสั่งเข้าคิว Print Agent แล้ว กรุณาตรวจการพิมพ์ที่เครื่อง"});
@@ -364,7 +369,7 @@ export function RecyclingPosWorkspace({ products, branchName, storeName, deviceC
           {printNotice && <span role={printNotice.ok ? "status" : "alert"} className={"mt-2 block text-xs " + (printNotice.ok ? "text-emerald-800" : "text-amber-800")}>{printNotice.message}</span>}
           {printNotice && !printNotice.ok && <button type="button" disabled={printing}
             className="mt-2 rounded-md border border-amber-300 bg-white px-3 py-2 text-xs font-bold text-amber-950 disabled:opacity-50"
-            onClick={() => void queueReceiptPrint(posted.id, posted.printRequestId)}>ส่งคำสั่งพิมพ์ซ้ำ (ไม่บันทึกบิลใหม่)</button>}
+            onClick={() => void queueReceiptPrint(posted.id, window.crypto.randomUUID())}>ส่งพิมพ์ใหม่เมื่อยืนยันว่าใบเสร็จเดิมไม่ออก (ไม่บันทึกบิลใหม่)</button>}
           <Link href={`/preview/pos/recycling/receipts/${posted.id}`}
             className="mt-2 block w-fit rounded-lg bg-emerald-700 px-3 py-2 text-sm font-bold text-white">
             ดูหลักฐานและพิมพ์ใบรับซื้อ–ขายออก
