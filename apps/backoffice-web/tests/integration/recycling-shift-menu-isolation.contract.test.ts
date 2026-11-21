@@ -77,7 +77,7 @@ describe("CUSTOM Recycling shift menu isolation and cashier entry gate", () => {
     expect(control).toContain('fetch("/api/pos/shifts/close"');
     expect(control).toContain('print_mode:"auto_first"');
     expect(control).toContain("กรุณานับเงินสดจริง");
-    expect(control).toContain("เปิดกะวันนี้");
+    expect(control).toContain("เปิดกะทันที");
     expect(control).toContain("ปิดกะและพิมพ์ใบสรุป");
   });
 });
