@@ -66,13 +66,12 @@ export async function loadRecyclingHistoryReport(scope:PosSessionScope,kind:Recy
  const direction=["buy","sell"].includes(query.direction??"")?query.direction!:"all";
  const status=["posted","voided"].includes(query.status??"")?query.status!:"all";
  const q=(query.q??"").trim().slice(0,80).toLocaleLowerCase();
- const matching=transactions.filter(t=>(kind!=="products"||t.direction==="sell")
+ let matching=transactions.filter(t=>(kind!=="products"||t.direction==="sell")
    &&(direction==="all"||t.direction===direction)&&(status==="all"||t.status===status)
-   &&(!q||[t.receipt_no,t.counterparty_name??""].some(x=>x.toLocaleLowerCase().includes(q))));
+   &&(kind==="products"||!q||[t.receipt_no,t.counterparty_name??""].some(x=>x.toLocaleLowerCase().includes(q))));
  const pageRequested=Number(query.page??"1");
  const page=Number.isSafeInteger(pageRequested)?Math.max(1,Math.min(pageRequested,500)):1;
- const size=kind==="products"?20:20,pages=Math.max(1,Math.ceil(matching.length/size));
- const visible=matching.slice((page-1)*size,page*size);
+ const size=20;
  const lines:RecyclingLine[]=[];
  if(kind==="products"){
   // Product list uses immutable material snapshots; purchases are never counted as sales.
@@ -87,7 +86,15 @@ export async function loadRecyclingHistoryReport(scope:PosSessionScope,kind:Recy
    if((v.data??[]).length>1000)throw new Error("recycling_report_narrow_period_required");
    lines.push(...(v.data??[]) as RecyclingLine[]);
   }
+  if(q){
+   const matchingLineIds=new Set(lines.filter(l=>[l.sku_snapshot,l.name_snapshot,l.category_snapshot??""]
+     .some(x=>x.toLocaleLowerCase().includes(q))).map(l=>l.transaction_id));
+   matching=matching.filter(t=>matchingLineIds.has(t.id)||
+     [t.receipt_no,t.counterparty_name??""].some(x=>x.toLocaleLowerCase().includes(q)));
+  }
  }
+ const pages=Math.max(1,Math.ceil(matching.length/size));
+ const visible=matching.slice((page-1)*size,page*size);
  let shifts:RecyclingHistoryReport["shifts"]=[];
  if(kind==="summary"){
   const shiftIds=[...new Set(matching.map(t=>t.shift_id).filter((x):x is string=>Boolean(x)))];

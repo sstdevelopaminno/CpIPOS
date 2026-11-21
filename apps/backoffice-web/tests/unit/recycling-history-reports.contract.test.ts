@@ -39,6 +39,8 @@ describe("CUSTOM Recycling independent history reports",()=>{
   expect(service).toContain('.from("recycling_transaction_lines")');
   expect(service).toContain("original_quantity");
   expect(service).toContain("sku_snapshot");
+  expect(service).toContain("matchingLineIds");
+  expect(view).toContain("ค้นหาบิล / วัสดุ / SKU");
   expect(view).toContain("/preview/pos/recycling/receipts/");
   expect(view).toContain("เข้าสู่สาขาต้นทางเพื่อพิมพ์");
   expect(view).toContain('r.status==="voided"');

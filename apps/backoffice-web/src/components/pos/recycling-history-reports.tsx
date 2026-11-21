@@ -70,7 +70,7 @@ export async function RecyclingHistoryReports({scope,kind,search}:{
        <option value="all">ทั้งหมด</option><option value="buy">รับซื้อ</option><option value="sell">ขายออก</option></select></label>}
      <label className="text-xs font-semibold">สถานะ<select name="status" defaultValue={report.status} className="mt-1 block h-10 rounded-lg border border-slate-300 bg-white px-2 text-sm">
        <option value="all">ทั้งหมด</option><option value="posted">บันทึกแล้ว</option><option value="voided">VOID</option></select></label>
-     {kind!=="summary"&&<label className="text-xs font-semibold">ค้นหาบิล / ผู้ติดต่อ<input name="q" defaultValue={report.q} maxLength={80} className="mt-1 block h-10 w-36 rounded-lg border border-slate-300 px-2 text-sm"/></label>}
+     {kind!=="summary"&&<label className="text-xs font-semibold">{kind==="products"?"ค้นหาบิล / วัสดุ / SKU":"ค้นหาบิล / ผู้ติดต่อ"}<input name="q" defaultValue={report.q} maxLength={80} className="mt-1 block h-10 w-36 rounded-lg border border-slate-300 px-2 text-sm"/></label>}
      <button type="submit" className="h-10 rounded-lg bg-blue-700 px-4 text-sm font-bold text-white">ดูรายการ</button>
    </form>
    <p className="mt-3 text-xs text-slate-600">ช่วง {report.from} ถึง {report.to} · สกุลเงิน THB · เงินโอนแสดงจากรายการ ไม่ใช่การยืนยันจากธนาคาร</p>
