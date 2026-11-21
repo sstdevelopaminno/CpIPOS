@@ -5,7 +5,7 @@ const file=(path:string)=>readFileSync(resolve(process.cwd(),path),"utf8");
 describe("CUSTOM Recycling shift safety contracts",()=>{
  it("does not mutate unrelated POS shifts; starts per authenticated recycling mode only",()=>{
   const open=file("src/app/api/pos/shifts/open/route.ts");
-  const sql=file("../../supabase/migrations/20261121110000_custom_recycling_daily_auto_shift.sql");
+  const sql=file("../../supabase/migrations/20261121091740_custom_recycling_daily_auto_shift_20261121.sql");
   expect(open).toContain('body?.business_mode === "recycling"');
   expect(open).toContain("isAuthorizedRecyclingTenant");
   expect(open).toContain("recycling_existing_legacy_shift_requires_review");
