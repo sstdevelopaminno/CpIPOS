@@ -2,7 +2,8 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { recyclingBusinessDayKey, recyclingShiftIsToday } from "@/lib/recycling-business-day";
 import { buildRecyclingBarcodeIndex, resolveRecyclingBarcode } from "@/lib/recycling-barcode-index";
 import { calculateRecyclingLine, recyclingUnitLabel } from "@/lib/recycling-calculation";
 import { formatRecyclingUnitPrice, RECYCLING_PRICE_UNIT_LABELS } from "@/lib/recycling-price-units";
@@ -42,6 +43,13 @@ export function RecyclingPosWorkspace({ products, branchName, storeName, deviceC
   generalSaleEnabled: boolean;
   transactionWritesEnabled: boolean;
 }) {
+  const [shiftGate,setShiftGate]=useState<"checking"|"open"|"blocked">("checking");
+  const [shiftOpenedAt,setShiftOpenedAt]=useState("");
+  const [shiftMessage,setShiftMessage]=useState("กำลังตรวจสอบและเปิดกะ Recycling ประจำวัน...");
+  const gateInFlightRef=useRef(false);
+  const lastDayRef=useRef(recyclingBusinessDayKey(new Date()));
+  const postingRef=useRef(false);
+  const rolloverWhilePostingRef=useRef(false);
   const [direction, setDirection] = useState<Direction>("buy");
   const [search, setSearch] = useState("");
   const [error, setError] = useState("");
@@ -60,6 +68,77 @@ export function RecyclingPosWorkspace({ products, branchName, storeName, deviceC
   const requestIdRef = useRef("");
   const nextKey = useRef(0);
   const scannerRef = useRef<HTMLInputElement>(null);
+  postingRef.current=posting;
+  const canUseShift=shiftGate==="open" && recyclingShiftIsToday(shiftOpenedAt);
+  useEffect(()=>{
+    let mounted=true;
+    async function ensureDailyShift(){
+      if(gateInFlightRef.current)return;
+      gateInFlightRef.current=true;
+      if(mounted){setShiftGate("checking");setShiftMessage("กำลังตรวจสอบและเปิดกะ Recycling ประจำวัน...");}
+      try{
+        const response=await fetch("/api/pos/shifts/open",{
+          method:"POST",credentials:"same-origin",
+          headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({business_mode:"recycling"})
+        });
+        const result=await response.json().catch(()=>null) as {
+          data?:{shift?:{id:string;opened_at:string;status:string}};
+          error?:{code?:string;message?:string}
+        }|null;
+        if(!mounted)return;
+        const opened=result?.data?.shift?.opened_at??"";
+        if(response.ok && result?.data?.shift?.status==="open" && recyclingShiftIsToday(opened)){
+          setShiftOpenedAt(opened);setShiftGate("open");
+          setShiftMessage("กะ Recycling วันนี้เปิดแล้ว · ระบบจะปิดกะหลังเที่ยงคืนและส่งยอดรอตรวจนับเงินสด");
+        }else{
+          setShiftGate("blocked");setShiftOpenedAt("");
+          const code=result?.error?.code;
+          setShiftMessage(code==="recycling_previous_day_shift_pending_close"
+            ? "กำลังรอระบบปิดกะของวันก่อนและตรวจสอบบิลค้าง ห้ามบันทึกธุรกรรมซ้ำ"
+            : code==="recycling_shift_already_closed_today"
+            ? "กะของวันนี้ปิดไปแล้ว จะเปิดอัตโนมัติอีกครั้งเมื่อเข้าสู่วันใหม่"
+            : result?.error?.message??"เปิดกะ Recycling ไม่สำเร็จ กรุณาตรวจสอบสิทธิ์และสถานะกะ");
+        }
+      }catch{
+        if(mounted){setShiftGate("blocked");setShiftMessage("เชื่อมต่อระบบเปิดกะไม่สำเร็จ กรุณาลองอีกครั้ง");}
+      }finally{gateInFlightRef.current=false;}
+    }
+    void ensureDailyShift();
+    const onDayCheck=()=>{
+      const today=recyclingBusinessDayKey(new Date());
+      if(today!==lastDayRef.current){
+        lastDayRef.current=today;
+        // Drafts here are browser-only; never delete real receipts or stock.
+        rolloverWhilePostingRef.current=postingRef.current;
+        if(!postingRef.current){
+          setLines([]);setPending(null);setCheckoutOpen(false);setCounterpartyName("");
+          requestIdRef.current="";setPosted(null);
+        }
+        setShiftGate("checking");setShiftOpenedAt("");
+        setError("เปลี่ยนวันธุรกิจแล้ว ระบบเคลียร์เฉพาะตะกร้าที่ยังไม่บันทึก และสรุปกะเดิมโดยไม่ลบใบเสร็จ");
+        void ensureDailyShift();
+      }
+    };
+    const interval=window.setInterval(onDayCheck,5000);
+    document.addEventListener("visibilitychange",onDayCheck);
+    return ()=>{mounted=false;window.clearInterval(interval);
+      document.removeEventListener("visibilitychange",onDayCheck);};
+  }, []);
+  // No polling: the local timer detects midnight and the server cron owns the real close.
+  async function retryShiftGate(){
+    setShiftGate("checking");
+    try{
+      const response=await fetch("/api/pos/shifts/open",{method:"POST",credentials:"same-origin",
+        headers:{"Content-Type":"application/json"},body:JSON.stringify({business_mode:"recycling"})});
+      const body=await response.json().catch(()=>null) as {data?:{shift?:{opened_at:string;status:string}};error?:{message?:string}}|null;
+      const opened=body?.data?.shift?.opened_at??"";
+      if(response.ok&&body?.data?.shift?.status==="open"&&recyclingShiftIsToday(opened)){
+        setShiftOpenedAt(opened);setShiftGate("open");
+        setShiftMessage("เปิดกะ Recycling วันนี้แล้ว");
+      }else{setShiftGate("blocked");setShiftMessage(body?.error?.message??"ยังเปิดกะไม่สำเร็จ");}
+    }catch{setShiftGate("blocked");setShiftMessage("ติดต่อเซิร์ฟเวอร์ไม่สำเร็จ");}
+  }
 
   const barcodeIndex = useMemo(() => buildRecyclingBarcodeIndex(products), [products]);
   const visibleLines = lines.filter(line => line.direction === direction);
@@ -214,7 +293,7 @@ export function RecyclingPosWorkspace({ products, branchName, storeName, deviceC
   }
 
   async function postTransaction() {
-    if (posting || !transactionWritesEnabled || !checkoutOpen || !visibleLines.length || !counterpartyName.trim()) return;
+    if (posting || !canUseShift || !transactionWritesEnabled || !checkoutOpen || !visibleLines.length || !counterpartyName.trim()) return;
     if (settlement === "bank_transfer") {
       setPostError("ต้องตรวจหลักฐานธนาคารก่อนจึงจะยืนยันการจ่ายหรือรับเงินโอนได้");
       return;
@@ -251,6 +330,8 @@ export function RecyclingPosWorkspace({ products, branchName, storeName, deviceC
           recycling_stock_insufficient: "จำนวนสินค้าในสต๊อกไม่เพียงพอ โปรดตรวจสอบยอดคงเหลือ",
           recycling_price_changed_refresh_cart: "ราคาวัสดุมีการเปลี่ยนแปลง กรุณาเริ่มบิลใหม่ด้วยราคาล่าสุด",
           missing_active_shift: "กรุณาเปิดกะก่อนบันทึกรับซื้อหรือขายออก",
+          recycling_shift_daily_cutoff: "สิ้นสุดวันธุรกิจแล้ว กะเมื่อวานกำลังปิดและสรุปยอด",
+          recycling_shift_mode_required: "ต้องเปิดกะ Recycling แยกจากกะขายทั่วไป",
           recycling_subscription_inactive: "สัญญา CUSTOM Recycling ยังไม่พร้อมใช้งาน"
         };
         setPostError(reasons[code] ?? body?.error?.message ?? "บันทึกไม่สำเร็จ ยังไม่ควรจ่ายหรือรับเงิน");
@@ -276,6 +357,11 @@ export function RecyclingPosWorkspace({ products, branchName, storeName, deviceC
       setPostError("การเชื่อมต่อขัดข้อง กรุณาลองบันทึกซ้ำด้วยรายการเดิม ห้ามจ่าย/รับเงินซ้ำก่อนตรวจสอบบิล");
     } finally {
       setPosting(false);
+      if(rolloverWhilePostingRef.current){
+        rolloverWhilePostingRef.current=false;
+        setLines([]);setPending(null);setCheckoutOpen(false);
+        setCounterpartyName("");requestIdRef.current="";
+      }
     }
   }
 
@@ -283,9 +369,19 @@ export function RecyclingPosWorkspace({ products, branchName, storeName, deviceC
 
   return <main className="recycling-pos-layout flex h-full min-h-0 w-full flex-col overflow-hidden bg-white" data-testid="recycling-custom-pos">
     <RecyclingSalesModeSwitcher storeName={storeName} branchName={branchName}
-      deviceCode={deviceCode} sellerName={sellerName} shiftStatus={shiftStatus}
+      deviceCode={deviceCode} sellerName={sellerName} shiftStatus={canUseShift?"เปิดกะแล้ว":shiftGate==="checking"?"กำลังเปิดกะ":"ยังไม่เปิดกะ"}
       generalSaleEnabled={generalSaleEnabled} direction={direction}
       onDirectionChange={changeDirection} busy={posting}/>
+    <div data-testid="recycling-daily-shift-gate" role={canUseShift?"status":"alert"}
+      className={"flex flex-wrap items-center justify-between gap-2 border-b px-4 py-2 text-xs font-semibold "+
+        (canUseShift?"border-emerald-200 bg-emerald-50 text-emerald-900":"border-amber-200 bg-amber-50 text-amber-950")}>
+      <span>{shiftMessage} · สาขา {branchName} · รอบวัน 00:00–24:00 น. (เวลาไทย)</span>
+      <div className="flex gap-2">
+        <Link href="/preview/pos/recycling/shifts" className="rounded-lg border border-current px-3 py-2">เปิด/ปิดกะและใบสรุป</Link>
+        {!canUseShift && <button type="button" onClick={()=>void retryShiftGate()}
+          className="rounded-lg border border-current px-3 py-2" disabled={shiftGate==="checking"}>ตรวจสอบ/เปิดกะอีกครั้ง</button>}
+      </div>
+    </div>
     {!transactionWritesEnabled && <div role="alert" className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-900">
       ระบบรับซื้อ–ขายออกยังปิดการบันทึกธุรกรรมจริงระหว่างตรวจสอบ Backend ไม่มีรายการสต๊อกหรือบัญชีถูกบันทึก
     </div>}
@@ -297,7 +393,7 @@ export function RecyclingPosWorkspace({ products, branchName, storeName, deviceC
           <span className="rounded-lg bg-slate-100 px-2 py-1 text-xs text-slate-600">{products.length} รายการ</span>
         </div>
         <label className="mt-3 block text-sm font-semibold text-slate-700" htmlFor="recycling-barcode">รหัสสินค้า / SKU</label>
-        <input id="recycling-barcode" ref={scannerRef} autoComplete="off" autoFocus disabled={posting || checkoutOpen}
+        <input id="recycling-barcode" ref={scannerRef} autoComplete="off" autoFocus disabled={!canUseShift || posting || checkoutOpen}
           className="mt-1 w-full rounded-lg border-2 border-blue-400 bg-white px-4 py-3 text-base text-slate-900 outline-none focus:border-blue-700"
           placeholder="ยิงบาร์โค้ดแล้วกด Enter" value={search}
           onChange={event => { setSearch(event.target.value); setError(""); }}
@@ -307,7 +403,7 @@ export function RecyclingPosWorkspace({ products, branchName, storeName, deviceC
         <div className="recycling-catalog-scroll mt-3 min-h-0 flex-1 space-y-1 overflow-y-auto">
           {filteredProducts.length ? filteredProducts.map(item => {
             const price = direction === "buy" ? item.buyPrice : item.sellPrice;
-            return <button type="button" key={item.id} disabled={posting || checkoutOpen} onClick={() => openQuantityPopup(item)}
+            return <button type="button" key={item.id} disabled={!canUseShift || posting || checkoutOpen} onClick={() => openQuantityPopup(item)}
               className="flex w-full items-center gap-3 rounded-lg border border-transparent p-2 text-left hover:border-blue-200 hover:bg-blue-50">
               <CatalogImage item={item} />
               <span className="min-w-0 flex-1">
@@ -377,7 +473,7 @@ export function RecyclingPosWorkspace({ products, branchName, storeName, deviceC
         </p>}
         <div className="mt-3 flex justify-end">
           <button type="button" onClick={() => { setCheckoutOpen(true); setPostError(""); }}
-            disabled={posting || visibleLines.length === 0}
+            disabled={!canUseShift || posting || visibleLines.length === 0}
             className="w-auto min-w-[220px] max-w-full rounded-lg bg-blue-700 px-5 py-3 text-sm font-extrabold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-50">
             {direction === "buy" ? "บันทึกใบรับซื้อและเข้าสต๊อก" : "บันทึกขายออกและตัดสต๊อก"}
           </button>
@@ -441,7 +537,7 @@ export function RecyclingPosWorkspace({ products, branchName, storeName, deviceC
         <div className="mt-5 flex justify-end gap-2">
           <button type="button" disabled={posting} onClick={() => setCheckoutOpen(false)}
             className="rounded-lg border border-slate-300 px-5 py-3 text-sm font-bold text-slate-700 disabled:opacity-50">ย้อนกลับ</button>
-          <button type="submit" disabled={!transactionWritesEnabled || posting || settlement === "bank_transfer" || !counterpartyName.trim() || !visibleLines.length}
+          <button type="submit" disabled={!canUseShift || !transactionWritesEnabled || posting || settlement === "bank_transfer" || !counterpartyName.trim() || !visibleLines.length}
             className="rounded-lg bg-blue-700 px-5 py-3 text-sm font-extrabold text-white disabled:cursor-not-allowed disabled:opacity-50">
             {posting ? "กำลังบันทึก..." : direction === "buy" ? "ยืนยันจ่ายเงินและออกใบรับซื้อ" : "ยืนยันรับชำระและออกใบเสร็จขายออก"}
           </button>
