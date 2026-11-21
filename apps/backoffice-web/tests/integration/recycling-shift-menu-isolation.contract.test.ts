@@ -81,8 +81,10 @@ describe("CUSTOM Recycling shift menu isolation and cashier entry gate", () => {
     expect(control).toContain('form="recycling-open-shift-form"');
     expect(control).toContain('form="recycling-close-shift-form"');
     expect(control).toContain("setModalKind(null)");
-    expect(control).toContain('disabled={loading||lookupFailed||busy||hasShift}');
-    expect(control).toContain('disabled={loading||lookupFailed||busy||!hasShift||needsJoin}');
+    expect(control).toContain('setActionError(lookupFailed ? message : "")');
+    expect(control).toContain('setLookupErrorCode(body?.error?.code');
+    expect(control).toContain('disabled={loading||busy||hasShift}');
+    expect(control).toContain('disabled={loading||busy||(!hasShift&&!lookupFailed)||needsJoin}');
     expect(control).not.toContain('className="mt-4 grid gap-3 lg:grid-cols-2"');
   });
 
@@ -93,6 +95,7 @@ describe("CUSTOM Recycling shift menu isolation and cashier entry gate", () => {
     expect(control).toContain('opening_cash:openingCash.trim()?Number(openingCash):null');
     expect(control).toContain('fetch("/api/pos/shifts/join"');
     expect(control).toContain('fetch("/api/pos/shifts/close"');
+    expect(control).toContain('shift_id:shift.id,business_mode:"recycling",closing_cash:Number(closingCash)');
     expect(control).toContain('print_mode:"auto_first"');
     expect(control).toContain("กรุณานับเงินสดจริง");
     expect(control).toContain("เปิดกะทันที");
