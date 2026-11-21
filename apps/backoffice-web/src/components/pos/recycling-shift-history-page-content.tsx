@@ -14,9 +14,7 @@ function priceFromMinor(value: unknown): string {
   }).format(n / 100);
 }
 
-export default async function RecyclingShiftHistoryPageContent({ showGeneralShiftLink = false }: {
-  showGeneralShiftLink?: boolean;
-} = {}) {
+export default async function RecyclingShiftHistoryPageContent() {
   const scope = await requirePosSession();
   const { tenant_id: tenantId, branch_id: branchId, role } = scope.session;
   // Staff can open/view their own terminal shift; never expose other
@@ -50,15 +48,9 @@ export default async function RecyclingShiftHistoryPageContent({ showGeneralShif
           <h1 className="mt-1 text-xl font-extrabold text-slate-900 sm:text-2xl">เปิด/ปิดกะ · รับซื้อ–ขายออก</h1>
           <p className="mt-1 text-sm text-slate-500">กะประจำวันเฉพาะโหมดค้าของเก่า ไม่เกี่ยวกับกะของ POS แพ็กเกจหลัก</p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          {showGeneralShiftLink && <Link href="/preview/pos/shift?mode=general"
-            className="inline-flex min-h-10 items-center rounded-lg border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-semibold text-blue-700">
-            ดูกะขายทั่วไป
-          </Link>}
-        <Link href="/preview/pos" className="inline-flex min-h-10 items-center rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">
+        <Link href="/preview/pos" className="inline-flex min-h-10 items-center rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">
           กลับหน้ารับซื้อ–ขายออก
         </Link>
-        </div>
       </div>
     </header>
     <RecyclingShiftControl branchName={scope.branch?.name ?? "สาขาที่เข้าสู่ระบบ"}/>

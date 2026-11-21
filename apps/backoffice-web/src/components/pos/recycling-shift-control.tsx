@@ -36,10 +36,13 @@ export function RecyclingShiftControl({branchName}: {branchName:string}) {
   const [shift,setShift] = useState<ShiftInfo|null>(null);
   const [needsJoin,setNeedsJoin] = useState(false);
   const [loading,setLoading] = useState(true);
+  const [lookupFailed,setLookupFailed] = useState(false);
   const [busy,setBusy] = useState(false);
   const [openingCash,setOpeningCash] = useState("");
   const [closingCash,setClosingCash] = useState("");
   const [message,setMessage] = useState("");
+  const [actionError,setActionError] = useState("");
+  const [modalKind,setModalKind] = useState<"open"|"close"|"active"|null>(null);
   const [lastClosed,setLastClosed] = useState<string|null>(null);
 
   async function loadShift() {
@@ -52,39 +55,62 @@ export function RecyclingShiftControl({branchName}: {branchName:string}) {
         shift?:ShiftInfo|null; needs_join?:boolean; message?:string
       }>|null;
       if (!response.ok) {
-        setShift(null);setNeedsJoin(false);
+        setShift(null);setNeedsJoin(false);setLookupFailed(true);
         setMessage(body?.error?.message??"ตรวจสอบสถานะกะไม่สำเร็จ");
       } else {
-        const todayShift = body?.data?.shift;
-        setShift(todayShift && recyclingShiftIsToday(todayShift.opened_at) ? todayShift : null);
-        setNeedsJoin(Boolean(todayShift && body?.data?.needs_join));
+        const current=body?.data?.shift;
+        setShift(current && recyclingShiftIsToday(current.opened_at) ? current : null);
+        setNeedsJoin(Boolean(current && body?.data?.needs_join));
+        setLookupFailed(false);
         setMessage(body?.data?.message??"");
       }
     } catch {
-      setShift(null);setNeedsJoin(false);
-      setMessage("เชื่อมต่อระบบตรวจสอบกะไม่ได้ กรุณาลองอีกครั้ง");
-    } finally { setLoading(false); }
+      setShift(null);setNeedsJoin(false);setLookupFailed(true);
+      setMessage("ไม่สามารถเชื่อมต่อระบบตรวจสอบกะได้ กรุณารีเฟรชสถานะ");
+    } finally {setLoading(false);}
   }
 
   useEffect(()=>{
     void loadShift();
     const day={value:recyclingBusinessDayKey(new Date())};
-    const onVisibility=()=>{if(document.visibilityState==="visible") void loadShift();};
+    const onVisibility=()=>{if(document.visibilityState==="visible")void loadShift();};
     const timer=window.setInterval(()=>{
       const today=recyclingBusinessDayKey(new Date());
-      if(today!==day.value){day.value=today;setShift(null);setNeedsJoin(false);void loadShift();}
+      if(today!==day.value){
+        day.value=today;
+        setShift(null);setNeedsJoin(false);setModalKind(null);void loadShift();
+      }
     },5000);
     document.addEventListener("visibilitychange",onVisibility);
-    return ()=>{window.clearInterval(timer);document.removeEventListener("visibilitychange",onVisibility);};
+    return ()=>{
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange",onVisibility);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   },[]);
 
-  async function openShift() {
-    if (busy || loading || shift) return;
-    if (openingCash.trim() && !/^\d{1,10}(\.\d{1,2})?$/.test(openingCash.trim())) {
-      setMessage("กรุณากรอกเงินสดตั้งต้นเป็นจำนวนที่ถูกต้อง ไม่เกิน 2 ตำแหน่ง");return;
+  useEffect(()=>{
+    if(!modalKind)return;
+    function onEscape(event:KeyboardEvent){
+      if(event.key==="Escape" && !busy)setModalKind(null);
     }
-    setBusy(true);setMessage("");
+    document.addEventListener("keydown",onEscape);
+    return ()=>document.removeEventListener("keydown",onEscape);
+  },[modalKind,busy]);
+
+  function showModal(kind:"open"|"close"|"active"){
+    if(loading || lookupFailed || busy)return;
+    setActionError("");
+    setModalKind(kind);
+  }
+
+  async function openShift() {
+    if(busy||loading||lookupFailed||shift)return;
+    if(openingCash.trim() && !/^\d{1,10}(\.\d{1,2})?$/.test(openingCash.trim())){
+      setActionError("กรุณาระบุเงินสดตั้งต้นให้ถูกต้อง ไม่เกินสองตำแหน่ง");
+      return;
+    }
+    setBusy(true);setActionError("");
     try {
       const response=await fetch("/api/pos/shifts/open",{
         method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},
@@ -92,120 +118,220 @@ export function RecyclingShiftControl({branchName}: {branchName:string}) {
           opening_cash:openingCash.trim()?Number(openingCash):null})
       });
       const body=await response.json().catch(()=>null) as Result<{shift?:ShiftInfo}>|null;
-      if(response.ok && body?.data?.shift?.status==="open" &&
-         recyclingShiftIsToday(body.data.shift.opened_at)) {
+      if(response.ok&&body?.data?.shift?.status==="open"&&
+         recyclingShiftIsToday(body.data.shift.opened_at)){
         setShift(body.data.shift);setNeedsJoin(false);
         setMessage("เปิดกะ Recycling วันนี้สำเร็จ");
+        setModalKind(null);setOpeningCash("");
         router.refresh();
-      }else{
-        setMessage(body?.error?.message??"เปิดกะไม่สำเร็จ กรุณาตรวจสอบสถานะกะ");
+      } else {
+        setActionError(body?.error?.message??"เปิดกะไม่สำเร็จ กรุณาตรวจสอบสิทธิ์และกะที่เปิดค้าง");
       }
-    }catch{setMessage("เชื่อมต่อเซิร์ฟเวอร์เปิดกะไม่ได้");}
-    finally{setBusy(false);}
+    }catch{
+      setActionError("ไม่สามารถยืนยันการเปิดกะได้ กรุณาตรวจสอบสถานะก่อนลองซ้ำ");
+    }finally{setBusy(false);}
   }
 
   async function joinShift() {
-    if (!shift || !needsJoin || busy) return;
-    setBusy(true);setMessage("");
+    if(!shift||!needsJoin||busy||lookupFailed)return;
+    setBusy(true);setActionError("");
     try {
       const response=await fetch("/api/pos/shifts/join",{
         method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},
         body:JSON.stringify({shift_id:shift.id})
       });
       const body=await response.json().catch(()=>null) as Result<{shift?:ShiftInfo}>|null;
-      if (!response.ok || !body?.data?.shift) {
-        setMessage(body?.error?.message??"เข้าร่วมกะไม่สำเร็จ");return;
+      if(!response.ok||!body?.data?.shift){
+        setActionError(body?.error?.message??"เข้าร่วมกะไม่สำเร็จ");
+        return;
       }
-      setNeedsJoin(false);setMessage("เข้าร่วมกะสำเร็จ สามารถรับซื้อ–ขายออกได้");
+      setNeedsJoin(false);
+      setMessage("เข้าร่วมกะแล้ว สามารถกลับไปทำรายการรับซื้อ–ขายออกได้");
+      setModalKind(null);
       router.refresh();
-    }catch{setMessage("เชื่อมต่อเซิร์ฟเวอร์เข้าร่วมกะไม่ได้");}
+    }catch{setActionError("ไม่สามารถยืนยันการเข้าร่วมกะได้");}
     finally{setBusy(false);}
   }
 
   async function closeShift() {
-    if (!shift || needsJoin || busy) return;
-    if (!/^\d{1,10}(\.\d{1,2})?$/.test(closingCash.trim())) {
-      setMessage("กรุณานับเงินสดจริงและกรอกจำนวนบาทไม่เกินสองตำแหน่งก่อนปิดกะ");
+    if(!shift||needsJoin||busy||lookupFailed)return;
+    if(!/^\d{1,10}(\.\d{1,2})?$/.test(closingCash.trim())){
+      setActionError("กรุณานับเงินสดจริงก่อนปิดกะ แล้วระบุจำนวนบาทไม่เกินสองตำแหน่ง");
       return;
     }
-    setBusy(true);setMessage("");
+    setBusy(true);setActionError("");
     try {
       const response=await fetch("/api/pos/shifts/close",{
         method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},
         body:JSON.stringify({closing_cash:Number(closingCash),quick_close:false})
       });
       const body=await response.json().catch(()=>null) as Result<{shift_id?:string}>|null;
-      if(!response.ok||!body?.data?.shift_id) {
-        setMessage(body?.error?.message??"ยังปิดกะไม่สำเร็จ ต้องตรวจสอบยอดและบิลที่ยังไม่ชำระ");
+      if(!response.ok||!body?.data?.shift_id){
+        setActionError(body?.error?.message??"ปิดกะไม่สำเร็จ กรุณาตรวจยอดและบิลค้าง");
         return;
       }
-      setLastClosed(body.data.shift_id);setShift(null);setNeedsJoin(false);
-      setClosingCash("");
-      setMessage("บันทึกปิดกะสำเร็จ · ตรวจผลต่างเงินสดตามข้อมูลที่นับจริง");
+      setLastClosed(body.data.shift_id);
+      setShift(null);setNeedsJoin(false);setClosingCash("");
+      setModalKind(null);
+      setMessage("ปิดกะสำเร็จ · ระบบบันทึกผลตรวจนับเงินสดจริงแล้ว");
       router.refresh();
       try {
         const print=await fetch("/api/pos/shifts/"+encodeURIComponent(body.data.shift_id)+"/print",{
           method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},
           body:JSON.stringify({print_mode:"auto_first"})
         });
-        if(!print.ok)setMessage("ปิดกะสำเร็จ แต่ส่งพิมพ์อัตโนมัติไม่สำเร็จ สามารถพิมพ์ย้อนหลังได้");
-      }catch{setMessage("ปิดกะสำเร็จ แต่คิวพิมพ์ยังไม่ยืนยัน สามารถพิมพ์ย้อนหลังได้");}
-    }catch{setMessage("ไม่สามารถยืนยันการปิดกะได้ กรุณาตรวจสถานะก่อนกดซ้ำ");}
-    finally{setBusy(false);}
+        if(!print.ok){
+          setMessage("ปิดกะสำเร็จ แต่ส่งพิมพ์อัตโนมัติไม่สำเร็จ สามารถพิมพ์ย้อนหลังได้");
+        }
+      }catch{
+        setMessage("ปิดกะสำเร็จ แต่คิวพิมพ์ยังไม่ยืนยัน สามารถพิมพ์ย้อนหลังได้");
+      }
+    }catch{
+      setActionError("ยังไม่สามารถยืนยันผลการปิดกะได้ กรุณาตรวจสอบสถานะก่อนกดซ้ำ");
+    }finally{setBusy(false);}
   }
 
-  return <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5" data-testid="recycling-shift-control">
+  const hasShift=Boolean(shift);
+  const formatCash=(value:number|null)=>value===null?"ยังไม่ยืนยัน":value.toLocaleString("th-TH",{
+    minimumFractionDigits:2,maximumFractionDigits:2
+  })+" บาท";
+
+  return <section className="rounded-2xl border border-slate-200 bg-white px-4 py-4 shadow-sm sm:px-5"
+    data-testid="recycling-shift-control">
     <div className="flex flex-wrap items-center justify-between gap-3">
-      <div>
-        <h2 className="text-base font-extrabold text-slate-900">กะประจำวัน · {branchName}</h2>
-        <p className="mt-1 text-xs text-slate-500">รอบวันตามเวลาไทย · ระบบปิดกะอัตโนมัติเมื่อสิ้นสุดวัน · แยกจาก POS ทั่วไป</p>
+      <div className="min-w-0">
+        <div className="flex flex-wrap items-center gap-2">
+          <h2 className="text-base font-extrabold text-slate-900">กะ Recycling · {branchName}</h2>
+          <span className={"rounded-full px-3 py-1 text-xs font-bold "+(
+            hasShift?"bg-emerald-100 text-emerald-800":"bg-slate-100 text-slate-700")}>
+            {loading?"กำลังตรวจสอบ":lookupFailed?"ตรวจสอบไม่สำเร็จ":hasShift?"เปิดอยู่":"ยังไม่เปิดกะ"}
+          </span>
+        </div>
+        <p className="mt-1 text-xs leading-5 text-slate-500">
+          กะรายวันตามเวลาไทย · ปิดอัตโนมัติเมื่อสิ้นสุดวัน · แยกจากกะของ POS หลัก
+        </p>
       </div>
-      <span className={"rounded-full px-3 py-1.5 text-xs font-bold "+(shift?"bg-emerald-100 text-emerald-800":"bg-slate-100 text-slate-700")}>
-        {loading?"กำลังตรวจสอบ":shift?needsJoin?"เปิดอยู่ · ยังไม่เข้าร่วม":"เปิดอยู่":"ยังไม่เปิดกะ"}
-      </span>
+      <div className="flex flex-wrap gap-2" data-testid="recycling-shift-actions">
+        <button type="button" onClick={()=>showModal("active")}
+          disabled={loading||lookupFailed||busy}
+          className="min-h-10 rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 disabled:opacity-50">
+          ดูกะปัจจุบัน
+        </button>
+        <button type="button" onClick={()=>showModal("open")}
+          disabled={loading||lookupFailed||busy||hasShift}
+          className="min-h-10 rounded-xl bg-blue-600 px-4 py-2 text-sm font-bold text-white disabled:opacity-50">
+          เปิดกะทันที
+        </button>
+        <button type="button" onClick={()=>showModal("close")}
+          disabled={loading||lookupFailed||busy||!hasShift||needsJoin}
+          className="min-h-10 rounded-xl bg-slate-900 px-4 py-2 text-sm font-bold text-white disabled:opacity-50">
+          ปิดกะตอนนี้
+        </button>
+      </div>
     </div>
-    {shift ? <div className="mt-4 grid gap-3 lg:grid-cols-2">
-      <div className="grid gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm sm:grid-cols-2">
-        <div><p className="text-xs font-semibold text-slate-500">เริ่มกะ</p>
-          <p className="mt-1 font-bold text-slate-900">{new Date(shift.opened_at).toLocaleString("th-TH",{timeZone:"Asia/Bangkok"})}</p></div>
-        <div><p className="text-xs font-semibold text-slate-500">เงินสดตั้งต้น</p>
-          <p className="mt-1 font-bold text-slate-900">{shift.opening_cash===null?"ยังไม่ยืนยัน":shift.opening_cash.toFixed(2)+" บาท"}</p></div>
-      </div>
-      {needsJoin ? <div className="flex flex-col justify-center gap-2 rounded-xl border border-blue-100 bg-blue-50 p-4">
-        <p className="text-sm text-blue-900">กะเปิดอยู่ แต่บัญชีนี้ยังไม่ได้เข้าร่วมกะของเครื่องนี้</p>
-        <button type="button" disabled={busy||loading} onClick={()=>void joinShift()}
-          className="rounded-lg bg-blue-700 px-4 py-3 text-sm font-bold text-white disabled:opacity-50">
-          {busy?"กำลังเข้าร่วมกะ...":"เข้าร่วมกะนี้"}
-        </button>
-      </div> : <form onSubmit={event=>{event.preventDefault();void closeShift();}}
-        className="rounded-xl border border-slate-200 p-4">
-        <label htmlFor="recycling-closing-cash" className="block text-sm font-bold text-slate-800">เงินสดที่ตรวจนับจริง (บาท)</label>
-        <p className="mb-2 text-xs text-slate-500">นับเงินสดก่อนปิดกะ ไม่รวมยอดโอนหรือเครดิต</p>
-        <input id="recycling-closing-cash" required type="number" inputMode="decimal" step=".01" min="0" max="9999999999"
-          value={closingCash} onChange={event=>setClosingCash(event.target.value)}
-          placeholder="ระบุจำนวนเงินที่นับจริง" className="w-full rounded-lg border border-slate-300 px-3 py-3 text-sm"/>
-        <button disabled={busy||loading} type="submit"
-          className="mt-3 w-full rounded-lg bg-blue-700 px-4 py-3 text-sm font-bold text-white disabled:opacity-50">
-          {busy?"กำลังปิดกะ...":"ปิดกะและพิมพ์ใบสรุป"}
-        </button>
-      </form>}
-    </div> : <div className="mt-4 flex flex-col gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4 sm:flex-row sm:items-end">
-      <label htmlFor="recycling-opening-cash" className="block flex-1 text-sm font-bold text-slate-800">
-        เงินสดตั้งต้น (บาท) <span className="font-normal text-slate-500">หากยังไม่ยืนยันให้เว้นว่าง</span>
-        <input id="recycling-opening-cash" type="number" min="0" step=".01" inputMode="decimal"
-          value={openingCash} onChange={event=>setOpeningCash(event.target.value)}
-          placeholder="ระบุเงินสดตั้งต้นตามจริง" className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-3 text-sm"/>
-      </label>
-      <button type="button" disabled={loading||busy} onClick={()=>void openShift()}
-        className="min-h-11 rounded-lg bg-blue-700 px-5 py-3 text-sm font-bold text-white disabled:opacity-50">
-        {busy?"กำลังเปิดกะ...":"เปิดกะวันนี้"}
-      </button>
-    </div>}
-    {message && <p role="status" className="mt-3 rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-700">{message}</p>}
-    {lastClosed && <div className="mt-3"><RecyclingShiftPrintButton shiftId={lastClosed}/></div>}
-    <div className="mt-3 flex justify-end">
+    {message&&<p role="status" className="mt-3 rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-700">{message}</p>}
+    <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
+      {lastClosed?<RecyclingShiftPrintButton shiftId={lastClosed}/>:<span className="text-xs text-slate-500">
+        {shift?"กะเริ่ม "+new Date(shift.opened_at).toLocaleString("th-TH",{timeZone:"Asia/Bangkok"}):"ยังไม่มีกะที่เปิดในเครื่องนี้"}
+      </span>}
       <button type="button" disabled={busy||loading} onClick={()=>void loadShift()}
-        className="text-xs font-semibold text-blue-700 underline-offset-2 hover:underline disabled:opacity-50">รีเฟรชสถานะกะ</button>
+        className="text-xs font-semibold text-blue-700 hover:underline disabled:opacity-50">
+        รีเฟรชสถานะกะ
+      </button>
     </div>
+
+    {modalKind&&<div className="fixed inset-0 z-[170] flex items-center justify-center overflow-y-auto p-3 sm:p-5"
+      data-testid="recycling-shift-popup" role="dialog" aria-modal="true"
+      aria-labelledby="recycling-shift-modal-title" aria-describedby="recycling-shift-modal-desc">
+      <button type="button" aria-label="ปิดหน้าต่าง"
+        disabled={busy} onClick={()=>setModalKind(null)}
+        className="absolute inset-0 cursor-default bg-slate-950/55 disabled:cursor-wait" />
+      <section className="relative z-10 max-h-[calc(100dvh-2rem)] w-full max-w-md overflow-y-auto rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl sm:p-6">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="text-xs font-bold tracking-wider text-blue-700">CUSTOM · RECYCLING</p>
+            <h3 id="recycling-shift-modal-title" className="mt-1 text-xl font-extrabold text-slate-900">
+              {modalKind==="open"?"เปิดกะประจำวัน":modalKind==="close"?"ยืนยันปิดกะ":"รายละเอียดกะปัจจุบัน"}
+            </h3>
+          </div>
+          <button type="button" aria-label="ปิดหน้าต่าง" disabled={busy}
+            className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-bold text-slate-600 disabled:opacity-50"
+            onClick={()=>setModalKind(null)}>✕</button>
+        </div>
+        <p id="recycling-shift-modal-desc" className="mt-2 text-sm leading-6 text-slate-600">
+          {modalKind==="open"
+            ?"ยืนยันเงินสดตั้งต้นตามยอดที่ตรวจนับจริง ระบบจะเปิดกะเฉพาะเครื่องและสาขานี้"
+            :modalKind==="close"
+            ?"ตรวจนับเงินสดจริงก่อนปิดกะ ใบสรุปจะส่งเข้าคิวพิมพ์หลังปิดกะสำเร็จ"
+            :"รายละเอียดเฉพาะกะ Recycling ไม่รวมกะขายทั่วไป"}
+        </p>
+        <div className="mt-4 grid gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm">
+          <div className="flex justify-between gap-3">
+            <span className="text-slate-500">สาขา</span><strong className="text-right text-slate-900">{branchName}</strong>
+          </div>
+          <div className="flex justify-between gap-3">
+            <span className="text-slate-500">สถานะ</span><strong className="text-right text-slate-900">
+              {shift?needsJoin?"เปิดแล้ว · ยังไม่เข้าร่วม":"เปิดกะอยู่":"ยังไม่เปิดกะ"}
+            </strong>
+          </div>
+          {shift&&<>
+            <div className="flex justify-between gap-3">
+              <span className="text-slate-500">เวลาเปิด</span>
+              <strong className="text-right text-slate-900">{new Date(shift.opened_at).toLocaleString("th-TH",{timeZone:"Asia/Bangkok"})}</strong>
+            </div>
+            <div className="flex justify-between gap-3">
+              <span className="text-slate-500">เงินสดตั้งต้น</span>
+              <strong className="text-right text-slate-900">{formatCash(shift.opening_cash)}</strong>
+            </div>
+          </>}
+        </div>
+
+        {modalKind==="open"&&<form id="recycling-open-shift-form" className="mt-4"
+          onSubmit={event=>{event.preventDefault();void openShift();}}>
+          <label htmlFor="recycling-opening-cash" className="block text-sm font-semibold text-slate-800">
+            เงินสดตั้งต้น (บาท)
+          </label>
+          <p className="mt-1 text-xs text-slate-500">เว้นว่างได้หากยังไม่ยืนยันยอด ไม่บันทึกเป็นศูนย์โดยอัตโนมัติ</p>
+          <input id="recycling-opening-cash" type="number" min="0" step=".01" inputMode="decimal"
+            autoFocus disabled={busy} value={openingCash} onChange={event=>setOpeningCash(event.target.value)}
+            placeholder="ระบุยอดเงินสดตั้งต้นตามจริง"
+            className="mt-2 min-h-11 w-full rounded-xl border border-slate-300 px-3 py-3 text-sm disabled:opacity-50"/>
+        </form>}
+        {modalKind==="close"&&<form id="recycling-close-shift-form" className="mt-4"
+          onSubmit={event=>{event.preventDefault();void closeShift();}}>
+          <label htmlFor="recycling-closing-cash" className="block text-sm font-semibold text-slate-800">
+            เงินสดที่ตรวจนับจริง (บาท)
+          </label>
+          <p className="mt-1 text-xs text-slate-500">กรอกยอดที่นับจริง ไม่รวมเงินโอนหรือยอดเครดิต</p>
+          <input id="recycling-closing-cash" type="number" required min="0" step=".01" inputMode="decimal"
+            autoFocus disabled={busy} value={closingCash} onChange={event=>setClosingCash(event.target.value)}
+            placeholder="กรอกยอดเงินสดจริงก่อนปิดกะ"
+            className="mt-2 min-h-11 w-full rounded-xl border border-slate-300 px-3 py-3 text-sm disabled:opacity-50"/>
+        </form>}
+        {actionError&&<p role="alert" className="mt-3 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm font-semibold text-rose-700">
+          {actionError}
+        </p>}
+        <div className="mt-5 flex flex-wrap justify-end gap-2">
+          <button type="button" onClick={()=>setModalKind(null)} disabled={busy}
+            className="min-h-10 rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 disabled:opacity-50">
+            {modalKind==="active"?"ปิดหน้าต่าง":"ยกเลิก"}
+          </button>
+          {modalKind==="open"&&<button type="submit" form="recycling-open-shift-form" disabled={busy||loading||lookupFailed||hasShift}
+            className="min-h-10 rounded-xl bg-blue-600 px-4 py-2 text-sm font-bold text-white disabled:opacity-50">
+            {busy?"กำลังเปิดกะ...":"ยืนยันเปิดกะ"}
+          </button>}
+          {modalKind==="close"&&<button type="submit" form="recycling-close-shift-form"
+            disabled={busy||loading||lookupFailed||!hasShift||needsJoin}
+            className="min-h-10 rounded-xl bg-slate-900 px-4 py-2 text-sm font-bold text-white disabled:opacity-50">
+            {busy?"กำลังปิดกะ...":"ยืนยันปิดกะและพิมพ์ใบสรุป"}
+          </button>}
+          {modalKind==="active"&&needsJoin&&shift&&<button type="button" disabled={busy||loading||lookupFailed}
+            onClick={()=>void joinShift()}
+            className="min-h-10 rounded-xl bg-blue-600 px-4 py-2 text-sm font-bold text-white disabled:opacity-50">
+            {busy?"กำลังเข้าร่วมกะ...":"เข้าร่วมกะนี้"}
+          </button>}
+        </div>
+      </section>
+    </div>}
   </section>;
 }
