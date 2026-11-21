@@ -311,8 +311,8 @@ export async function hasBranchFeature(tenantId: string, branchId: string | null
       "optical_management_policy_check_failed",
       (plan.error ?? command.error)!.message, 500
     );
-    const isCustom=String(plan.data?.code??"").toLowerCase()==="custom";
-    enabled=isCustom&&command.data?.is_enabled===true&&(
+    const isCustom = String(plan.data?.code ?? "").toLowerCase() === "custom";
+    enabled = isCustom && command.data?.is_enabled === true && (
       isOpticalRetailExplicitlyEnabled(contract?.metadata?.sales_modes) ||
       hasCustomRecyclingManagementMenuGrant({
         packageCode:plan.data?.code,rawModes:contract?.metadata?.sales_modes,
