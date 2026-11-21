@@ -5,7 +5,7 @@ import { getRecyclingStockBranches } from "@/lib/server/recycling-stock-branch-s
 import { sumRecyclingReportMoney } from "@/lib/recycling-report-calculation";
 
 export type RecyclingReportKind = "summary" | "receipts" | "products";
-export type RecyclingReportQuery = {period?:string;date?:string;from?:string;to?:string;branch?:string;direction?:string;status?:string;q?:string;page?:string};
+export type RecyclingReportQuery = {report_mode?:string;period?:string;date?:string;from?:string;to?:string;branch?:string;direction?:string;status?:string;q?:string;page?:string};
 export type RecyclingTransaction = {
  id:string; receipt_no:string; direction:"buy"|"sell"; settlement:"cash"|"bank_transfer"|"credit";
  total_minor:number; cogs_minor:number; status:"posted"|"voided"; branch_id:string;

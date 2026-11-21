@@ -11,6 +11,8 @@ describe("CUSTOM Recycling independent history reports",()=>{
    expect(p).toContain("isAuthorizedRecyclingTenant(posMenuScope.session.tenant_id)");
    expect(p).toContain("<RecyclingHistoryReports");
    expect(p).toContain("authorizeOpticalMoreMenu");
+   expect(p).toContain("isAuthorizedCustomGeneralSaleTenant");
+   expect(p).toContain('requestedMode === "standard"');
   }
  });
  it("reads finance snapshots only within tenant and permitted branch scope",()=>{
@@ -30,6 +32,7 @@ describe("CUSTOM Recycling independent history reports",()=>{
   expect(service).toContain('transferInMinor');
   expect(service).toContain('creditOutMinor');
   expect(view).toContain("ไม่รวมกับรายการขายของ POS ทั่วไป");
+  expect(view).toContain("ดูรายงานโหมดขายทั่วไป");
  });
  it("uses material snapshots and routes historical receipt to existing 58/80 print path",()=>{
   expect(service).toContain('.from("recycling_transaction_lines")');

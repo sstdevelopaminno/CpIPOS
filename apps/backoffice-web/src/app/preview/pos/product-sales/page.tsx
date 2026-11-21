@@ -1,3 +1,4 @@
+import { isAuthorizedCustomGeneralSaleTenant } from "@/lib/server/recycling-general-sale-entitlement";
 import { RecyclingHistoryReports } from "@/components/pos/recycling-history-reports";
 import { isAuthorizedRecyclingTenant } from "@/lib/server/recycling-pos-service";
 import type { RecyclingReportQuery } from "@/lib/server/recycling-history-reports";
@@ -13,7 +14,10 @@ export default async function ProductSalesPage({searchParams}:{searchParams?:Pro
   const posMenuScope = await requirePosSession();
   await assertPosMenuPageAllowed(posMenuScope.session.tenant_id, "/preview/pos/product-sales");
   // CUSTOM Recycling has an independent purchases/sales ledger. Do not show empty legacy order reports.
-  if (await isAuthorizedRecyclingTenant(posMenuScope.session.tenant_id)) {
+  const requestedMode = (await searchParams)?.report_mode;
+  const canUseStandard = requestedMode === "standard" &&
+    await isAuthorizedCustomGeneralSaleTenant(posMenuScope.session.tenant_id);
+  if (await isAuthorizedRecyclingTenant(posMenuScope.session.tenant_id) && !canUseStandard) {
     await requirePosPagePermission("sales:list:view");
     return <RecyclingHistoryReports scope={posMenuScope} kind="products" search={await searchParams} />;
   }

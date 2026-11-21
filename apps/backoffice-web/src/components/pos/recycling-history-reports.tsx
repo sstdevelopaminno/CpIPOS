@@ -1,3 +1,4 @@
+import { isAuthorizedCustomGeneralSaleTenant } from "@/lib/server/recycling-general-sale-entitlement";
 import { RecyclingSummaryPrintButton } from "@/components/pos/recycling-summary-print-button";
 import Link from "next/link";
 import type { PosSessionScope } from "@/lib/pos-session-guard";
@@ -21,6 +22,7 @@ export async function RecyclingHistoryReports({scope,kind,search}:{
    ไม่สามารถแสดงข้อมูล CUSTOM Recycling ที่ตรวจสอบครบถ้วนได้ ({msg}) กรุณาลดช่วงวันหรือติดต่อฝ่าย IT
   </section>;
  }
+ const canUseStandard = await isAuthorizedCustomGeneralSaleTenant(scope.session.tenant_id);
  const branchNames=new Map(report.branchOptions.map(b=>[b.id,b.name]));
  const totalLines=report.lines;
  const rows=report.visible;
@@ -43,6 +45,10 @@ export async function RecyclingHistoryReports({scope,kind,search}:{
       <Link className={btn} href="/preview/pos/sales-summary">สรุปยอดขาย</Link>
       <Link className={btn} href="/preview/pos/receipts">ใบเสร็จย้อนหลัง</Link>
       <Link className={btn} href="/preview/pos/product-sales">รายการขายสินค้า</Link>
+      {canUseStandard&&<Link className={btn} href={kind==="summary"?"/preview/pos/sales-summary?report_mode=standard":
+        kind==="receipts"?"/preview/pos/receipts?report_mode=standard":"/preview/pos/product-sales?report_mode=standard"}>
+        ดูรายงานโหมดขายทั่วไป
+      </Link>}
     </div>
    </header>
    <form method="GET" className="mt-4 flex flex-wrap items-end gap-3 rounded-lg bg-slate-50 p-3 print:hidden" aria-label="ตัวกรองรายงาน">
