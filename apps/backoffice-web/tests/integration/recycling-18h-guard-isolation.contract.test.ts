@@ -53,7 +53,7 @@ describe("Recycling daily shift never uses ordinary POS 13:00/18:00 rollover", (
     expect(close).toContain("recyclingShiftMode");
     expect(control).toContain('shift_id:shift.id,business_mode:"recycling",closing_cash:Number(closingCash)');
     expect(control).toContain('quick_close:false');
-    expect(control).toContain('setActionError(lookupFailed ? message : "")');
+    expect(control).toContain('setActionError(lookupFailed && kind!=="recover" ? message : "")');
     expect(control).toContain("lookupFailed&&");
   });
 });
