@@ -5,7 +5,8 @@ import {
   getTenantBranchScopeFromSession,
   requirePermission,
   requirePosSession,
-  withPosSessionCookie
+  withPosSessionCookie,
+  updateCachedPosSessionShift
 } from "@/lib/pos-session-guard";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 
@@ -87,6 +88,9 @@ export async function POST(request: Request) {
         { status: 500 }
       );
     }
+
+    // Keep the cached session consistent with the persisted join binding.
+    updateCachedPosSessionShift(scope.session.id, shiftRow.id);
 
     void appendAuditLog({
       tenantId: sessionScope.tenantId,
