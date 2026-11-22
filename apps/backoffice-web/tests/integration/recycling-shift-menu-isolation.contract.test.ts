@@ -58,7 +58,7 @@ describe("CUSTOM Recycling shift menu isolation and cashier entry gate", () => {
     expect(recyclingPage).toContain('data-testid="recycling-shift-single-container"');
     expect(recyclingPage).toContain('className="recycling-shift-layout flex h-full min-h-0 w-full flex-col');
     expect(recyclingPage).toContain("<RecyclingShiftControl");
-    expect(recyclingPage).toContain("ประวัติเปิด/ปิดกะ Recycling");
+    expect(recyclingPage).toContain("ประวัติกะ · เงินทุนหมุนเวียนรับซื้อ");
     expect(recyclingPage).not.toContain("CUSTOM · RECYCLING");
     expect(recyclingPage).not.toContain("กลับหน้ารับซื้อ–ขายออก");
     expect(recyclingPage).not.toContain("รายงานนี้แสดงยอดที่ฐานข้อมูลบันทึกเมื่อปิดกะ");
@@ -88,17 +88,20 @@ describe("CUSTOM Recycling shift menu isolation and cashier entry gate", () => {
     expect(control).not.toContain('className="mt-4 grid gap-3 lg:grid-cols-2"');
   });
 
-  it("makes shift opening and joining explicit without assuming zero float", () => {
+  it("requires counted working capital when opening Recycling and preserves join/close guards", () => {
     expect(control).not.toContain("void autoOpen()");
     expect(control).toContain("async function openShift()");
     expect(control).toContain("async function joinShift()");
-    expect(control).toContain('opening_cash:openingCash.trim()?Number(openingCash):null');
+    expect(control).toContain('opening_cash:Number(openingCash)');
+    expect(control).toContain('cash_count_confirmed:cashCountConfirmed');
+    expect(control).toContain('!cashCountConfirmed');
+    expect(control).toContain('fund_source:fundSource');
     expect(control).toContain('fetch("/api/pos/shifts/join"');
     expect(control).toContain('fetch("/api/pos/shifts/close"');
     expect(control).toContain('shift_id:shift.id,business_mode:"recycling",closing_cash:Number(closingCash)');
     expect(control).toContain('print_mode:"auto_first"');
     expect(control).toContain("กรุณานับเงินสดจริง");
-    expect(control).toContain("เปิดกะทันที");
-    expect(control).toContain("ปิดกะและพิมพ์ใบสรุป");
+    expect(control).toContain("เปิดกะรับซื้อ");
+    expect(control).toContain("ปิดกะและพิมพ์สรุป");
   });
 });
