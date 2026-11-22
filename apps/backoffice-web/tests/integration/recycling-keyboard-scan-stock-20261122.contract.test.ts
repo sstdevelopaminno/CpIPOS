@@ -57,7 +57,8 @@ describe("CUSTOM Recycling physical-key cashier shortcuts",()=>{
   });
 
   it("preserves unmodified stock/finance writes and refuses unsafe settlement",()=>{
-    expect(transactions).toContain('db.rpc("recycling_post_transaction"');
+    expect(transactions).toContain('"recycling_post_transaction_vat" : "recycling_post_transaction"');
+    expect(transactions).toContain('RECYCLING_VAT_WRITES_ENABLED==="1"');
     expect(transactions).toContain('p_request_id: raw.request_id');
     expect(transactions).toContain('recycling_stock_insufficient');
     expect(transactions).toContain('recycling_cash_drawer_insufficient');
