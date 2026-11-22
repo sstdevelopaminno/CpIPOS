@@ -2,6 +2,10 @@
 -- No historical transaction is backfilled, reassessed or relabelled.
 -- Apply to production only after separate PostgreSQL UAT and accountant approval.
 begin;
+-- Production branches has PK(id), not UNIQUE(tenant_id,id).
+-- This unique composite key enables a tenant-scoped FK without changing rows.
+create unique index if not exists branches_tenant_id_id_vat_idx
+  on public.branches(tenant_id,id);
 create table public.recycling_vat_issuers (
   tenant_id uuid not null references public.tenants(id),
   branch_id uuid not null references public.branches(id),
@@ -47,7 +51,11 @@ alter table public.finance_accounting_documents
   drop constraint finance_accounting_documents_tax_minor_check;
 alter table public.finance_accounting_documents
   add constraint finance_accounting_documents_tax_minor_check
-  check(tax_minor>=0 and tax_minor<=amount_minor);
+  check(tax_minor=0 or (
+    tax_minor>0 and tax_minor<=amount_minor
+    and request_snapshot->>'source'='recycling'
+    and request_snapshot->>'tax_state'='vat_recorded'
+  ));
 
 create table public.recycling_tax_invoice_sequences (
   tenant_id uuid primary key references public.tenants(id),
