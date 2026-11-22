@@ -53,7 +53,9 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
   const [shiftGate,setShiftGate]=useState<"checking"|"open"|"blocked">("checking");
   const [shiftOpenedAt,setShiftOpenedAt]=useState("");
   const [shiftId,setShiftId]=useState("");
-  const [shiftMessage,setShiftMessage]=useState("กำลังตรวจสอบและเปิดกะ Recycling ประจำวัน...");
+  const [shiftMessage,setShiftMessage]=useState("กำลังตรวจสอบกะ Recycling ประจำวัน...");
+  const [shiftRefreshWarning,setShiftRefreshWarning]=useState("");
+  const shiftGateRef=useRef<"checking"|"open"|"blocked">("checking");
   const gateInFlightRef=useRef(false);
   const lastDayRef=useRef(recyclingBusinessDayKey(new Date()));
   const postingRef=useRef(false);
@@ -129,10 +131,10 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
     async function checkShift() {
       if (gateInFlightRef.current) return;
       gateInFlightRef.current = true;
-      if (mounted) {
-        setShiftGate("checking");
-        setShiftMessage("กำลังตรวจสอบสถานะกะ Recycling...");
-      }
+      // Refresh a previously verified shift in place. Never remount a
+      // fullscreen "checking" dialog during tab focus / revalidation.
+      // The server-side transaction RPC still authoritatively checks the
+      // shift state before any cash or stock write.
       try {
         const response = await fetch("/api/pos/recycling/shifts/current", {
           credentials: "same-origin", cache: "no-store"
@@ -147,21 +149,39 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
             recyclingShiftIsToday(shift.opened_at)) {
           setShiftOpenedAt(shift.opened_at);
           setShiftId(shift.id);
+          shiftGateRef.current="open";
           setShiftGate("open");
+          setShiftRefreshWarning("");
           setShiftMessage("กะ Recycling เปิดแล้ว");
         } else {
-          setShiftOpenedAt("");
-          setShiftId("");
-          setShiftGate("blocked");
-          setShiftMessage(result?.error?.message ?? result?.data?.message ??
-            "ยังไม่ได้เปิดกะวันนี้ กรุณาไปที่เมนูเปิด/ปิดกะ");
+          // Explicit 404/no shift, needs_join, expired day, or a verified
+          // business conflict must block checkout. Transient 5xx/transport
+          // failures must not falsely label an already verified shift closed.
+          if(!response.ok && response.status>=500 && shiftGateRef.current==="open"){
+            setShiftRefreshWarning("ยังตรวจสอบสถานะกะล่าสุดไม่ได้ ระบบจะตรวจใหม่เมื่อกลับเข้าหน้าต่าง");
+          }else{
+            setShiftOpenedAt("");
+            setShiftId("");
+            shiftGateRef.current="blocked";
+            setShiftGate("blocked");
+            setShiftRefreshWarning("");
+            setShiftMessage(result?.data?.needs_join
+              ? "กะ Recycling เปิดแล้ว แต่บัญชีผู้ใช้นี้ยังไม่ได้เข้าร่วมกะบนเครื่องนี้ กรุณาไปเมนูเปิด/ปิดกะเพื่อเข้าร่วม"
+              : result?.error?.message ?? result?.data?.message ??
+                "ยังไม่ได้เปิดกะวันนี้ กรุณาไปที่เมนูเปิด/ปิดกะ");
+          }
         }
       } catch {
         if (mounted) {
-          setShiftGate("blocked");
-          setShiftOpenedAt("");
-          setShiftId("");
-          setShiftMessage("ไม่สามารถตรวจสอบสถานะกะได้ กรุณาลองอีกครั้ง");
+          if(shiftGateRef.current==="open"){
+            setShiftRefreshWarning("เครือข่ายขัดข้อง ยังยืนยันสถานะกะครั้งล่าสุดไม่ได้");
+          }else{
+            shiftGateRef.current="blocked";
+            setShiftGate("blocked");
+            setShiftOpenedAt("");
+            setShiftId("");
+            setShiftMessage("ไม่สามารถตรวจสอบสถานะกะได้ กรุณาลองอีกครั้ง");
+          }
         }
       } finally {
         gateInFlightRef.current = false;
@@ -180,7 +200,9 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
           setHeldBills([]); setHeldOpen(false); setCancelOpen(false);
           requestIdRef.current = ""; setPosted(null);
         }
+        shiftGateRef.current="checking";
         setShiftGate("checking"); setShiftOpenedAt(""); setShiftId("");
+        setShiftRefreshWarning("");
         setError("เปลี่ยนวันธุรกิจแล้ว เคลียร์เฉพาะตะกร้าที่ยังไม่บันทึก ไม่ลบใบเสร็จหรือสต๊อก");
         void checkShift();
       }
@@ -743,14 +765,23 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
       generalSaleEnabled={generalSaleEnabled} direction={direction}
       onDirectionChange={changeDirection} busy={posting}
       heldCount={heldBills.length} onOpenHeldBills={openHeldBills}/>
-    {!canUseShift && <div data-testid="recycling-daily-shift-gate"
+    {shiftGate==="checking" && <div role="status" data-testid="recycling-shift-inline-check"
+      className="mx-3 mt-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-900">
+      กำลังตรวจสอบสถานะกะ Recycling · ระบบยังไม่อนุญาตให้บันทึกรายการจนกว่าจะตรวจสอบสำเร็จ
+    </div>}
+    {shiftRefreshWarning&&shiftGate==="open"&&<div role="status"
+      data-testid="recycling-shift-refresh-warning"
+      className="mx-3 mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-900">
+      {shiftRefreshWarning} · บันทึกธุรกรรมต้องผ่านการตรวจสอบกะจาก Server ทุกครั้ง
+    </div>}
+    {shiftGate==="blocked" && <div data-testid="recycling-daily-shift-gate"
       className="fixed inset-0 z-[160] flex items-center justify-center bg-slate-950/55 px-4 py-8"
       role="dialog" aria-modal="true" aria-labelledby="recycling-shift-gate-title"
       aria-describedby="recycling-shift-gate-message">
       <section className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl sm:p-7">
         <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-blue-50 text-2xl text-blue-700" aria-hidden="true">♻</div>
         <h2 id="recycling-shift-gate-title" className="text-xl font-extrabold text-slate-900">
-          {shiftGate === "checking" ? "กำลังตรวจสอบกะ" : "กรุณาเปิดกะก่อนเริ่มรับซื้อ–ขายออก"}
+          กรุณาตรวจสอบสถานะกะก่อนเริ่มรับซื้อ–ขายออก
         </h2>
         <p id="recycling-shift-gate-message" className="mt-3 text-sm leading-6 text-slate-600">{shiftMessage}</p>
         <p className="mt-2 text-xs text-slate-500">ตรวจสอบตามสาขาและเครื่องที่เข้าสู่ระบบ · กะ Recycling แยกจาก POS ทั่วไป</p>
@@ -759,7 +790,7 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
             className="flex min-h-11 flex-1 items-center justify-center rounded-lg bg-blue-700 px-4 py-3 text-sm font-bold text-white">
             ไปหน้าเปิด/ปิดกะ
           </Link>
-          <button type="button" disabled={shiftGate === "checking"}
+          <button type="button"
             onClick={() => window.location.reload()}
             className="min-h-11 rounded-lg border border-slate-300 px-4 py-3 text-sm font-semibold text-slate-700 disabled:opacity-50">
             ตรวจสอบอีกครั้ง
