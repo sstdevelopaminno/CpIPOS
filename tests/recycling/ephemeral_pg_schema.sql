@@ -10,7 +10,8 @@ create table public.tenants (
 );
 create table public.branches (
   id uuid primary key, tenant_id uuid not null references public.tenants(id),
-  name text not null, is_active boolean not null default true
+  name text not null, is_active boolean not null default true,
+  unique(tenant_id,id)
 );
 create table public.users_profiles (
   id uuid primary key, is_active boolean not null default true
@@ -66,6 +67,29 @@ create table public.products (
   metadata jsonb not null default '{}'::jsonb,
   is_active boolean not null default true,deleted_at timestamptz,
   unique(tenant_id,branch_id,sku)
+);
+-- Test-only fixtures needed by additive VAT migrations; do not expose real data.
+create table public.tenant_tax_settings(
+  tenant_id uuid not null references public.tenants(id),
+  branch_id uuid not null references public.branches(id),
+  is_enabled boolean not null default false,
+  calculation_base text not null default 'net_after_discount',
+  settings jsonb not null default '{}'::jsonb,
+  unique(tenant_id,branch_id)
+);
+create table public.pos_tax_invoice_profiles(
+  id uuid primary key,
+  tenant_id uuid not null references public.tenants(id),
+  branch_id uuid not null references public.branches(id),
+  entity_type text not null,
+  display_name text not null,
+  tax_id text not null,
+  address_line text not null,
+  subdistrict text not null,
+  district text not null,
+  province text not null,
+  postal_code text not null,
+  is_active boolean not null default true
 );
 create table public.finance_accounting_chart (
   id uuid primary key default gen_random_uuid(),

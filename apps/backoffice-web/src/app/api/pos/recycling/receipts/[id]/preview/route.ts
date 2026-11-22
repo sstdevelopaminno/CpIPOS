@@ -43,7 +43,7 @@ export async function GET(request:Request,{params}:{params:Promise<{id:string}>}
       branchRole:role==="owner"||role==="manager"||role==="accountant"?role:"staff"};
     const [tx,lines,tenant,branch,profile,taxSettings]=await Promise.all([
       db.from("recycling_transactions")
-        .select("id,receipt_no,direction,settlement,counterparty_name,total_minor,status,void_reason,created_at")
+        .select("id,receipt_no,direction,settlement,counterparty_name,total_minor,base_minor,vat_minor,tax_state,status,void_reason,created_at")
         .eq("id",id).eq("tenant_id",tenantId).eq("branch_id",branchId).maybeSingle(),
       db.from("recycling_transaction_lines")
         .select("line_no,sku_snapshot,name_snapshot,original_quantity,original_unit,base_unit,price_per_base,amount_minor")
@@ -57,9 +57,15 @@ export async function GET(request:Request,{params}:{params:Promise<{id:string}>}
     if(tx.error||lines.error||tenant.error||branch.error||!tx.data||
        !["posted","voided"].includes(tx.data.status)||!lines.data?.length)return fail(404,"ไม่พบใบรับซื้อหรือขายออก");
     const storedTotal=Number(tx.data.total_minor);
+    const base=Number(tx.data.base_minor??storedTotal);
+    const vat=Number(tx.data.vat_minor??0);
     if(!Number.isSafeInteger(storedTotal)||storedTotal<0||
+       !Number.isSafeInteger(base)||base<0||
+       !Number.isSafeInteger(vat)||vat<0||base+vat!==storedTotal||
+       (tx.data.tax_state!=="vat_recorded"&&vat!==0)||
+       (tx.data.direction==="buy"&&vat!==0)||
        lines.data.some(l=>!Number.isSafeInteger(Number(l.amount_minor))||Number(l.amount_minor)<0)||
-       lines.data.reduce((sum,l)=>sum+Number(l.amount_minor),0)!==storedTotal){
+       lines.data.reduce((sum,l)=>sum+Number(l.amount_minor),0)!==base){
       return fail(409,"ยอดเอกสารและรายละเอียดวัสดุไม่ตรงกัน กรุณาติดต่อฝ่าย IT");
     }
     let width:58|80=80;
@@ -78,10 +84,13 @@ export async function GET(request:Request,{params}:{params:Promise<{id:string}>}
       branch:branch.data?.name||"สาขา",receiptNo:tx.data.receipt_no,
       direction:tx.data.direction,status:tx.data.status,voidReason:tx.data.void_reason,
       createdAt:tx.data.created_at,counterparty:tx.data.counterparty_name||"-",
-      settlement:tx.data.settlement,totalMinor:storedTotal,lines:lines.data,
+      settlement:tx.data.settlement,totalMinor:storedTotal,
+      baseMinor:base,vatMinor:vat,taxState:tx.data.tax_state,lines:lines.data,
       storeAddress:profile?.company_address??null,storePhone:profile?.contact_phone??null,
       logoUrl:profile?.logo_url??null,
-      taxNotice:recyclingReceiptTaxNotice(taxSettings)
+      taxNotice:tx.data.tax_state==="vat_recorded"
+        ?"บันทึก VAT 7% ตามยอดที่บันทึกจริง · ไม่ใช่ใบกำกับภาษี"
+        :recyclingReceiptTaxNotice(taxSettings)
     });
     // A4/A5 use the same stored receipt data and item rows, while the browser
     // printer driver selects a sheet printer. Never force silent USB

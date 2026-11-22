@@ -8,6 +8,9 @@ on:
       - "supabase/migrations/20261121133212_recycling_legacy_shift_manager_recovery_20261121.sql"
       - "supabase/migrations/20261122054149_recycling_tenant_receipt_sequence_20261122.sql"
       - "supabase/migrations/20261122071804_recycling_receipt_no_length_20261122.sql"
+      - "supabase/migrations/20261122103100_recycling_vat_schema_v1.sql"
+      - "supabase/migrations/20261122103126_recycling_vat_posting_finance_v1.sql"
+      - "supabase/migrations/20261122103138_recycling_tax_invoice_issue_v1.sql"
       - "tests/recycling/**"
       - "apps/backoffice-web/src/app/api/pos/recycling/**"
       - "apps/backoffice-web/src/lib/recycling-**"
@@ -123,5 +126,29 @@ jobs:
         run: |
           set -euo pipefail
           docker exec -i "$PG_CONTAINER" psql -U postgres -d recycling_uat -v ON_ERROR_STOP=1 < tests/recycling/ephemeral_pg_receipt_check_23514_acceptance.sql
+      - name: Install immutable VAT and invoice schema on disposable PostgreSQL
+        env:
+          PG_CONTAINER: ${{ job.services.postgres.id }}
+        run: |
+          set -euo pipefail
+          docker exec -i "$PG_CONTAINER" psql -U postgres -d recycling_uat -v ON_ERROR_STOP=1 < supabase/migrations/20261122103100_recycling_vat_schema_v1.sql
+      - name: Install atomic VAT posting and Finance mapping on disposable PostgreSQL
+        env:
+          PG_CONTAINER: ${{ job.services.postgres.id }}
+        run: |
+          set -euo pipefail
+          docker exec -i "$PG_CONTAINER" psql -U postgres -d recycling_uat -v ON_ERROR_STOP=1 < supabase/migrations/20261122103126_recycling_vat_posting_finance_v1.sql
+      - name: Install verified tax invoice issuer on disposable PostgreSQL
+        env:
+          PG_CONTAINER: ${{ job.services.postgres.id }}
+        run: |
+          set -euo pipefail
+          docker exec -i "$PG_CONTAINER" psql -U postgres -d recycling_uat -v ON_ERROR_STOP=1 < supabase/migrations/20261122103138_recycling_tax_invoice_issue_v1.sql
+      - name: Verify fake VAT 7 percent sales, Finance GL and immutable invoices
+        env:
+          PG_CONTAINER: ${{ job.services.postgres.id }}
+        run: |
+          set -euo pipefail
+          docker exec -i "$PG_CONTAINER" psql -U postgres -d recycling_uat -v ON_ERROR_STOP=1 < tests/recycling/ephemeral_pg_vat_invoice_acceptance.sql
       # No production secrets, URLs or accounts are provided to this job.
       # Successful CI is necessary but not sufficient for a Supabase release.

@@ -2,6 +2,7 @@ import Link from "next/link";
 import type {PosSessionScope} from "@/lib/pos-session-guard";
 import {loadRecyclingHistoryReport,type RecyclingReportQuery} from "@/lib/server/recycling-history-reports";
 import {RecyclingReportDocumentAction} from "@/components/pos/recycling-report-document-action";
+import {RecyclingTaxInvoiceAction} from "@/components/pos/recycling-tax-invoice-action";
 
 const button="inline-flex min-h-10 items-center justify-center rounded-md border border-slate-300 bg-white px-3 text-xs font-bold text-slate-700 hover:bg-slate-50";
 const stamp=(date:string)=>new Date(date).toLocaleString("th-TH",{
@@ -89,9 +90,9 @@ export async function RecyclingTaxInvoiceRegister({scope,search}:{
     ช่วง {report.from} ถึง {report.to} · ค้นหาเฉพาะรายการขายออก (รวมชื่อวัสดุและ SKU) · บิลรับซื้อไม่ใช่บิลขายออก
    </p>
    <div className="mx-3 mt-3 min-h-[300px] min-w-0 flex-1 overflow-x-auto rounded-md border border-slate-200 md:mx-4">
-    <table className="w-full min-w-[940px] text-xs">
+    <table className="w-full min-w-[1050px] text-xs">
      <thead className="bg-slate-100"><tr>
-      {["วันที่","เลขเอกสารขายออก","คู่ค้า","สาขา","ยอดเงิน","สถานะบิล","สถานะภาษี","หลักฐาน / พิมพ์"].map(h=>
+      {["วันที่","เลขเอกสารขายออก","คู่ค้า","สาขา","ยอดเงิน","สถานะบิล","สถานะภาษี","หลักฐาน / พิมพ์","ใบกำกับภาษี"].map(h=>
        <th key={h} className="px-3 py-3 text-left font-bold">{h}</th>)}
      </tr></thead>
      <tbody className="divide-y divide-slate-100">
@@ -102,11 +103,18 @@ export async function RecyclingTaxInvoiceRegister({scope,search}:{
        <td className="px-3 py-3">{names.get(t.branch_id)??"—"}</td>
        <td className="whitespace-nowrap px-3 py-3 text-right">{money(t.total_minor)} บาท</td>
        <td className="px-3 py-3">{t.status==="voided"?"ยกเลิก (VOID)":"บันทึกแล้ว"}</td>
-       <td className="px-3 py-3 text-amber-800">ยังไม่ยืนยันการออกใบกำกับภาษี</td>
+       <td className={"px-3 py-3 "+(t.tax_state==="vat_recorded"?"text-emerald-800":"text-amber-800")}>
+        {t.tax_state==="vat_recorded"
+         ? "บันทึก VAT "+money(t.vat_minor??0)+" บาท"
+         : "บิลเดิมไม่มี VAT ที่บันทึกจริง"}
+       </td>
        <td className="px-3 py-3">{t.branch_id===report.sessionBranchId
         ? <RecyclingReportDocumentAction transactionId={t.id} receiptNo={t.receipt_no} label="ดูหลักฐาน / พิมพ์"/>
         : <span className="text-xs text-slate-500">เข้าสาขาต้นทางเพื่อพิมพ์</span>}</td>
-      </tr>):<tr><td colSpan={8} className="p-12 text-center text-slate-500">ไม่พบเอกสารขายออกตามเงื่อนไขที่เลือก</td></tr>}
+       <td className="px-3 py-3">{t.branch_id===report.sessionBranchId
+         ? <RecyclingTaxInvoiceAction transactionId={t.id} receiptNo={t.receipt_no}/>
+         : <span className="text-xs text-slate-500">เข้าสาขาต้นทางเพื่อออกเอกสาร</span>}</td>
+      </tr>):<tr><td colSpan={9} className="p-12 text-center text-slate-500">ไม่พบเอกสารขายออกตามเงื่อนไขที่เลือก</td></tr>}
      </tbody>
     </table>
    </div>
@@ -118,7 +126,7 @@ export async function RecyclingTaxInvoiceRegister({scope,search}:{
     </div>
    </footer>
    <p className="mx-3 mb-3 mt-2 text-[11px] leading-5 text-slate-500 md:mx-4">
-    ทะเบียนนี้เป็นรายการตรวจสอบภายใน ไม่ใช่ทะเบียนใบกำกับภาษีที่ออกแล้ว และไม่บันทึก VAT เพิ่ม
+    ทะเบียนนี้แสดงรายการขายและสถานะภาษีที่บันทึกจริง การออกใบกำกับภาษีต้องผ่านทะเบียน VAT และการอนุมัติ ผู้ขายไม่สามารถบวก VAT ย้อนหลังจากบิลเดิม
    </p>
   </section>
  </main>;

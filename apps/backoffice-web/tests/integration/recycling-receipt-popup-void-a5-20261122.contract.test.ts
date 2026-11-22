@@ -81,8 +81,10 @@ describe("CUSTOM Recycling receipt after atomic purchase/sale",()=>{
     expect(recyclingReceiptTaxNotice({...configured,is_enabled:false})).toBe(
       "เอกสารซื้อขายทั่วไป ไม่ใช่ใบกำกับภาษี");
     expect(autoPrint).toContain("loadTaxSettings(args.auth)");
-    expect(autoPrint).toContain("documentNotice:args.taxNotice");
-    expect(preview).toContain("taxNotice:recyclingReceiptTaxNotice(taxSettings)");
+    expect(autoPrint).toContain("documentNotice:isTaxRecorded");
+    expect(autoPrint).toContain("taxAmount:vat/100");
+    expect(preview).toContain('tx.data.tax_state==="vat_recorded"');
+    expect(preview).toContain('recyclingReceiptTaxNotice(taxSettings)');
     expect(autoPrint).not.toContain("calculateTaxBreakdown(");
     expect(preview).not.toContain("calculateTaxBreakdown(");
   });
@@ -92,7 +94,7 @@ describe("CUSTOM Recycling receipt after atomic purchase/sale",()=>{
     expect(preview).toContain('requirePermission(scope,"shift:join")');
     expect(preview).toContain('isAuthorizedRecyclingTenant(scope.session.tenant_id)');
     expect(preview).toContain('.eq("tenant_id",tenantId).eq("branch_id",branchId)');
-    expect(preview).toContain('lines.data.reduce((sum,l)=>sum+Number(l.amount_minor),0)!==storedTotal');
+    expect(preview).toContain('lines.data.reduce((sum,l)=>sum+Number(l.amount_minor),0)!==base');
     expect(preview).toContain('"Cache-Control":"private, no-store, max-age=0"');
     expect(preview).not.toContain('.insert(');
     expect(preview).not.toContain('.update(');

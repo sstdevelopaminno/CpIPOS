@@ -103,7 +103,12 @@ export async function POST(request: Request) {
     // Atomic RPC is the ONLY path for posting a purchase/sale. It prices from
     // the server-side catalog, locks stock, records documents and balances its
     // accounting subledger in the same Postgres transaction.
-    const { data, error } = await db.rpc("recycling_post_transaction", {
+    // Rollout gate: the original atomic posting RPC is unchanged until the new
+    // Postgres VAT UAT, verified issuer registration and Finance chart are ready.
+    // A new VAT RPC must NEVER silently fall back to untaxed posting on error.
+    const vatRollout=process.env.RECYCLING_VAT_WRITES_ENABLED==="1";
+    const { data, error } = await db.rpc(vatRollout
+      ? "recycling_post_transaction_vat" : "recycling_post_transaction", {
       p_tenant_id: scope.session.tenant_id,
       p_branch_id: scope.session.branch_id,
       p_shift_id: shift.id,
@@ -116,7 +121,9 @@ export async function POST(request: Request) {
     });
     if (error) {
       if (error.code === "PGRST202" || error.code === "42883") {
-        return fail("recycling_migration_required", "Recycling transaction backend is not installed. No transaction was recorded.", 503);
+        return fail("recycling_migration_required",
+          vatRollout ? "ยังไม่ได้ติดตั้งระบบ VAT Recycling ในฐานข้อมูล ห้ามบันทึกขายออกจนกว่าการย้ายฐานข้อมูลและบัญชีจะเสร็จสมบูรณ์" :
+            "Recycling transaction backend is not installed. No transaction was recorded.", 503);
       }
       // Preserve the exact server-side financial refusal: never bypass the
       // cash-drawer guard or fabricate opening cash to make a purchase pass.
@@ -132,7 +139,12 @@ export async function POST(request: Request) {
         "recycling_branch_invalid","recycling_user_not_in_branch",
         "recycling_below_gram_precision","recycling_invalid_line","recycling_invalid_unit",
         "recycling_quantity_must_be_positive","recycling_piece_must_be_whole",
-        "recycling_line_amount_too_small","recycling_ledger_not_balanced"
+        "recycling_line_amount_too_small","recycling_ledger_not_balanced",
+        "recycling_vat_registration_not_verified",
+        "recycling_vat_account_not_ready",
+        "recycling_vat_settings_invalid",
+        "recycling_vat_settings_unsupported",
+        "recycling_tax_snapshot_immutable"
       ];
       const matched = safeCodes.find(code => error.message.includes(code));
       if (matched) return fail(matched, matched, 409);

@@ -8,7 +8,7 @@ export type RecyclingReportKind = "summary" | "receipts" | "products";
 export type RecyclingReportQuery = {report_mode?:string;period?:string;date?:string;from?:string;to?:string;branch?:string;direction?:string;status?:string;q?:string;page?:string;include_material_search?:boolean};
 export type RecyclingTransaction = {
  id:string; receipt_no:string; direction:"buy"|"sell"; settlement:"cash"|"bank_transfer"|"credit";
- total_minor:number; cogs_minor:number; status:"posted"|"voided"; branch_id:string;
+ total_minor:number; base_minor:number|null; vat_minor:number|null; tax_state:string|null; cogs_minor:number; status:"posted"|"voided"; branch_id:string;
  shift_id:string|null; operator_user_id:string|null; counterparty_name:string|null; created_at:string
 };
 export type RecyclingLine = {id:string;transaction_id:string;line_no:number;sku_snapshot:string;name_snapshot:string;
@@ -55,7 +55,7 @@ export async function loadRecyclingHistoryReport(scope:PosSessionScope,kind:Recy
  const ids=branch==="all"?branches.map(b=>b.id):[branch];
  const db=getSupabaseServiceClient();
  const result=await db.from("recycling_transactions")
-  .select("id,receipt_no,direction,settlement,total_minor,cogs_minor,status,branch_id,shift_id,operator_user_id,counterparty_name,created_at",{count:"exact"})
+  .select("id,receipt_no,direction,settlement,total_minor,base_minor,vat_minor,tax_state,cogs_minor,status,branch_id,shift_id,operator_user_id,counterparty_name,created_at",{count:"exact"})
   .eq("tenant_id",scope.session.tenant_id).in("branch_id",ids).in("status",["posted","voided"])
   .gte("created_at",new Date(from+"T00:00:00+07:00").toISOString())
   .lt("created_at",new Date(Date.parse(to+"T00:00:00+07:00")+86400000).toISOString())
