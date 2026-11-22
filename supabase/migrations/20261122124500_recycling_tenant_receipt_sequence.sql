@@ -3,7 +3,7 @@
 -- remain unchanged and must continue to resolve for audits and reprints.
 -- Sequence shared by BUY and SELL across all branches of the same tenant.
 CREATE TABLE IF NOT EXISTS public.recycling_receipt_counters (
-  tenant_id uuid PRIMARY KEY REFERENCES public.tenants(id) ON DELETE RESTRICT,
+  tenant_id uuid PRIMARY KEY REFERENCES public.tenants(id) ON DELETE CASCADE,
   last_number bigint NOT NULL CHECK (last_number BETWEEN 1 AND 999999999),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
