@@ -326,7 +326,7 @@ begin
   return jsonb_build_object('id',v_id,'receipt_no',v_receipt_no,
     'total_minor',v_total_minor,'base_minor',v_base_minor,'vat_minor',v_vat_minor,'tax_state',v_tax_state,'cogs_minor',v_cogs_minor,'idempotent',false);
 end;
-$function$
+$function$;
 
 revoke all on function public.recycling_post_transaction_vat(uuid,uuid,uuid,uuid,uuid,text,text,text,jsonb) from public,anon,authenticated;
 grant execute on function public.recycling_post_transaction_vat(uuid,uuid,uuid,uuid,uuid,text,text,text,jsonb) to service_role;
@@ -525,7 +525,7 @@ begin
   return jsonb_build_object(
     'document_id',v_doc,'journal_id',v_journal,'posted',true,'idempotent',false);
 end;
-$function$
+$function$;
 
 revoke all on function public.recycling_finance_post_transaction(uuid,uuid,uuid,uuid) from public,anon,authenticated;
 grant execute on function public.recycling_finance_post_transaction(uuid,uuid,uuid,uuid) to service_role;
