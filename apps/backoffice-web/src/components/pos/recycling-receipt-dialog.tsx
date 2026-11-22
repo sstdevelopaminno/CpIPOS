@@ -70,7 +70,7 @@ export function RecyclingReceiptDialog({
         {([
           ["auto","ตามเครื่องพิมพ์"],["58","58 มม."],["80","80 มม."],["a5","A5"]
         ] as const).map(([size,label])=>
-          <button type="button" key={size} onClick={()=>{setPaper(size);setA5Ready(false);}} aria-pressed={paper===size}
+          <button type="button" key={size} onClick={()=>{if((paper==="a5")!==(size==="a5"))setA5Ready(false);setPaper(size);}} aria-pressed={paper===size}
             className={"min-h-9 rounded-md border px-3 text-xs font-bold "+
               (paper===size?"border-blue-700 bg-blue-700 text-white":"border-slate-300 bg-white text-slate-700")}>
             {label}
