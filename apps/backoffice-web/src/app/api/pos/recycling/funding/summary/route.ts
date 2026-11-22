@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { PosGuardError, requirePermission, requirePosSession } from "@/lib/pos-session-guard";
 import { isAuthorizedRecyclingTenant } from "@/lib/server/recycling-pos-service";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
+import { recyclingExpectedDrawerMinor } from "@/lib/recycling-working-capital";
 
 type FundAccount = {
   code:"1100"|"1110";
@@ -75,10 +76,12 @@ export async function GET(request:Request){
           const opening=validBahtToMinor(shift.opening_cash);
           if(cashIn!==null&&cashOut!==null&&buyCount!==null&&sellCount!==null&&
              cashIn>=0&&cashOut>=0&&buyCount>=0&&sellCount>=0){
-            const expected=opening===null?null:opening+cashIn-cashOut;
+            const expected=recyclingExpectedDrawerMinor({
+              openingMinor:opening,cashInMinor:cashIn,cashOutMinor:cashOut
+            });
             shiftFlow={
               opening_minor:opening,cash_in_minor:cashIn,cash_out_minor:cashOut,
-              expected_minor:expected!==null&&Number.isSafeInteger(expected)&&expected>=0?expected:null,
+              expected_minor:expected,
               buy_count:buyCount,sell_count:sellCount
             };
             shiftFlowStatus="ready";
