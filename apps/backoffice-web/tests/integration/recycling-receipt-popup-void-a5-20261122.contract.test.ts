@@ -25,7 +25,7 @@ describe("CUSTOM Recycling receipt after atomic purchase/sale",()=>{
     expect(cashier).toContain("setReceiptDialogOpen(true)");
     expect(cashier).toContain("await queueReceiptPrint(committedId, currentRequestId)");
     expect(cashier).toContain('receiptNo={posted.receipt_no} open={receiptDialogOpen}');
-    expect(cashier).toContain('onClick={()=>setReceiptDialogOpen(true)}');
+    expect(cashier).not.toContain('onClick={()=>setReceiptDialogOpen(true)}');
     expect(cashier).toContain('requestIdRef.current = ""');
     expect(dialog).toContain('data-testid="recycling-receipt-modal"');
     expect(dialog).toContain('onClick={onClose}');
@@ -62,13 +62,13 @@ describe("CUSTOM Recycling receipt after atomic purchase/sale",()=>{
     expect(receipt).not.toContain("VAT 7%");
   });
   it("supports A5 printing on A4/A5 Windows device without silently claiming a print-job succeeded",()=>{
-    expect(preview).toContain('["auto","58","80","a5"]');
-    expect(preview).toContain('@page { size: A5 portrait; margin: 10mm; }');
+    expect(preview).toContain('["auto","58","80","a4","a5"]');
+    expect(preview).toContain('@page { size: ${paper==="a4"?"A4":"A5"} portrait; margin: 10mm; }');
     expect(preview).toContain('paper==="a5"');
     expect(dialog).toContain('data-testid="recycling-print-a5"');
     expect(dialog).toContain('contentWindow.print()');
     expect(dialog).toContain("showBrowserButton={false}");
-    expect(dialog).toContain("เครื่องพิมพ์ A4/A5");
+    expect(dialog).toContain("พิมพ์หลักฐาน A4");
     expect(dialog).toContain("หน้าต่างพิมพ์ของ Windows/เบราว์เซอร์");
     expect(dialog).not.toContain("recycling_post_transaction");
   });
