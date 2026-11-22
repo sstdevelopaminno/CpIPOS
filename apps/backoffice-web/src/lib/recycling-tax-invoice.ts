@@ -11,7 +11,7 @@ export type RecyclingInvoiceSnapshot = {
     display_name: string; address: string; tax_id: string; branch_no: string;
   };
   buyer_snapshot: {
-    display_name: string; tax_id: string; address_line: string;
+    display_name: string; tax_id: string; branch_no: string; address_line: string;
     subdistrict: string; district: string; province: string; postal_code: string;
   };
   items_snapshot: Array<{
@@ -66,7 +66,8 @@ export function renderRecyclingTaxInvoiceHtml(
   if(!invoice.invoice_no || !invoice.seller_snapshot?.tax_id ||
      !invoice.seller_snapshot?.display_name || !invoice.seller_snapshot?.address ||
      !invoice.buyer_snapshot?.display_name || !invoice.buyer_snapshot?.address_line ||
-     !invoice.buyer_snapshot?.tax_id || !Array.isArray(invoice.items_snapshot) ||
+     !invoice.buyer_snapshot?.tax_id || !/^[0-9]{5}$/.test(invoice.buyer_snapshot.branch_no) ||
+     !Array.isArray(invoice.items_snapshot) ||
      !invoice.items_snapshot.length || tx.mode!=="add_to_bill" ||
      rate!==7 || base<=0 || base+vat!==gross || recyclingVatMinor(base,rate)!==vat ||
      invoice.items_snapshot.reduce((sum,item)=>sum+safeMinor(item.base_minor),0)!==base) {
@@ -117,7 +118,7 @@ export function renderRecyclingTaxInvoiceHtml(
       <div><strong>อ้างอิงใบขาย</strong> ${escapeHtml(tx.receipt_no)}</div>
       <div><strong>วันที่ขาย</strong> ${escapeHtml(toThaiDate(tx.sale_at))}</div></div>
     <section class="part"><strong>ผู้ซื้อ: ${escapeHtml(b.display_name)}</strong>
-      <div>เลขประจำตัวผู้เสียภาษี: ${escapeHtml(b.tax_id)}</div>
+      <div>เลขประจำตัวผู้เสียภาษี: ${escapeHtml(b.tax_id)} · สาขา ${escapeHtml(b.branch_no)}</div>
       <div>ที่อยู่: ${escapeHtml(buyerAddress)}</div></section>
     <section class="part"><table aria-label="รายการสินค้า">
       <thead><tr><th>#</th><th>รายการ</th><th class="right">จำนวน</th><th class="right">มูลค่า (บาท)</th></tr></thead>
