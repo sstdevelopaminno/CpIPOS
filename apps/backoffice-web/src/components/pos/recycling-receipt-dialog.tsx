@@ -95,7 +95,7 @@ export function RecyclingReceiptDialog({
         </p>}
         {a5Error&&<p role="alert" className="text-xs font-semibold text-rose-700">{a5Error}</p>}
         <div className="flex flex-wrap items-center gap-2">
-          <RecyclingPrintReceiptButton receiptId={transactionId}/>
+          <RecyclingPrintReceiptButton receiptId={transactionId} showBrowserButton={false}/>
           <button type="button" disabled={!a5Ready} onClick={printA5}
             data-testid="recycling-print-a5"
             className="min-h-11 rounded-lg border border-blue-300 bg-blue-50 px-4 text-sm font-bold text-blue-900 disabled:opacity-40">
