@@ -81,7 +81,7 @@ describe("CUSTOM Recycling receipt after atomic purchase/sale",()=>{
     expect(recyclingReceiptTaxNotice({...configured,is_enabled:false})).toBe(
       "เอกสารซื้อขายทั่วไป ไม่ใช่ใบกำกับภาษี");
     expect(autoPrint).toContain("loadTaxSettings(args.auth)");
-    expect(autoPrint).toContain("taxNotice:args.taxNotice");
+    expect(autoPrint).toContain("documentNotice:args.taxNotice");
     expect(preview).toContain("taxNotice:recyclingReceiptTaxNotice(taxSettings)");
     expect(autoPrint).not.toContain("calculateTaxBreakdown(");
     expect(preview).not.toContain("calculateTaxBreakdown(");
