@@ -71,7 +71,7 @@ describe("CUSTOM Recycling more-menu pages 58/80 printing and UI isolation",()=>
   expect(taxRoute).toContain('isAuthorizedRecyclingTenant(posMenuScope.session.tenant_id)');
   expect(taxRoute).toContain('<RecyclingTaxInvoiceRegister scope={posMenuScope}');
   expect(taxRoute).toContain('<PosTaxInvoiceWorkspace');
-  expect(tax).toContain('loadRecyclingHistoryReport(scope,"products",{...search,period:search?.period??"month",direction:"sell"})');
+  expect(tax).toContain('loadRecyclingHistoryReport(scope,"receipts",{...search,period:search?.period??"month",direction:"sell",include_material_search:true})');
   expect(taxRoute).toContain('registryOnly');
   expect(profileRegistry).toContain('registryOnly');
   expect(tax).toContain('ชื่อวัสดุ / SKU');
