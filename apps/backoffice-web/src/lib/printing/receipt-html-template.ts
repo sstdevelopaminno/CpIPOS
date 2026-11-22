@@ -42,6 +42,8 @@ export type ReceiptHtmlInput = {
   paymentHeading?: string | null;
   /** Suppress tender received/change rows when the business pays out, not in. */
   hideCashTenderBreakdown?: boolean;
+  /** Scoped thermal layout: only CUSTOM Recycling uses the compact 58/80mm typography. */
+  compactRecycling?: boolean;
 };
 
 const DEFAULT_RECEIPT_LOGO_URL = "/brand/cpipos-logo.png";
@@ -104,9 +106,15 @@ export function renderReceiptHtml(input: ReceiptHtmlInput) {
   const languageCode = input.languageCode ?? "th";
   const L = (thai: string, english: string, lao: string) => languageCode === "lo" ? lao : languageCode === "en" ? english : thai;
   const paper = input.paperWidthMm;
-  const layout = paper === 58
+  const regularLayout = paper === 58
     ? { printableMm: 45, basePx: 12.75, titlePx: 16.5, mutedPx: 11.75, metaPx: 12.5, unitPx: 10.75, summaryPx: 12, grandPx: 15.5, footerPx: 11, logoMaxWidthMm: 30, logoMaxHeightMm: 11, qtyMm: 8.5, totalMm: 16.5 }
     : { printableMm: 56, basePx: 13.5, titlePx: 19, mutedPx: 12.5, metaPx: 13.25, unitPx: 11.5, summaryPx: 12.75, grandPx: 17.5, footerPx: 11.75, logoMaxWidthMm: 42, logoMaxHeightMm: 13, qtyMm: 11, totalMm: 22 };
+  // Recycling has a denser receipt than standard POS. Use balanced type sizes
+  // and a two-line item layout on 58/80mm, without changing other POS packages.
+  const recyclingLayout = paper === 58
+    ? { printableMm: 45, basePx: 11.5, titlePx: 13.5, mutedPx: 10, metaPx: 10.8, unitPx: 10, summaryPx: 11.5, grandPx: 15.5, footerPx: 10, logoMaxWidthMm: 27, logoMaxHeightMm: 11, qtyMm: 8.5, totalMm: 16.5 }
+    : { printableMm: 56, basePx: 12.5, titlePx: 15.5, mutedPx: 11.25, metaPx: 11.8, unitPx: 11, summaryPx: 12.5, grandPx: 17, footerPx: 11, logoMaxWidthMm: 39, logoMaxHeightMm: 13, qtyMm: 11, totalMm: 22 };
+  const layout = input.compactRecycling ? recyclingLayout : regularLayout;
   // XP-80T 80mm roll prints only approximately 72mm; leave additional room for Windows driver offset.
   // Keep font sizes and all monetary values unchanged; wrap long lines instead of clipping.
   const printableLeftMm = 1;
@@ -120,6 +128,17 @@ export function renderReceiptHtml(input: ReceiptHtmlInput) {
       ? L("ใบเสร็จย้อนหลัง", "Receipt history", "ໃບຮັບເງິນຍ້ອນຫຼັງ")
       : rawModeLabel;
   const itemRows = input.items.map((item) => {
+    if (input.compactRecycling) {
+      return `<tr class="recycling-item"><td colspan="3">
+        <div class="name">${escapeHtml(item.name)}</div>
+        ${item.sku?.trim() ? `<div class="unit">รหัส ${escapeHtml(item.sku)}</div>` : ""}
+        <div class="recycling-item-detail">
+          <span>${escapeHtml(item.quantityDisplay || qty(item.quantity))} ·
+            ${escapeHtml(money(item.unitPrice, currencyCode))}${item.unitPriceSuffix ? ` ${escapeHtml(item.unitPriceSuffix)}` : ""}</span>
+          <strong>${escapeHtml(money(item.lineTotal, currencyCode))}</strong>
+        </div>
+      </td></tr>`;
+    }
     const parsedNotes = parsePosItemNotes(item.note);
     const optionParts = parsedNotes.optionNotes.split(",").map((part) => part.trim()).filter(Boolean);
     // A single modifier must remain visible when the cashier also entered
@@ -194,28 +213,55 @@ export function renderReceiptHtml(input: ReceiptHtmlInput) {
     .summary-line.grand span, .summary-line.grand strong { font-weight: 900; }
     .note-block { font-size: ${layout.unitPx}px; }
     .foot { margin-top: 1.5mm; font-size: ${layout.footerPx}px; text-align: center; }
+    ${input.compactRecycling ? `
+    /* CUSTOM Recycling thermal-only: keep 58/80mm values and labels legible.
+       Ordinary POS receipts never load this stylesheet. */
+    .receipt-compact { line-height:1.38; overflow-wrap:anywhere; }
+    .receipt-compact .head-title { line-height:1.22; overflow-wrap:anywhere; margin-bottom:1mm; }
+    .receipt-compact .document-heading { margin-top:1.4mm; font-size:${layout.titlePx}px; }
+    .receipt-compact .muted { font-weight:500; line-height:1.3; overflow-wrap:anywhere; }
+    .receipt-compact .logo-wrap { margin-bottom:1.5mm; }
+    .receipt-compact .hr { margin:1.5mm 0; }
+    .receipt-compact .meta-line { display:grid; grid-template-columns:29% minmax(0,1fr); align-items:start; gap:1mm; margin:1mm 0; line-height:1.35; }
+    .receipt-compact .meta-line > span { display:block; width:auto; min-width:0; }
+    .receipt-compact .meta-line > span:last-child { text-align:right; overflow-wrap:anywhere; }
+    .receipt-compact .receipt-id-line { display:block; }
+    .receipt-compact .receipt-id-line > span { width:100%; display:block; }
+    .receipt-compact .receipt-id-line > span:last-child { margin-top:.2mm; text-align:left; font-size:${layout.unitPx}px; overflow-wrap:anywhere; word-break:break-all; }
+    .receipt-compact .recycling-item td { width:100%; padding:1.2mm 0; border-bottom:1px dotted #888; overflow-wrap:anywhere; }
+    .receipt-compact .recycling-item .name { font-size:${layout.basePx}px; }
+    .receipt-compact .recycling-item .unit { font-size:${layout.unitPx}px; }
+    .receipt-compact .recycling-item-detail { display:flex; justify-content:space-between; align-items:baseline; gap:1mm; margin-top:.45mm; font-size:${layout.unitPx}px; }
+    .receipt-compact .recycling-item-detail span { min-width:0; overflow-wrap:anywhere; }
+    .receipt-compact .recycling-item-detail strong { flex-shrink:0; white-space:nowrap; font-size:${layout.basePx}px; font-variant-numeric:tabular-nums; }
+    .receipt-compact .summary-line.grand { display:flex; justify-content:space-between; align-items:baseline; gap:1.5mm; line-height:1.3; padding:1mm 0; }
+    .receipt-compact .summary-line.grand > span,
+    .receipt-compact .summary-line.grand > strong { display:block; width:auto; min-width:0; }
+    .receipt-compact .summary-line.grand > strong { flex-shrink:0; white-space:nowrap; font-variant-numeric:tabular-nums; }
+    .receipt-compact .foot { line-height:1.35; overflow-wrap:anywhere; }
+    ` : ""}
   </style>
 </head>
 <body>
-  <main class="receipt">
+  <main class="receipt${input.compactRecycling ? " receipt-compact" : ""}">
     ${logo}
     <div class="head-title">${escapeHtml(storeName)}</div>
     ${address}${phone}
     ${branchName ? `<div class="muted">${escapeHtml(branchName)}</div>` : ""}
     ${reprintLine}
-    ${input.documentHeading?.trim() ? `<div class="head-title">${escapeHtml(input.documentHeading)}</div>` : ""}
+    ${input.documentHeading?.trim() ? `<div class="head-title document-heading">${escapeHtml(input.documentHeading)}</div>` : ""}
     ${input.voidWarning?.trim() ? `<div class="reprint" style="border:2px solid #111;padding:2mm;font-weight:900;">${escapeHtml(input.voidWarning)}</div>` : ""}
     ${input.documentNotice?.trim() ? `<div class="muted">${escapeHtml(input.documentNotice)}</div>` : ""}
     <div class="hr"></div>
     <div class="meta-line"><span>${escapeHtml(input.sellerLabel ?? L("ผู้ขาย","Seller","ຜູ້ຂາຍ"))}</span><span>${escapeHtml(input.sellerName)}</span></div>
     <div class="meta-line"><span>${L("โหมด","Mode","ໂໝດ")}</span><span>${escapeHtml(modeLabel)}</span></div>
-    <div class="meta-line"><span>${L("เลขที่บิล","Bill no.","ເລກໃບບິນ")}</span><span>${escapeHtml(input.orderNo)}</span></div>
+    <div class="meta-line receipt-id-line"><span>${L("เลขที่บิล","Bill no.","ເລກໃບບິນ")}</span><span>${escapeHtml(input.orderNo)}</span></div>
     <div class="meta-line"><span>${L("วันที่","Date","ວັນທີ")}</span><span>${escapeHtml(dateTime(input.paidAtIso, languageCode))}</span></div>
     <div class="hr"></div>
     <table><tbody>${itemRows}</tbody></table>
     <div class="hr"></div>
     <div class="summary-line is-heading"><span>${escapeHtml(input.paymentHeading ?? L("ชำระเงิน","Payment","ຊຳລະເງິນ"))}</span><strong>${escapeHtml(paymentLabel(input.paymentMethod, languageCode))}</strong></div>
-    <div class="summary-line is-muted"><span>${L("ส่วนลด","Discount","ສ່ວນຫຼຸດ")}</span><strong>${currencySymbol}${escapeHtml(money(input.discountAmount, currencyCode))}</strong></div>
+    ${!input.compactRecycling || Number(input.discountAmount) !== 0 ? `<div class="summary-line is-muted"><span>${L("ส่วนลด","Discount","ສ່ວນຫຼຸດ")}</span><strong>${currencySymbol}${escapeHtml(money(input.discountAmount, currencyCode))}</strong></div>` : ""}
     ${taxLine}
     <div class="summary-line grand"><span>${L("ยอดสุทธิ","Net total","ຍອດສຸດທິ")}</span><strong>${currencySymbol}${escapeHtml(money(input.totalAmount, currencyCode))}</strong></div>
     ${cashLines}
