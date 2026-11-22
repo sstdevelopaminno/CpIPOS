@@ -22,7 +22,7 @@ export async function RecyclingTaxInvoiceRegister({scope,search}:{
  try{
   // The material-name/SKU query also searches stored transaction line snapshots.
   // Default to the current month, not a single day, for easier historical lookup.
-  report=await loadRecyclingHistoryReport(scope,"products",{...search,period:search?.period??"month",direction:"sell"});
+  report=await loadRecyclingHistoryReport(scope,"receipts",{...search,period:search?.period??"month",direction:"sell",include_material_search:true});
  }catch(error){
   return <main className="recycling-tax-register-layout h-full w-full min-w-0 bg-white p-4" role="alert">
    ไม่สามารถอ่านทะเบียนขายออก Recycling ได้ ({error instanceof Error?error.message:"report_unavailable"})
