@@ -56,6 +56,7 @@ export function renderRecyclingSharedReceipt(args: {
     : (isBuy ? "ใบเสร็จรับซื้อวัสดุรีไซเคิล" : "ใบเสร็จขายออกวัสดุรีไซเคิล");
   return renderReceiptHtml({
     paperWidthMm:args.width,
+    compactRecycling:true,
     currencyCode:"THB",
     languageCode:"th",
     storeName:args.shop,
@@ -66,7 +67,7 @@ export function renderRecyclingSharedReceipt(args: {
     sellerName:args.counterparty,
     sellerLabel:isBuy ? "ผู้ขายวัสดุ" : "ผู้ซื้อวัสดุ",
     orderNo:args.receiptNo,
-    modeLabel:documentTitle,
+    modeLabel:isBuy ? "รับซื้อเข้าร้าน" : "ขายออก",
     documentHeading:documentTitle,
     paidAtIso:args.createdAt,
     items:args.lines.map(line=>({
