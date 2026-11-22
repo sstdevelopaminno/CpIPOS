@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe,expect,it } from "vitest";
 import { renderReceiptHtml } from "../../src/lib/printing/receipt-html-template";
+import { recyclingReceiptTaxNotice } from "../../src/lib/printing/recycling-tax-receipt-note";
 
 const read=(file:string)=>readFileSync(resolve(process.cwd(),file),"utf8");
 const cashier=read("src/components/pos/recycling-pos-workspace.tsx");
@@ -71,6 +72,21 @@ describe("CUSTOM Recycling receipt after atomic purchase/sale",()=>{
     expect(dialog).toContain("หน้าต่างพิมพ์ของ Windows/เบราว์เซอร์");
     expect(dialog).not.toContain("recycling_post_transaction");
   });
+  it("reflects enabled branch tax configuration without inventing tax on already posted receipts",()=>{
+    const configured={is_enabled:true as const,calculation_base:"net_after_discount" as const,
+      lines:[{id:"vat-7",label:"VAT 7%",rate_pct:7,
+        mode:"add_to_bill" as const,is_active:true}]};
+    expect(recyclingReceiptTaxNotice(configured)).toContain("ตั้งค่าภาษีของสาขาเปิดอยู่");
+    expect(recyclingReceiptTaxNotice(configured)).toContain("ไม่ใช่ใบกำกับภาษี");
+    expect(recyclingReceiptTaxNotice({...configured,is_enabled:false})).toBe(
+      "เอกสารซื้อขายทั่วไป ไม่ใช่ใบกำกับภาษี");
+    expect(autoPrint).toContain("loadTaxSettings(args.auth)");
+    expect(autoPrint).toContain("taxNotice:args.taxNotice");
+    expect(preview).toContain("taxNotice:recyclingReceiptTaxNotice(taxSettings)");
+    expect(autoPrint).not.toContain("calculateTaxBreakdown(");
+    expect(preview).not.toContain("calculateTaxBreakdown(");
+  });
+
   it("requires authenticated same-branch receipt scope and checks stored line totals",()=>{
     expect(preview).toContain('await requirePosSession()');
     expect(preview).toContain('requirePermission(scope,"shift:join")');
