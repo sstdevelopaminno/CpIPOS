@@ -76,7 +76,9 @@ export async function POST(request:Request){
     const transactionId=typeof raw?.transaction_id==="string"?raw.transaction_id:"";
     const profileId=typeof raw?.profile_id==="string"?raw.profile_id:"";
     const pin=typeof raw?.manager_pin==="string"?raw.manager_pin:"";
-    if(!UUID.test(transactionId)||!UUID.test(profileId)||pin.length<4||pin.length>30){
+    const buyerBranchNo=typeof raw?.buyer_branch_no==="string"?raw.buyer_branch_no.trim():"";
+    if(!UUID.test(transactionId)||!UUID.test(profileId)||pin.length<4||pin.length>30||
+      !/^[0-9]{5}$/.test(buyerBranchNo)){
       return fail("recycling_tax_input_invalid",
         "กรุณาเลือกรายการขายออก ผู้ซื้อ และกรอก PIN ของ Owner/Manager",422);
     }
@@ -93,7 +95,8 @@ export async function POST(request:Request){
       p_branch_id:auth.branchId,
       p_transaction_id:transactionId,
       p_profile_id:profileId,
-      p_issued_by:approval.approverUserId
+      p_issued_by:approval.approverUserId,
+      p_buyer_branch_no:buyerBranchNo
     });
     if(error){
       const codes=[
@@ -103,7 +106,9 @@ export async function POST(request:Request){
         "recycling_tax_invoice_already_issued_to_other_buyer",
         "recycling_tax_seller_changed_requires_review",
         "recycling_tax_items_total_mismatch",
-        "recycling_tax_issuer_role_denied"
+        "recycling_tax_issuer_role_denied",
+        "recycling_tax_buyer_branch_required",
+        "recycling_tax_invoice_late_issue_requires_accountant_review"
       ];
       const code=codes.find(c=>error.message.includes(c));
       return fail(code??"recycling_tax_issue_failed",
@@ -114,7 +119,9 @@ export async function POST(request:Request){
           recycling_tax_invoice_already_issued_to_other_buyer:"บิลนี้ออกใบกำกับภาษีให้ผู้ซื้อรายอื่นแล้ว",
           recycling_tax_seller_changed_requires_review:"ข้อมูลผู้ขายหรือทะเบียน VAT เปลี่ยน ต้องให้ฝ่ายบัญชีตรวจสอบ",
           recycling_tax_items_total_mismatch:"ยอดรายการสินค้าไม่ตรงกับฐาน VAT",
-          recycling_tax_issuer_role_denied:"ผู้อนุมัติไม่มีสิทธิ์ในสาขา"
+          recycling_tax_issuer_role_denied:"ผู้อนุมัติไม่มีสิทธิ์ในสาขา",
+          recycling_tax_buyer_branch_required:"กรุณาระบุเลขสาขาผู้ซื้อให้ถูกต้อง 5 หลัก",
+          recycling_tax_invoice_late_issue_requires_accountant_review:"ต้องให้ฝ่ายบัญชีตรวจสอบการออกใบกำกับภาษีย้อนหลัง"
         } as Record<string,string>)[code]:"ไม่สามารถออกใบกำกับภาษีได้ กรุณาติดต่อฝ่ายบัญชี",409);
     }
     try{
