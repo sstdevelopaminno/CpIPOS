@@ -46,19 +46,7 @@ export async function RecyclingTaxInvoiceRegister({scope,search}:{
      <Link href="/preview/pos/product-sales" className={button}>รายการวัสดุขายออก</Link>
     </nav>
    </header>
-   <div className="mx-3 mt-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 md:mx-4" role="status">
-    <h2 className="text-sm font-extrabold text-amber-950">เงื่อนไขก่อนออกใบกำกับภาษี</h2>
-    <p className="mt-1 text-xs leading-6 text-amber-950">
-     เอกสารรับซื้อ–ขายออก Recycling ปัจจุบันเป็นหลักฐานซื้อขายทั่วไป ยังไม่มีข้อมูล VAT
-     และการตรวจสถานะผู้ประกอบการจดทะเบียน VAT ที่ผูกกับเอกสารแต่ละฉบับอย่างครบถ้วน
-     ระบบจึงยังไม่เปิดให้สร้างใบกำกับภาษีจากบิลเหล่านี้อัตโนมัติ
-     เพื่อป้องกันการออกเอกสารภาษีผิดประเภทหรือยอดภาษีไม่ตรงกับบัญชี
-    </p>
-    <p className="mt-1 text-xs text-amber-900">
-     สามารถดูและพิมพ์ <strong>หลักฐานขายออกเดิม</strong> ผ่าน Popup ได้
-     แต่เอกสารที่พิมพ์ไม่ใช่ใบกำกับภาษี และยังไม่ยืนยันว่ามีหรือไม่มีเอกสารภาษีภายนอกระบบ
-    </p>
-   </div>
+
    <form method="GET" aria-label="ค้นหาเอกสารขายออกสำหรับตรวจภาษี"
     className="mx-3 mt-3 flex flex-wrap items-end gap-2 rounded-md border border-slate-200 bg-slate-50 p-3 md:mx-4">
     <label className="text-xs font-semibold">ช่วงเวลา

@@ -66,7 +66,11 @@ describe("CUSTOM Recycling more-menu pages 58/80 printing and UI isolation",()=>
   expect(taxRoute).toContain('<RecyclingTaxInvoiceRegister scope={posMenuScope}');
   expect(taxRoute).toContain('<PosTaxInvoiceWorkspace');
   expect(tax).toContain('loadRecyclingHistoryReport(scope,"receipts",{...search,direction:"sell"})');
-  expect(tax).toContain('ไม่เปิดให้สร้างใบกำกับภาษีจากบิลเหล่านี้อัตโนมัติ');
+   // The yellow warning panel is removed; transaction-level status remains visible.
+   expect(tax).not.toContain('เงื่อนไขก่อนออกใบกำกับภาษี');
+   expect(tax).not.toContain('border-amber-200 bg-amber-50 px-4 py-3');
+   expect(tax).toContain('ทะเบียนนี้เป็นรายการตรวจสอบภายใน');
+   expect(tax).toContain('ไม่บันทึก VAT เพิ่ม');
   expect(tax).toContain('ยังไม่ยืนยันการออกใบกำกับภาษี');
   expect(tax).toContain('<RecyclingReportDocumentAction transactionId={t.id}');
   expect(tax).toContain('t.branch_id===report.sessionBranchId');
