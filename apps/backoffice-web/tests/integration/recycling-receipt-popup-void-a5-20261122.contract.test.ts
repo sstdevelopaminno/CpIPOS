@@ -124,6 +124,8 @@ describe("CUSTOM Recycling invoice corrections / VOID through sales-list modal",
     expect(voidRoute).toContain('recycling_void_shift_already_closed');
     expect(voidRoute).toContain('recycling_void_finance_already_posted');
     expect(voidComponent).toContain('startExpanded=false');
-    expect(voidComponent).toContain('window.confirm(');
+    expect(voidComponent).toContain('data-testid="recycling-void-confirm-dialog"');
+    expect(voidComponent).toContain('data-testid="recycling-void-final-confirm"');
+    expect(voidComponent).not.toContain('window.confirm(');
   });
 });
