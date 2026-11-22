@@ -12,6 +12,7 @@ import { calculateRecyclingLine, recyclingUnitLabel } from "@/lib/recycling-calc
 import { formatRecyclingUnitPrice, RECYCLING_PRICE_UNIT_LABELS } from "@/lib/recycling-price-units";
 import type { RecyclingCatalogItem, RecyclingUnit } from "@/lib/server/recycling-pos-service";
 import { RecyclingSalesModeSwitcher } from "@/components/pos/recycling-sales-mode-switcher";
+import { RecyclingReceiptDialog } from "@/components/pos/recycling-receipt-dialog";
 
 type Direction = "buy" | "sell";
 type CartLine = {
@@ -107,6 +108,7 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
   const [posting, setPosting] = useState(false);
   const [postError, setPostError] = useState("");
   const [posted, setPosted] = useState<{ id: string; receipt_no?: string; total_minor: number; printRequestId: string } | null>(null);
+  const [receiptDialogOpen,setReceiptDialogOpen]=useState(false);
   const requestIdRef = useRef("");
   const nextKey = useRef(0);
   const scannerRef = useRef<HTMLInputElement>(null);
@@ -431,6 +433,7 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
     setPosting(true);
     setPostError("");
     setPosted(null);
+    setReceiptDialogOpen(false);
     if (!requestIdRef.current) requestIdRef.current = window.crypto.randomUUID();
     const currentRequestId = requestIdRef.current;
     try {
@@ -483,6 +486,7 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
       });
       requestIdRef.current = "";
       setCheckoutOpen(false);
+      setReceiptDialogOpen(true);
       setLines(current => current.filter(line => line.direction !== direction));
       setCounterpartyName("");
       // Queue only after a confirmed atomic transaction. A print failure must
@@ -913,10 +917,10 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
           {printNotice && !printNotice.ok && <button type="button" disabled={printing}
             className="mt-2 rounded-md border border-amber-300 bg-white px-3 py-2 text-xs font-bold text-amber-950 disabled:opacity-50"
             onClick={() => void queueReceiptPrint(posted.id, window.crypto.randomUUID())}>ส่งพิมพ์ใหม่เมื่อยืนยันว่าใบเสร็จเดิมไม่ออก (ไม่บันทึกบิลใหม่)</button>}
-          <Link href={`/preview/pos/recycling/receipts/${posted.id}`}
+          <button type="button" onClick={()=>setReceiptDialogOpen(true)}
             className="mt-2 block w-fit rounded-lg bg-emerald-700 px-3 py-2 text-sm font-bold text-white">
-            ดูหลักฐานและพิมพ์ใบรับซื้อ–ขายออก
-          </Link>
+            ดูใบเสร็จและพิมพ์ใบรับซื้อ–ขายออก (Popup)
+          </button>
         </p>}
         {heldNotice && <p role="status" className="mt-2 text-xs font-semibold text-blue-800">{heldNotice}</p>}
         {heldError && <p role="alert" className="mt-2 text-xs font-semibold text-rose-800">{heldError}</p>}
@@ -1166,5 +1170,9 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
         </div>
       </section>
     </div>}
+    {posted&&<RecyclingReceiptDialog transactionId={posted.id}
+      receiptNo={posted.receipt_no} open={receiptDialogOpen}
+      onClose={()=>{setReceiptDialogOpen(false);window.requestAnimationFrame(()=>scannerRef.current?.focus());}}
+      printing={printing} autoPrintNotice={printNotice}/>}
   </main>;
 }
