@@ -40,6 +40,9 @@ export function renderRecyclingSharedReceipt(args: {
   counterparty: string;
   settlement: string;
   totalMinor: number;
+  baseMinor?: number | null;
+  vatMinor?: number | null;
+  taxState?: string | null;
   lines: MaterialLine[];
   storeAddress?: string | null;
   storePhone?: string | null;
@@ -49,6 +52,14 @@ export function renderRecyclingSharedReceipt(args: {
   const isBuy = args.direction === "buy";
   const isCredit = args.settlement === "credit";
   const heading = isBuy ? "รับซื้อวัสดุรีไซเคิล" : "ขายออกวัสดุรีไซเคิล";
+  const isTaxRecorded=!isBuy&&args.taxState==="vat_recorded";
+  const base=Number(args.baseMinor ?? args.totalMinor);
+  const vat=isTaxRecorded?Number(args.vatMinor ?? 0):0;
+  if(!Number.isSafeInteger(base)||base<0||!Number.isSafeInteger(vat)||vat<0||
+    base+vat!==args.totalMinor||
+    args.lines.reduce((sum,line)=>sum+Number(line.amount_minor),0)!==base){
+    throw new Error("recycling_receipt_total_mismatch");
+  }
   // Only settled cash or verified transfers receive "ใบเสร็จ". Historical
   // credit documents remain evidence of outstanding payable/receivable.
   const documentTitle = isCredit
@@ -80,12 +91,14 @@ export function renderRecyclingSharedReceipt(args: {
       lineTotal:Number(line.amount_minor) / 100
     })),
     discountAmount:0,
-    taxAmount:0,
+    taxAmount:vat/100,
     totalAmount:Number(args.totalMinor) / 100,
     paymentMethod:args.settlement,
     // A Recycling purchase is a cash payout, not cash received/change.
     hideCashTenderBreakdown:isBuy,
-    documentNotice:args.taxNotice??"เอกสารซื้อขายทั่วไป ไม่ใช่ใบกำกับภาษี",
+    documentNotice:isTaxRecorded
+      ? "VAT 7% บันทึกจากบิลเดิม · เอกสารนี้เป็นใบเสร็จ ไม่ใช่ใบกำกับภาษี"
+      : args.taxNotice??"เอกสารซื้อขายทั่วไป ไม่ใช่ใบกำกับภาษี",
     voidWarning:args.status === "voided"
       ? `เอกสารยกเลิก VOID — ไม่ใช้ยืนยันธุรกรรมที่ยังมีผล (${args.voidReason ?? "ยกเลิก"})` : null,
     // Credit records document the receivable/payable, not an actual cash movement.
@@ -108,7 +121,7 @@ export async function queueRoutedRecyclingReceipt(args: {
   const db = getSupabaseServiceClient();
   const [tx, lines, tenant, branch] = await Promise.all([
     db.from("recycling_transactions")
-      .select("id,receipt_no,direction,settlement,counterparty_name,total_minor,status,void_reason,created_at")
+      .select("id,receipt_no,direction,settlement,counterparty_name,total_minor,base_minor,vat_minor,tax_state,status,void_reason,created_at")
       .eq("id",args.transactionId).eq("tenant_id",args.auth.tenantId).eq("branch_id",args.auth.branchId).maybeSingle(),
     db.from("recycling_transaction_lines")
       .select("line_no,sku_snapshot,name_snapshot,original_quantity,original_unit,base_unit,price_per_base,amount_minor")
@@ -121,14 +134,20 @@ export async function queueRoutedRecyclingReceipt(args: {
   if (tx.error || !tx.data || !["posted","voided"].includes(tx.data.status)) throw new Error("recycling_receipt_not_found");
   if (lines.error || !lines.data?.length) throw new Error("recycling_receipt_lines_missing");
   const totalLines = lines.data.reduce((total,line)=>total+Number(line.amount_minor),0);
-  if (totalLines!==Number(tx.data.total_minor)) throw new Error("recycling_receipt_total_mismatch");
+  const base=Number(tx.data.base_minor??tx.data.total_minor);
+  const vat=Number(tx.data.vat_minor??0);
+  if (totalLines!==base||base+vat!==Number(tx.data.total_minor)||
+      (tx.data.tax_state!=="vat_recorded" && vat!==0) ||
+      (tx.data.direction==="buy"&&vat!==0)) throw new Error("recycling_receipt_total_mismatch");
   if (tenant.error || branch.error) throw new Error("recycling_receipt_shop_unavailable");
 
   const [storeProfile,taxSettings]=await Promise.all([
     loadReceiptStoreProfile(args.auth.tenantId),
     loadTaxSettings(args.auth).catch(()=>null)
   ]);
-  const taxNotice=recyclingReceiptTaxNotice(taxSettings);
+  const taxNotice=tx.data.tax_state==="vat_recorded"
+    ?"บันทึกภาษีขาย VAT 7% ตามยอดในบิล · ไม่ใช่ใบกำกับภาษี"
+    :recyclingReceiptTaxNotice(taxSettings);
   const shop = tenant.data?.display_name || tenant.data?.name ||
     storeProfile?.display_name || storeProfile?.name || "ร้านวัสดุรีไซเคิล";
   const branchName = branch.data?.name ?? "สาขา";
@@ -149,7 +168,9 @@ export async function queueRoutedRecyclingReceipt(args: {
         status:tx.data.status,voidReason:tx.data.void_reason,
         createdAt:tx.data.created_at,
         counterparty:tx.data.counterparty_name,settlement:tx.data.settlement,
-        totalMinor:Number(tx.data.total_minor),lines:lines.data as MaterialLine[],
+        totalMinor:Number(tx.data.total_minor),
+        baseMinor:base,vatMinor:vat,taxState:tx.data.tax_state,
+        lines:lines.data as MaterialLine[],
         storeAddress:storeProfile?.company_address??null,
         storePhone:storeProfile?.contact_phone??null,
         logoUrl:storeProfile?.logo_url??null,
@@ -163,6 +184,10 @@ export async function queueRoutedRecyclingReceipt(args: {
           ? "เครดิต/ค้างชำระ — ยังไม่มีการรับหรือจ่ายเงินจริง"
           : tx.data.settlement==="cash" ? "วิธีชำระเงิน: เงินสด" : "วิธีชำระเงิน: โอนเงิน (ตรวจสอบหลักฐาน)",
         ...lines.data.map(l=>`${l.name_snapshot} ${l.original_quantity} ${unitNames[l.original_unit]??l.original_unit} ${thaiMoney(Number(l.amount_minor))}`),
+        ...(tx.data.tax_state==="vat_recorded"?[
+          `ยอดก่อน VAT ${thaiMoney(base)} บาท`,
+          `VAT 7% ${thaiMoney(vat)} บาท`
+        ]:[]),
         `รวม ${thaiMoney(Number(tx.data.total_minor))} บาท`,
         taxNotice].join("\n");
       const requestKey=`rcy:${args.transactionId}:${args.requestId}:${route.printer.id}:${copy}`.slice(0,180);
@@ -193,6 +218,7 @@ export async function queueRoutedRecyclingReceipt(args: {
           direction:tx.data.direction,
           branch_name:branchName,
           total_minor:Number(tx.data.total_minor),
+          base_minor:base,vat_minor:vat,tax_state:tx.data.tax_state,
           settlement:tx.data.settlement,
           status:tx.data.status,
           void_reason:tx.data.void_reason
