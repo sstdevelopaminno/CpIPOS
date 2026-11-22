@@ -66,7 +66,7 @@ export async function POST(request: Request) {
     const recyclingEnabled = await isAuthorizedRecyclingTenant(sessionScope.tenantId);
     const fundSource=String(body?.fund_source??"").trim();
     const fundReference=String(body?.fund_reference??"").trim();
-    if(recyclingRequested && (fundSource||fundReference||body?.cash_count_confirmed!==undefined)){
+    if(recyclingRequested){
       // References are audit hints only: the opening cash must have been
       // physically counted. Never auto-withdraw from a bank or create GL entries.
       if(!["counted_cash","withdrawn_cash"].includes(fundSource) ||
