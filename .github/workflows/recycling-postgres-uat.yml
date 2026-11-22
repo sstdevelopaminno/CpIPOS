@@ -6,7 +6,7 @@ on:
       - "supabase/migrations/20261120050419_custom_recycling_atomic_finance_20261120.sql"
       - "supabase/migrations/20261121091740_custom_recycling_daily_auto_shift_20261121.sql"
       - "supabase/migrations/20261121133212_recycling_legacy_shift_manager_recovery_20261121.sql"
-      - "supabase/migrations/20261122124500_recycling_tenant_receipt_sequence.sql"
+      - "supabase/migrations/20261122054149_recycling_tenant_receipt_sequence_20261122.sql"
       - "tests/recycling/**"
       - "apps/backoffice-web/src/app/api/pos/recycling/**"
       - "apps/backoffice-web/src/lib/recycling-**"
@@ -103,7 +103,7 @@ jobs:
           PG_CONTAINER: ${{ job.services.postgres.id }}
         run: |
           set -euo pipefail
-          docker exec -i "$PG_CONTAINER" psql -U postgres -d recycling_uat -v ON_ERROR_STOP=1 < supabase/migrations/20261122124500_recycling_tenant_receipt_sequence.sql
+          docker exec -i "$PG_CONTAINER" psql -U postgres -d recycling_uat -v ON_ERROR_STOP=1 < supabase/migrations/20261122054149_recycling_tenant_receipt_sequence_20261122.sql
       - name: Verify receipt numbering, no reused numbers and transactional rollback
         env:
           PG_CONTAINER: ${{ job.services.postgres.id }}
