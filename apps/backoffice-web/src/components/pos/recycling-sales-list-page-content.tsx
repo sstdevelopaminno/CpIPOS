@@ -4,6 +4,7 @@ import { loadRecyclingHistoryReport, type RecyclingReportQuery } from "@/lib/ser
 import { sumRecyclingReportMoney } from "@/lib/recycling-report-calculation";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 import { RecyclingSalesListExport } from "@/components/pos/recycling-sales-list-export";
+import { RecyclingSalesListRowActions } from "@/components/pos/recycling-sales-list-row-actions";
 
 const BASE="/preview/pos/sales-list";
 const money=(minor:number)=>new Intl.NumberFormat("th-TH",{
@@ -246,10 +247,12 @@ export async function RecyclingSalesListPageContent({scope,search={}}:{
                   {voided?"ยกเลิก (VOID)":"บันทึกแล้ว"}</span>
                 </td>
                 <td className="px-3 py-3">{t.branch_id===scope.session.branch_id?
-                  <Link href={"/preview/pos/recycling/receipts/"+encodeURIComponent(t.id)}
-                    className="inline-flex min-h-9 whitespace-nowrap items-center rounded-md border border-blue-200 bg-white px-3 font-bold text-blue-700 hover:bg-blue-50">
-                    ดู / พิมพ์เอกสาร
-                  </Link>:<span className="text-xs text-amber-700">เข้าสาขาต้นทางเพื่อเปิดเอกสาร</span>}
+                  <RecyclingSalesListRowActions
+                    receiptId={t.id} receiptNo={t.receipt_no}
+                    direction={t.direction} settlement={t.settlement} status={t.status}
+                    amountMinor={Number(t.total_minor)}
+                    canManage={["owner","manager","accountant"].includes(scope.session.role)}
+                    voidEnabled={process.env.RECYCLING_VOID_ENABLED==="1"}/>:<span className="text-xs text-amber-700">เข้าสาขาต้นทางเพื่อเปิดเอกสาร</span>}
                 </td>
               </tr>;
             }):<tr><td colSpan={10} className="p-16 text-center">

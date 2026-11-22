@@ -62,7 +62,7 @@ describe("CUSTOM Recycling sales-list compact program-style layout",()=>{
     expect(recycling).toContain('sumRecyclingReportMoney(report.transactions)');
     expect(recycling).toContain('status==="all"||t.status===status');
     expect(recycling).toContain('direction==="all"||t.direction===direction');
-    expect(recycling).toContain('"/preview/pos/recycling/receipts/"+encodeURIComponent(t.id)');
+    expect(recycling).toContain('<RecyclingSalesListRowActions');
     expect(recycling).toContain('ยกเลิก {total.voidCount} บิล (ไม่รวมยอดรับ–จ่ายจริง)');
     expect(recycling).not.toContain(".insert(");
     expect(recycling).not.toContain(".delete(");

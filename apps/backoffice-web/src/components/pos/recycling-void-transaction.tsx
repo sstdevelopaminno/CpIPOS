@@ -7,15 +7,16 @@ import { useState } from "react";
  * The approver must explicitly inspect the cash repayment and physical stock.
  */
 export function RecyclingVoidTransaction({
-  transactionId,direction,settlement,enabled
+  transactionId,direction,settlement,enabled,startExpanded=false
 }: {
   transactionId:string;
   direction:"buy"|"sell";
   settlement:"cash"|"bank_transfer"|"credit";
   enabled:boolean;
+  startExpanded?:boolean;
 }) {
   const router=useRouter();
-  const [expanded,setExpanded]=useState(false);
+  const [expanded,setExpanded]=useState(startExpanded);
   const [reason,setReason]=useState("");
   const [stockChecked,setStockChecked]=useState(false);
   const [cashConfirmed,setCashConfirmed]=useState(false);

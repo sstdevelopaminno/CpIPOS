@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { RecyclingPrintReceiptButton } from "@/components/pos/recycling-print-receipt-button";
-import { RecyclingVoidTransaction } from "@/components/pos/recycling-void-transaction";
 import { requirePosSession } from "@/lib/pos-session-guard";
 import { isAuthorizedRecyclingTenant } from "@/lib/server/recycling-pos-service";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
@@ -75,8 +74,8 @@ export default async function RecyclingReceiptPage({
       .recycling-receipt { box-shadow:none !important; border:none !important; }
     }`}</style>
     <nav className="mb-4 flex flex-wrap gap-2 print:hidden">
-      <Link href="/preview/pos/recycling" className="rounded-lg border border-slate-200 px-4 py-3 text-sm font-bold text-slate-700">
-        กลับหน้ารับซื้อ–ขายออก
+      <Link href="/preview/pos/sales-list" className="rounded-lg border border-slate-200 px-4 py-3 text-sm font-bold text-slate-700">
+        กลับเมนูรายการซื้อ–ขาย
       </Link>
       <RecyclingPrintReceiptButton receiptId={id} />
     </nav>
@@ -134,15 +133,5 @@ export default async function RecyclingReceiptPage({
       <p className="mt-3 break-all text-center text-[9px] text-slate-600">รหัสธุรกรรม: {id}</p>
       <p className="mt-3 border-t border-dashed border-slate-300 pt-2 text-center text-[10px]">CpiPOS CUSTOM Recycling</p>
     </article>
-    {tx.data.status === "posted" && !tx.data.finance_document_id &&
-      ["owner","manager","accountant"].includes(role) &&
-      <div className="mt-4">
-        <RecyclingVoidTransaction
-          transactionId={id}
-          direction={isBuy?"buy":"sell"}
-          settlement={tx.data.settlement as "cash"|"bank_transfer"|"credit"}
-          enabled={process.env.RECYCLING_VOID_ENABLED === "1"}
-        />
-      </div>}
   </main>;
 }
