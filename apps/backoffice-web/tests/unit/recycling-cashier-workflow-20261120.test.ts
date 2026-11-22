@@ -8,6 +8,8 @@ const cashier = src("src/components/pos/recycling-pos-workspace.tsx");
 const toolbar = src("src/components/pos/recycling-sales-mode-switcher.tsx");
 const postApi = src("src/app/api/pos/recycling/transactions/route.ts");
 const printApi = src("src/app/api/pos/recycling/receipts/[id]/print/route.ts");
+const receiptDialog = src("src/components/pos/recycling-receipt-dialog.tsx");
+const manualPrint = src("src/components/pos/recycling-print-receipt-button.tsx");
 
 describe("Recycling custom cashier UX", () => {
   it("uses exact indexed barcodes instead of fuzzy searching", () => {
@@ -88,7 +90,10 @@ describe("Recycling custom cashier UX", () => {
   it("queues print only AFTER confirmed atomic posting with stable retry id", () => {
     expect(cashier).toContain("await queueReceiptPrint(committedId, currentRequestId)");
     expect(cashier).toContain("printRequestId: currentRequestId");
-    expect(cashier).toContain("queueReceiptPrint(posted.id, window.crypto.randomUUID())");
+    expect(cashier).toContain("setReceiptDialogOpen(true);");
+    expect(receiptDialog).toContain("<RecyclingPrintReceiptButton receiptId={transactionId}");
+    expect(manualPrint).toContain("request_id:crypto.randomUUID()");
+    expect(cashier).not.toContain("queueReceiptPrint(posted.id, window.crypto.randomUUID())");
     expect(cashier).toContain('jobs.some(job => job.status === "failed")');
     expect(cashier).toContain("ตรวจเครื่องพิมพ์และคิวงานก่อนส่งพิมพ์ใหม่");
     expect(cashier).toContain("บันทึกธุรกรรมสำเร็จ แต่ส่งคำสั่งพิมพ์ไม่สำเร็จ");
