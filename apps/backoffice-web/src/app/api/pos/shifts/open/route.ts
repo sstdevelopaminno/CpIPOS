@@ -45,7 +45,10 @@ export async function POST(request: Request) {
   try {
     const scope = await requirePosSession();
     requirePermission(scope, "shift:open");
-    const body = (await request.json().catch(() => null)) as { opening_cash?: number | string | null; business_mode?: string } | null;
+    const body = (await request.json().catch(() => null)) as {
+      opening_cash?: number | string | null; business_mode?: string;
+      fund_source?: string; fund_reference?: string; cash_count_confirmed?: boolean;
+    } | null;
     const openingCashRaw = body?.opening_cash;
     const openingCash =
       openingCashRaw === undefined || openingCashRaw === null || openingCashRaw === ""
@@ -61,6 +64,22 @@ export async function POST(request: Request) {
     const sessionScope = getTenantBranchScopeFromSession(scope);
     const recyclingRequested = body?.business_mode === "recycling";
     const recyclingEnabled = await isAuthorizedRecyclingTenant(sessionScope.tenantId);
+    const fundSource=String(body?.fund_source??"").trim();
+    const fundReference=String(body?.fund_reference??"").trim();
+    if(recyclingRequested){
+      // References are audit hints only: the opening cash must have been
+      // physically counted. Never auto-withdraw from a bank or create GL entries.
+      if(!["counted_cash","withdrawn_cash"].includes(fundSource) ||
+         body?.cash_count_confirmed!==true || openingCash===null ||
+         !Number.isSafeInteger(Math.round(openingCash*100)) ||
+         Math.abs(openingCash*100-Math.round(openingCash*100))>0.00001 ||
+         openingCash>99_999_999.99 ||
+         fundReference.length>80 || /[\r\n]/.test(fundReference) ||
+         (fundSource==="withdrawn_cash"&&fundReference.length<3)){
+        return NextResponse.json({data:null,error:{code:"recycling_fund_not_confirmed",
+          message:"กรุณานับเงินสดที่ได้รับจริง ยืนยันยอด และระบุเลขที่หลักฐานการเบิกเงินเมื่อใช้เงินสดที่เบิกจากบัญชี"}},{status:422});
+      }
+    }
     if (recyclingRequested && !recyclingEnabled) {
       return NextResponse.json({data:null,error:{code:"recycling_shift_not_authorized",
         message:"CUSTOM Recycling entitlement is not active."}},{status:403});
@@ -250,7 +269,13 @@ export async function POST(request: Request) {
           ...(opticalShift.enabled ? {business_shift_mode:"optical_daily",optical_timezone:opticalShift.timeZone,
             optical_country:opticalShift.country,optical_currency:opticalShift.currency}: {}),
           ...(recyclingRequested ? {business_shift_mode:"recycling_daily",recycling_timezone:"Asia/Bangkok",
-            cash_count_required:true, opened_via:"recycling_shift_menu"} : {})
+            cash_count_required:true, opened_via:"recycling_shift_menu",
+            ...(fundSource?{
+              recycling_fund_source:fundSource,recycling_fund_reference:fundReference||null,
+              recycling_cash_count_confirmed:true,
+              recycling_finance_link_status:"reference_only_pending_accounting_reconciliation"
+            }:{})
+          } : {})
         }
       })
       .select("id,status,opened_at,opening_cash,device_code")
@@ -311,6 +336,11 @@ export async function POST(request: Request) {
       targetId: createdShift.id,
       metadata: {
         opening_cash: createdShift.opening_cash,
+        ...(recyclingRequested?{
+          fund_source:fundSource||null,
+          fund_reference:fundReference||null,
+          finance_link_status:"reference_only_pending_accounting_reconciliation"
+        }:{}),
         device_code: createdShift.device_code,
         pos_session_id: scope.session.id
       }

@@ -3,7 +3,24 @@ import {useEffect,useState} from "react";
 import {useRouter} from "next/navigation";
 import {recyclingBusinessDayKey, recyclingShiftIsToday} from "@/lib/recycling-business-day";
 
-type ShiftInfo={id:string;status:string;opened_at:string;opening_cash:number|null};
+type ShiftInfo={
+  id:string;status:string;opened_at:string;opening_cash:number|null;
+  fund_source?:string|null;fund_reference?:string|null;
+};
+type FundingSummary={
+  finance_status:"restricted"|"unposted"|"ready"|"unavailable";
+  accounts:Array<{code:string;label:string;balance_minor:number|null;entries:number}>;
+  shift_flow_status:"not_requested"|"ready"|"unavailable";
+  shift_flow:{
+    opening_minor:number|null;cash_in_minor:number;cash_out_minor:number;
+    expected_minor:number|null;buy_count:number;sell_count:number;
+  }|null;
+  note:string;
+};
+function minorMoney(value:number|null|undefined){
+ return value===null||value===undefined||!Number.isSafeInteger(value)?"รอตรวจสอบ":
+   (value/100).toLocaleString("th-TH",{minimumFractionDigits:2,maximumFractionDigits:2})+" บาท";
+}
 type Result<T>={data?:T;error?:{code?:string;message?:string}};
 export function RecyclingShiftPrintButton({shiftId,automatic=false}:{
  shiftId:string;automatic?:boolean
@@ -43,6 +60,12 @@ export function RecyclingShiftControl({branchName}: {branchName:string}) {
   const [recoveryPhrase,setRecoveryPhrase] = useState("");
   const [busy,setBusy] = useState(false);
   const [openingCash,setOpeningCash] = useState("");
+  const [fundSource,setFundSource] = useState<"counted_cash"|"withdrawn_cash">("counted_cash");
+  const [fundReference,setFundReference] = useState("");
+  const [cashCountConfirmed,setCashCountConfirmed] = useState(false);
+  const [funding,setFunding] = useState<FundingSummary|null>(null);
+  const [fundingLoading,setFundingLoading] = useState(false);
+  const [fundingError,setFundingError] = useState("");
   const [closingCash,setClosingCash] = useState("");
   const [message,setMessage] = useState("");
   const [actionError,setActionError] = useState("");
@@ -105,8 +128,32 @@ export function RecyclingShiftControl({branchName}: {branchName:string}) {
     return ()=>document.removeEventListener("keydown",onEscape);
   },[modalKind,busy]);
 
+  // Load verified accounting context only when the relevant modal is opened.
+  // A finance GL balance is *not* automatically available in the cash drawer.
+  useEffect(()=>{
+    if(!modalKind||modalKind==="recover")return;
+    const controller=new AbortController();
+    async function readFunding(){
+      setFunding(null);setFundingError("");setFundingLoading(true);
+      try{
+        const param=shift?.id?"?shiftId="+encodeURIComponent(shift.id):"";
+        const resp=await fetch("/api/pos/recycling/funding/summary"+param,{
+          credentials:"same-origin",cache:"no-store",signal:controller.signal
+        });
+        const body=await resp.json().catch(()=>null) as Result<FundingSummary>|null;
+        if(!resp.ok||!body?.data)throw new Error(body?.error?.message??"อ่านข้อมูลเงินทุนไม่ได้");
+        if(!controller.signal.aborted)setFunding(body.data);
+      }catch(error){
+        if(!controller.signal.aborted)setFundingError(error instanceof Error?error.message:"อ่านข้อมูลเงินทุนไม่ได้");
+      }finally{if(!controller.signal.aborted)setFundingLoading(false);}
+    }
+    void readFunding();
+    return ()=>controller.abort();
+  },[modalKind,shift?.id]);
+
   function showModal(kind:"open"|"close"|"active"|"recover"){
     if(loading || busy)return;
+    if(kind==="open")setCashCountConfirmed(false);
     // Allow the cashier to inspect the reason for a blocked shift. Never
     // enable a financial mutation while a conflicting POS shift is open.
     setActionError(lookupFailed && kind!=="recover" ? message : "");
@@ -147,8 +194,12 @@ export function RecyclingShiftControl({branchName}: {branchName:string}) {
 
   async function openShift() {
     if(busy||loading||lookupFailed||shift)return;
-    if(openingCash.trim() && !/^\d{1,10}(\.\d{1,2})?$/.test(openingCash.trim())){
-      setActionError("กรุณาระบุเงินสดตั้งต้นให้ถูกต้อง ไม่เกินสองตำแหน่ง");
+    if(!/^\d{1,8}(\.\d{1,2})?$/.test(openingCash.trim())||!cashCountConfirmed){
+      setActionError("กรุณาระบุเงินทุนรับซื้อที่ตรวจนับได้จริง (ระบุ 0.00 ได้) และทำเครื่องหมายยืนยันยอด");
+      return;
+    }
+    if(fundSource==="withdrawn_cash" && fundReference.trim().length<3){
+      setActionError("กรุณาระบุเลขที่เอกสารเบิกเงินหรือหลักฐานรับเงินสดจากบัญชีก่อนเปิดกะ");
       return;
     }
     setBusy(true);setActionError("");
@@ -156,14 +207,16 @@ export function RecyclingShiftControl({branchName}: {branchName:string}) {
       const response=await fetch("/api/pos/shifts/open",{
         method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},
         body:JSON.stringify({business_mode:"recycling",
-          opening_cash:openingCash.trim()?Number(openingCash):null})
+          opening_cash:Number(openingCash),fund_source:fundSource,
+          fund_reference:fundSource==="withdrawn_cash"?fundReference.trim():"",
+          cash_count_confirmed:cashCountConfirmed})
       });
       const body=await response.json().catch(()=>null) as Result<{shift?:ShiftInfo}>|null;
       if(response.ok&&body?.data?.shift?.status==="open"&&
          recyclingShiftIsToday(body.data.shift.opened_at)){
         setShift(body.data.shift);setNeedsJoin(false);
-        setMessage("เปิดกะ Recycling วันนี้สำเร็จ");
-        setModalKind(null);setOpeningCash("");
+        setMessage("เปิดกะพร้อมเงินทุนรับซื้อที่ตรวจนับจริงแล้ว (ยังไม่ใช่การโอนเงินจากบัญชี)");
+        setModalKind(null);setOpeningCash("");setCashCountConfirmed(false);setFundReference("");
         router.refresh();
       } else {
         setActionError(body?.error?.message??"เปิดกะไม่สำเร็จ กรุณาตรวจสอบสิทธิ์และกะที่เปิดค้าง");
@@ -214,7 +267,7 @@ export function RecyclingShiftControl({branchName}: {branchName:string}) {
       setLastClosed(body.data.shift_id);
       setShift(null);setNeedsJoin(false);setClosingCash("");
       setModalKind(null);
-      setMessage("ปิดกะสำเร็จ · ระบบบันทึกผลตรวจนับเงินสดจริงแล้ว");
+      setMessage("ปิดกะเงินทุนรับซื้อสำเร็จ · ระบบบันทึกยอดเงินสดคงเหลือที่ตรวจนับจริงแล้ว");
       router.refresh();
       try {
         const print=await fetch("/api/pos/shifts/"+encodeURIComponent(body.data.shift_id)+"/print",{
@@ -242,26 +295,26 @@ export function RecyclingShiftControl({branchName}: {branchName:string}) {
     <div className="flex flex-wrap items-center justify-between gap-3">
       <div className="min-w-0">
         <div className="flex flex-wrap items-center gap-2">
-          <h2 className="text-base font-extrabold text-slate-900">กะ Recycling · {branchName}</h2>
+          <h2 className="text-base font-extrabold text-slate-900">เงินทุนหมุนเวียนรับซื้อ · {branchName}</h2>
           <span className={"rounded-full px-3 py-1 text-xs font-bold "+(
             hasShift?"bg-emerald-100 text-emerald-800":"bg-slate-100 text-slate-700")}>
             {loading?"กำลังตรวจสอบ":lookupFailed?lookupErrorCode==="recycling_existing_legacy_shift_requires_review"?"มีกะต่างประเภทเปิดอยู่":"ตรวจสอบไม่สำเร็จ":hasShift?"เปิดอยู่":"ยังไม่เปิดกะ"}
           </span>
         </div>
         <p className="mt-1 text-xs leading-5 text-slate-500">
-          กะรายวันตามเวลาไทย · ปิดอัตโนมัติเมื่อสิ้นสุดวัน · แยกจากกะของ POS หลัก
+          ใช้เงินสดรับซื้อวัสดุจากลูกค้า · ขายออกจะเพิ่มเงินสดเฉพาะเมื่อรับชำระเงินจริง · กระทบยอดทุกสิ้นวัน
         </p>
       </div>
       <div className="flex flex-wrap gap-2" data-testid="recycling-shift-actions">
         <button type="button" onClick={()=>showModal("active")}
           disabled={loading||busy}
           className="min-h-10 rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 disabled:opacity-50">
-          ดูกะปัจจุบัน
+          ดูเงินทุนกะนี้
         </button>
         <button type="button" onClick={()=>showModal("open")}
           disabled={loading||busy||hasShift||lookupFailed}
           className="min-h-10 rounded-xl bg-blue-600 px-4 py-2 text-sm font-bold text-white disabled:opacity-50">
-          เปิดกะทันที
+          เปิดกะรับซื้อ
         </button>
         {recoveryAllowed && lookupErrorCode==="recycling_existing_legacy_shift_requires_review" &&
           <button type="button" data-testid="recycling-recover-legacy-button"
@@ -272,7 +325,7 @@ export function RecyclingShiftControl({branchName}: {branchName:string}) {
         <button type="button" onClick={()=>showModal("close")}
           disabled={loading||busy||(!hasShift&&!lookupFailed)||needsJoin}
           className="min-h-10 rounded-xl bg-slate-900 px-4 py-2 text-sm font-bold text-white disabled:opacity-50">
-          ปิดกะตอนนี้
+          ปิดกะ / ตรวจนับ
         </button>
       </div>
     </div>
@@ -294,12 +347,12 @@ export function RecyclingShiftControl({branchName}: {branchName:string}) {
       <button type="button" aria-label="ปิดหน้าต่าง"
         disabled={busy} onClick={()=>setModalKind(null)}
         className="absolute inset-0 cursor-default bg-slate-950/55 disabled:cursor-wait" />
-      <section className="relative z-10 max-h-[calc(100dvh-2rem)] w-full max-w-md overflow-y-auto rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl sm:p-6">
+      <section className="relative z-10 max-h-[calc(100dvh-2rem)] w-full max-w-xl overflow-y-auto rounded-xl border border-slate-200 bg-white p-5 shadow-2xl sm:p-6">
         <div className="flex items-start justify-between gap-3">
           <div>
             <p className="text-xs font-bold tracking-wider text-blue-700">CUSTOM · RECYCLING</p>
             <h3 id="recycling-shift-modal-title" className="mt-1 text-xl font-extrabold text-slate-900">
-              {modalKind==="open"?"เปิดกะประจำวัน":modalKind==="close"?"ยืนยันปิดกะ":modalKind==="recover"?"ตรวจสอบและกู้คืนกะ Recycling":"รายละเอียดกะปัจจุบัน"}
+              {modalKind==="open"?"เปิดกะ · ตั้งทุนรับซื้อประจำวัน":modalKind==="close"?"ปิดกะ · กระทบยอดเงินทุน":modalKind==="recover"?"ตรวจสอบและกู้คืนกะ Recycling":"เงินทุนและกระแสเงินสดกะปัจจุบัน"}
             </h3>
           </div>
           <button type="button" aria-label="ปิดหน้าต่าง" disabled={busy}
@@ -308,9 +361,9 @@ export function RecyclingShiftControl({branchName}: {branchName:string}) {
         </div>
         <p id="recycling-shift-modal-desc" className="mt-2 text-sm leading-6 text-slate-600">
           {modalKind==="open"
-            ?"ยืนยันเงินสดตั้งต้นตามยอดที่ตรวจนับจริง ระบบจะเปิดกะเฉพาะเครื่องและสาขานี้"
+            ?"กำหนดทุนรับซื้อจากเงินสดที่ได้รับจริงก่อนเริ่มจ่ายซื้อวัสดุ (ไม่ใช่เงินทอน) ระบบไม่หักเงินจากบัญชีธนาคารโดยอัตโนมัติ"
             :modalKind==="close"
-            ?"ตรวจนับเงินสดจริงก่อนปิดกะ ใบสรุปจะส่งเข้าคิวพิมพ์หลังปิดกะสำเร็จ"
+            ?"เทียบทุนที่เปิดกะกับเงินสดจ่ายรับซื้อ เงินสดรับจากการขายออก และยอดที่นับได้จริงก่อนปิดกะ"
             :modalKind==="recover"
             ?"เฉพาะกรณีกะ POS ทั่วไปถูกเปิดผิดโดยระบบเดิม ไม่มีรายการซื้อขาย และนับเงินสดได้ศูนย์บาทเท่านั้น"
             :"รายละเอียดเฉพาะกะ Recycling ไม่รวมกะขายทั่วไป"}
@@ -330,29 +383,97 @@ export function RecyclingShiftControl({branchName}: {branchName:string}) {
               <strong className="text-right text-slate-900">{new Date(shift.opened_at).toLocaleString("th-TH",{timeZone:"Asia/Bangkok"})}</strong>
             </div>
             <div className="flex justify-between gap-3">
-              <span className="text-slate-500">เงินสดตั้งต้น</span>
+              <span className="text-slate-500">ทุนเงินสดเปิดกะ</span>
               <strong className="text-right text-slate-900">{formatCash(shift.opening_cash)}</strong>
             </div>
+            <div className="flex justify-between gap-3">
+              <span className="text-slate-500">ที่มาเงินทุน</span>
+              <strong className="text-right text-slate-900">{shift.fund_source==="withdrawn_cash"?"เบิกเงินสดจากบัญชีแล้ว":shift.fund_source==="counted_cash"?"เงินสดที่นับรับมอบ":"ข้อมูลกะเดิม (ไม่ระบุ)"}</strong>
+            </div>
+            {shift.fund_reference&&<div className="flex justify-between gap-3">
+              <span className="text-slate-500">เลขที่เอกสารอ้างอิง</span>
+              <strong className="break-all text-right text-slate-900">{shift.fund_reference}</strong>
+            </div>}
           </>}
         </div>
 
-        {modalKind==="open"&&!lookupFailed&&<form id="recycling-open-shift-form" className="mt-4"
+        {modalKind!=="recover"&&<section className="mt-4 rounded-lg border border-blue-200 bg-blue-50/70 p-3 sm:p-4"
+          data-testid="recycling-funding-ledger-panel">
+          <div className="mb-2 flex items-center justify-between gap-3">
+            <h4 className="text-sm font-extrabold text-blue-950">เชื่อมข้อมูลบัญชีเงินทุน · อ่านอย่างเดียว</h4>
+            <span className="text-[11px] font-semibold text-blue-800">{fundingLoading?"กำลังตรวจสอบ...":funding?.finance_status==="ready"?"มีรายการบัญชี":funding?.finance_status==="restricted"?"จำกัดตามสิทธิ์":"ยังไม่มีข้อมูลยืนยัน"}</span>
+          </div>
+          <div className="grid grid-cols-2 gap-2 text-xs">
+            {(["1100","1110"] as const).map(code=>{
+              const account=funding?.accounts.find(item=>item.code===code);
+              return <div key={code} className="min-w-0 rounded-lg border border-blue-100 bg-white p-3">
+                <p className="font-semibold text-slate-600">{code==="1100"?"เงินสดตามบัญชี (1100)":"เงินฝากธนาคาร (1110)"}</p>
+                <strong className="mt-1 block text-base font-extrabold tabular-nums text-slate-900">
+                  {funding?.finance_status==="ready"?minorMoney(account?.balance_minor):"ยังไม่ยืนยัน"}
+                </strong>
+                <p className="mt-1 text-[11px] text-slate-500">{code==="1110"?"ไม่ใช่เงินสดที่จ่ายซื้อได้ทันที":"อ้างอิงสมุดรายวันที่โพสต์ของสาขา"}</p>
+              </div>;
+            })}
+          </div>
+          <p className="mt-2 text-xs leading-5 text-blue-900">
+            {fundingError||"ยอดจากบัญชีใช้ตรวจสอบกับฝ่ายบัญชีเท่านั้น ไม่ดึงยอดมาเป็นทุนเปิดกะอัตโนมัติ ต้องเบิกเงินและนับเงินจริงก่อน"}
+          </p>
+        </section>}
+        {(modalKind==="active"||modalKind==="close")&&shift&&<section className="mt-3 rounded-lg border border-slate-200 bg-white p-3 sm:p-4"
+          data-testid="recycling-shift-cash-flow">
+          <h4 className="mb-3 text-sm font-extrabold text-slate-900">สรุปเงินสดรับ–จ่ายในกะนี้</h4>
+          {funding?.shift_flow_status==="ready"&&funding.shift_flow?<>
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              <div className="rounded-md bg-slate-50 p-2"><p className="text-xs text-slate-500">ทุนเปิดกะ</p><strong className="text-sm tabular-nums">{minorMoney(funding.shift_flow.opening_minor)}</strong></div>
+              <div className="rounded-md bg-rose-50 p-2"><p className="text-xs text-rose-700">เงินสดจ่ายรับซื้อ</p><strong className="text-sm tabular-nums text-rose-800">− {minorMoney(funding.shift_flow.cash_out_minor)}</strong></div>
+              <div className="rounded-md bg-emerald-50 p-2"><p className="text-xs text-emerald-700">เงินสดรับขายออก</p><strong className="text-sm tabular-nums text-emerald-800">+ {minorMoney(funding.shift_flow.cash_in_minor)}</strong></div>
+              <div className="rounded-md bg-blue-50 p-2"><p className="text-xs text-blue-800">คงเหลือตามระบบ</p><strong className="text-sm tabular-nums text-blue-900">{minorMoney(funding.shift_flow.expected_minor)}</strong></div>
+            </div>
+            <p className="mt-2 text-xs text-slate-500">รับซื้อ {funding.shift_flow.buy_count} บิล · ขายออก {funding.shift_flow.sell_count} บิล · ไม่รวมเงินโอนที่ยังไม่ผ่านการตรวจสอบ</p>
+          </>:<p className="text-xs text-amber-800">ยังตรวจสอบยอดเงินสดจากทะเบียนธุรกรรมไม่ได้ กรุณาตรวจสอบก่อนปิดกะ</p>}
+        </section>}
+        {modalKind==="open"&&!lookupFailed&&<form id="recycling-open-shift-form" className="mt-4 space-y-3"
           onSubmit={event=>{event.preventDefault();void openShift();}}>
-          <label htmlFor="recycling-opening-cash" className="block text-sm font-semibold text-slate-800">
-            เงินสดตั้งต้น (บาท)
+          <div>
+            <label htmlFor="recycling-fund-source" className="block text-sm font-bold text-slate-800">ที่มาของทุนรับซื้อ</label>
+            <select id="recycling-fund-source" value={fundSource} disabled={busy}
+              onChange={event=>{setFundSource(event.target.value as "counted_cash"|"withdrawn_cash");setCashCountConfirmed(false);}}
+              className="mt-1.5 min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm">
+              <option value="counted_cash">เงินสดคงเหลือ / เงินสดที่ส่งมอบให้นับแล้ว</option>
+              <option value="withdrawn_cash">เงินสดที่เบิกจากบัญชีและได้รับจริงแล้ว</option>
+            </select>
+          </div>
+          {fundSource==="withdrawn_cash"&&<div>
+            <label htmlFor="recycling-fund-reference" className="block text-sm font-bold text-slate-800">เลขที่หลักฐานการเบิกเงิน / ใบรับเงินสด</label>
+            <input id="recycling-fund-reference" type="text" maxLength={80} required
+              disabled={busy} value={fundReference} onChange={event=>setFundReference(event.target.value)}
+              placeholder="อ้างอิงเอกสารการเบิกเงินที่มีอยู่จริง"
+              className="mt-1.5 min-h-11 w-full rounded-lg border border-slate-300 px-3 text-sm"/>
+            <p className="mt-1 text-xs text-amber-800">เลขอ้างอิงนี้ยังไม่ได้เท่ากับการอนุมัติรายการบัญชี ต้องให้ฝ่ายบัญชีกระทบยอด</p>
+          </div>}
+          <div>
+            <label htmlFor="recycling-opening-cash" className="block text-sm font-bold text-slate-800">
+              เงินทุนสดที่ได้รับและนับจริง (บาท)
+            </label>
+            <p className="mt-1 text-xs text-slate-500">ระบุยอดเงินสดพร้อมจ่ายรับซื้อจริงเท่านั้น · หากไม่มีเงินสดให้กรอก 0.00</p>
+            <input id="recycling-opening-cash" type="number" min="0" max="99999999.99" required step=".01" inputMode="decimal"
+              autoFocus disabled={busy} value={openingCash}
+              onChange={event=>{setOpeningCash(event.target.value);setCashCountConfirmed(false);}}
+              placeholder="เช่น 5000.00"
+              className="mt-2 min-h-11 w-full rounded-lg border border-slate-300 px-3 py-3 text-base font-bold tabular-nums disabled:opacity-50"/>
+          </div>
+          <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-900">
+            <input type="checkbox" checked={cashCountConfirmed} disabled={busy}
+              onChange={event=>setCashCountConfirmed(event.target.checked)} className="mt-0.5 h-4 w-4 shrink-0"/>
+            <span>ยืนยันว่าตรวจนับและได้รับเงินสดจำนวนนี้แล้วจริง ไม่ใช่ยอดในบัญชีธนาคารหรือวงเงินคาดการณ์</span>
           </label>
-          <p className="mt-1 text-xs text-slate-500">เว้นว่างได้หากยังไม่ยืนยันยอด ไม่บันทึกเป็นศูนย์โดยอัตโนมัติ</p>
-          <input id="recycling-opening-cash" type="number" min="0" step=".01" inputMode="decimal"
-            autoFocus disabled={busy} value={openingCash} onChange={event=>setOpeningCash(event.target.value)}
-            placeholder="ระบุยอดเงินสดตั้งต้นตามจริง"
-            className="mt-2 min-h-11 w-full rounded-xl border border-slate-300 px-3 py-3 text-sm disabled:opacity-50"/>
         </form>}
         {modalKind==="close"&&!lookupFailed&&shift&&<form id="recycling-close-shift-form" className="mt-4"
           onSubmit={event=>{event.preventDefault();void closeShift();}}>
           <label htmlFor="recycling-closing-cash" className="block text-sm font-semibold text-slate-800">
-            เงินสดที่ตรวจนับจริง (บาท)
+            เงินสดคงเหลือที่ตรวจนับจริง (บาท)
           </label>
-          <p className="mt-1 text-xs text-slate-500">กรอกยอดที่นับจริง ไม่รวมเงินโอนหรือยอดเครดิต</p>
+          <p className="mt-1 text-xs text-slate-500">นับเงินสดในกองทุนรับซื้อหลังจ่ายผู้ขายวัสดุแล้ว ไม่รวมเงินฝากธนาคาร เงินโอน หรือยอดลูกหนี้โรงงาน</p>
           <input id="recycling-closing-cash" type="number" required min="0" step=".01" inputMode="decimal"
             autoFocus disabled={busy} value={closingCash} onChange={event=>setClosingCash(event.target.value)}
             placeholder="กรอกยอดเงินสดจริงก่อนปิดกะ"
@@ -405,12 +526,12 @@ export function RecyclingShiftControl({branchName}: {branchName:string}) {
           </button>}
           {modalKind==="open"&&<button type="submit" form="recycling-open-shift-form" disabled={busy||loading||lookupFailed||hasShift}
             className="min-h-10 rounded-xl bg-blue-600 px-4 py-2 text-sm font-bold text-white disabled:opacity-50">
-            {busy?"กำลังเปิดกะ...":"ยืนยันเปิดกะ"}
+            {busy?"กำลังเปิดกะ...":"ยืนยันทุนเงินสดและเปิดกะ"}
           </button>}
           {modalKind==="close"&&<button type="submit" form="recycling-close-shift-form"
             disabled={busy||loading||lookupFailed||!hasShift||needsJoin}
             className="min-h-10 rounded-xl bg-slate-900 px-4 py-2 text-sm font-bold text-white disabled:opacity-50">
-            {busy?"กำลังปิดกะ...":"ยืนยันปิดกะและพิมพ์ใบสรุป"}
+            {busy?"กำลังปิดกะ...":"ยืนยันตรวจนับ · ปิดกะและพิมพ์สรุป"}
           </button>}
           {modalKind==="active"&&needsJoin&&shift&&<button type="button" disabled={busy||loading||lookupFailed}
             onClick={()=>void joinShift()}
