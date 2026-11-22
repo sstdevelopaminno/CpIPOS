@@ -56,7 +56,13 @@ export async function GET() {
     const isJoined = row !== null && scope.session.shift_id === row.id;
     const response = NextResponse.json({
       data: {
-        shift: row ? { id: row.id, status: row.status, opened_at: row.opened_at, opening_cash: row.opening_cash } : null,
+        shift: row ? {
+          id:row.id,status:row.status,opened_at:row.opened_at,opening_cash:row.opening_cash,
+          fund_source:typeof (row.metadata as Record<string,unknown>|null)?.recycling_fund_source==="string"
+            ? String((row.metadata as Record<string,unknown>).recycling_fund_source):null,
+          fund_reference:typeof (row.metadata as Record<string,unknown>|null)?.recycling_fund_reference==="string"
+            ? String((row.metadata as Record<string,unknown>).recycling_fund_reference):null
+        }:null,
         session_shift_id: scope.session.shift_id,
         needs_join: Boolean(row && !isJoined),
         message: row ? (isJoined ? "กะ Recycling เปิดแล้ว" : "กะเปิดแล้ว แต่ผู้ใช้งานนี้ยังไม่ได้เข้าร่วมกะ")
