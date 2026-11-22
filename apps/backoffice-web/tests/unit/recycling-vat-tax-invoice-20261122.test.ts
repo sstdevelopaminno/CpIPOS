@@ -7,9 +7,9 @@ import {
 } from "@/lib/recycling-tax-invoice";
 
 const read=(path:string)=>readFileSync(resolve(process.cwd(),path),"utf8");
-const vatSchema=read("../../supabase/migrations/20261122100000_recycling_vat_schema_v1.sql");
-const vatPosting=read("../../supabase/migrations/20261122100100_recycling_vat_posting_finance_v1.sql");
-const vatIssue=read("../../supabase/migrations/20261122100200_recycling_tax_invoice_issue_v1.sql");
+const vatSchema=read("../../supabase/migrations/20261122103100_recycling_vat_schema_v1.sql");
+const vatPosting=read("../../supabase/migrations/20261122103126_recycling_vat_posting_finance_v1.sql");
+const vatIssue=read("../../supabase/migrations/20261122103138_recycling_tax_invoice_issue_v1.sql");
 const postApi=read("src/app/api/pos/recycling/transactions/route.ts");
 const invoiceApi=read("src/app/api/pos/recycling/tax-invoices/route.ts");
 const invoicePreview=read("src/app/api/pos/recycling/tax-invoices/[id]/preview/route.ts");
