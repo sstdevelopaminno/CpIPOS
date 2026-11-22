@@ -95,7 +95,7 @@ export async function RecyclingSalesListPageContent({scope,search={}}:{
   const quick=(period:"day"|"month"|"year",name:string)=>
     <Link href={href({period,date:today,page:"1"})}
       aria-current={report.period===period?"page":undefined}
-      className={"inline-flex min-h-10 items-center rounded-lg border px-3 text-xs font-bold "+
+      className={"inline-flex min-h-9 items-center rounded-md border px-2.5 text-xs font-bold "+
         (report.period===period?"border-orange-500 bg-orange-500 text-white":"border-slate-300 bg-white text-slate-700 hover:bg-slate-50")}>
       {name}
     </Link>;
@@ -105,10 +105,10 @@ export async function RecyclingSalesListPageContent({scope,search={}}:{
     total_minor:Number(t.total_minor),status:t.status,
     branch_name:branchNames.get(t.branch_id)??"—"
   }));
-  return <main className="recycling-sales-list-layout flex min-h-full w-full min-w-0 flex-col bg-slate-50 p-3 text-slate-900 md:p-4"
+  return <main className="recycling-sales-list-layout flex h-full min-h-0 w-full min-w-0 flex-col bg-white text-slate-900"
     data-testid="recycling-sales-list">
-    <section className="flex min-h-[calc(100dvh-7rem)] min-w-0 flex-1 flex-col rounded-xl border border-slate-200 bg-white p-3 shadow-sm md:p-4">
-      <header className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-gradient-to-r from-slate-50 to-orange-50 px-3 py-4 md:px-4">
+    <section className="flex h-full min-h-0 min-w-0 flex-1 flex-col bg-white">
+      <header className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-slate-200 bg-gradient-to-r from-slate-50 to-orange-50 px-3 py-2 md:px-4">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <h1 className="text-lg font-extrabold text-slate-900">รายการซื้อ–ขายวัสดุรีไซเคิล</h1>
@@ -116,15 +116,30 @@ export async function RecyclingSalesListPageContent({scope,search={}}:{
           </div>
           <p className="mt-1 text-xs text-slate-600">ทะเบียนรับซื้อเข้าร้านและขายออก · บันทึกจริงแยกจากบิลขาย POS หลัก</p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          {quick("day","วันนี้")}
-          {quick("month","รายเดือน")}
-          {quick("year","รายปี")}
+        <div className="flex min-w-0 flex-wrap items-center justify-start gap-x-2 gap-y-2 lg:justify-end">
+          <nav aria-label="ประเภทเอกสาร Recycling"
+            data-testid="recycling-sales-list-direction-tabs"
+            className="flex min-w-0 flex-wrap items-center gap-1.5 lg:mr-1 lg:border-r lg:border-slate-200 lg:pr-3">
+            {([
+              ["all","ทั้งหมด",countAll],["buy","รับซื้อเข้าร้าน",countBuy],["sell","ขายออก",countSell]
+            ] as const).map(([key,label,count])=>
+              <Link key={key} href={href({direction:key,page:"1"})} aria-current={direction===key?"page":undefined}
+                className={"inline-flex min-h-9 items-center gap-1.5 whitespace-nowrap rounded-md border px-2.5 text-xs font-bold "+
+                  (direction===key?"border-blue-700 bg-blue-700 text-white":"border-slate-300 bg-white text-slate-700 hover:bg-slate-50")}>
+                {label}<span className={"rounded px-1.5 py-0.5 tabular-nums "+
+                  (direction===key?"bg-white/20 text-white":"bg-slate-100 text-slate-600")}>{count}</span>
+              </Link>)}
+          </nav>
+          <div className="flex flex-wrap items-center gap-1.5" aria-label="ช่วงเวลารายการซื้อ–ขาย">
+            {quick("day","วันนี้")}
+            {quick("month","รายเดือน")}
+            {quick("year","รายปี")}
+          </div>
           <RecyclingSalesListExport rows={exportRows} from={report.from} to={report.to}/>
         </div>
       </header>
 
-      <div className="mt-3 grid grid-cols-2 gap-2 lg:grid-cols-4" data-testid="recycling-sales-list-metrics">
+      <div className="mx-3 mt-3 grid grid-cols-2 gap-2 lg:grid-cols-4 md:mx-4" data-testid="recycling-sales-list-metrics">
         <div className="rounded-xl border border-blue-200 bg-blue-50/70 p-3">
           <p className="text-xs font-semibold text-blue-800">รับซื้อเข้าร้าน</p>
           <div className="mt-1 text-xl font-black tabular-nums text-blue-950">{money(total.buyMinor)} <span className="text-xs font-semibold">บาท</span></div>
@@ -147,21 +162,7 @@ export async function RecyclingSalesListPageContent({scope,search={}}:{
         </div>
       </div>
 
-      <nav aria-label="ประเภทเอกสาร Recycling" className="mt-4 flex flex-wrap items-center gap-2 border-b border-slate-200 pb-3"
-        data-testid="recycling-sales-list-direction-tabs">
-        {([
-          ["all","ทั้งหมด",countAll],["buy","รับซื้อเข้าร้าน",countBuy],["sell","ขายออก",countSell]
-        ] as const).map(([key,label,count])=>
-          <Link key={key} href={href({direction:key,page:"1"})} aria-current={direction===key?"page":undefined}
-            className={"inline-flex min-h-10 items-center gap-2 rounded-lg border px-3 text-xs font-bold "+
-              (direction===key?"border-blue-700 bg-blue-700 text-white":"border-slate-300 bg-white text-slate-700 hover:bg-slate-50")}>
-            {label}<span className={"rounded-md px-2 py-0.5 tabular-nums "+
-              (direction===key?"bg-white/20 text-white":"bg-slate-100 text-slate-600")}>{count}</span>
-          </Link>)}
-        <span className="ml-auto text-xs text-slate-500">ยกเลิก {total.voidCount} บิล (ไม่รวมยอดเงิน)</span>
-      </nav>
-
-      <form method="GET" action={BASE} className="mt-3 grid grid-cols-2 items-end gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 md:grid-cols-4 xl:grid-cols-8"
+      <form method="GET" action={BASE} className="mx-3 mt-3 grid grid-cols-2 items-end gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 md:mx-4 md:grid-cols-4 xl:grid-cols-8"
         aria-label="ค้นหาและคัดกรองเอกสารรับซื้อขายออก" data-testid="recycling-sales-list-filters">
         <input type="hidden" name="direction" value={direction}/>
         <label className="col-span-2 min-w-0 text-xs font-semibold text-slate-700 md:col-span-2">
@@ -204,7 +205,7 @@ export async function RecyclingSalesListPageContent({scope,search={}}:{
         </div>
       </form>
 
-      <div className="mt-3 min-h-[300px] min-w-0 flex-1 overflow-x-auto rounded-xl border border-slate-200">
+      <div className="mx-3 mt-3 min-h-[300px] min-w-0 flex-1 overflow-x-auto rounded-lg border border-slate-200 md:mx-4">
         <table className="w-full min-w-[1150px] border-collapse text-left text-xs" data-testid="recycling-sales-list-table">
           <thead className="sticky top-0 bg-slate-100 text-slate-700">
             <tr>
@@ -259,17 +260,17 @@ export async function RecyclingSalesListPageContent({scope,search={}}:{
         </table>
       </div>
 
-      <footer className="mt-3 flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-3">
+      <footer className="mx-3 mt-3 flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-3 md:mx-4">
         <p className="text-xs text-slate-500">
           พบ {filtered.length.toLocaleString("th-TH")} รายการ · หน้า {page}/{pages} ·
-          ยอดที่ยกเลิกไม่ถูกนับเป็นยอดรับ–จ่ายจริง
+          ยกเลิก {total.voidCount} บิล (ไม่รวมยอดรับ–จ่ายจริง)
         </p>
         <div className="flex flex-wrap gap-2">
           {page>1&&<Link className={button} href={href({page:String(page-1)})}>ก่อนหน้า</Link>}
           {page<pages&&<Link className={button} href={href({page:String(page+1)})}>ถัดไป</Link>}
         </div>
       </footer>
-      <p className="mt-2 text-[11px] leading-5 text-slate-500">
+      <p className="mx-3 mb-3 mt-2 text-[11px] leading-5 text-slate-500 md:mx-4">
         ระบบใช้ข้อมูลธุรกรรม Recycling ที่บันทึกแล้วเท่านั้น · ช่องทางเงินโอนเป็นประเภทตามบิล
         ไม่ถือเป็นหลักฐานธนาคารยืนยันการโอน · รายการนี้ไม่ใช่ทะเบียนบัญชีแยกประเภทหรือใบกำกับภาษี
       </p>

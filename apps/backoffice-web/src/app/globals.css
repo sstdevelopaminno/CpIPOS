@@ -10420,3 +10420,23 @@ body:has(.pos-app-root) {
     min-height: 350px;
   }
 }
+
+
+/* CUSTOM Recycling sales-list only: native, full-width app surface.
+   Do not alter the ordinary POS sales list or other package layouts. */
+.pos-app-content-area:has(> .recycling-sales-list-layout) {
+  justify-content: stretch;
+  padding: 0 !important;
+  overflow: hidden;
+}
+.pos-app-content-area:has(> .recycling-sales-list-layout) > .recycling-sales-list-layout {
+  width: 100%;
+  max-width: none;
+  min-width: 0;
+  min-height: 0;
+}
+.recycling-sales-list-layout {
+  overscroll-behavior: contain;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
