@@ -7,6 +7,8 @@ import { resolvePrinterRoutes } from "@/lib/printing/printer-routing-service";
 import { loadReceiptStoreProfile } from "@/lib/services/store-profile-service";
 import { renderReceiptHtml } from "@/lib/printing/receipt-html-template";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
+import { loadTaxSettings } from "@/lib/services/pos-settings-service";
+import { recyclingReceiptTaxNotice } from "@/lib/printing/recycling-tax-receipt-note";
 
 type MaterialLine = {
   line_no: number;
@@ -42,6 +44,7 @@ export function renderRecyclingSharedReceipt(args: {
   storeAddress?: string | null;
   storePhone?: string | null;
   logoUrl?: string | null;
+  taxNotice?: string;
 }) {
   const isBuy = args.direction === "buy";
   const isCredit = args.settlement === "credit";
@@ -81,7 +84,7 @@ export function renderRecyclingSharedReceipt(args: {
     paymentMethod:args.settlement,
     // A Recycling purchase is a cash payout, not cash received/change.
     hideCashTenderBreakdown:isBuy,
-    documentNotice:"เอกสารซื้อขายทั่วไป ไม่ใช่ใบกำกับภาษี",
+    documentNotice:args.taxNotice??"เอกสารซื้อขายทั่วไป ไม่ใช่ใบกำกับภาษี",
     voidWarning:args.status === "voided"
       ? `เอกสารยกเลิก VOID — ไม่ใช้ยืนยันธุรกรรมที่ยังมีผล (${args.voidReason ?? "ยกเลิก"})` : null,
     // Credit records document the receivable/payable, not an actual cash movement.
@@ -120,7 +123,11 @@ export async function queueRoutedRecyclingReceipt(args: {
   if (totalLines!==Number(tx.data.total_minor)) throw new Error("recycling_receipt_total_mismatch");
   if (tenant.error || branch.error) throw new Error("recycling_receipt_shop_unavailable");
 
-  const storeProfile = await loadReceiptStoreProfile(args.auth.tenantId);
+  const [storeProfile,taxSettings]=await Promise.all([
+    loadReceiptStoreProfile(args.auth.tenantId),
+    loadTaxSettings(args.auth).catch(()=>null)
+  ]);
+  const taxNotice=recyclingReceiptTaxNotice(taxSettings);
   const shop = tenant.data?.display_name || tenant.data?.name ||
     storeProfile?.display_name || storeProfile?.name || "ร้านวัสดุรีไซเคิล";
   const branchName = branch.data?.name ?? "สาขา";
@@ -144,7 +151,8 @@ export async function queueRoutedRecyclingReceipt(args: {
         totalMinor:Number(tx.data.total_minor),lines:lines.data as MaterialLine[],
         storeAddress:storeProfile?.company_address??null,
         storePhone:storeProfile?.contact_phone??null,
-        logoUrl:storeProfile?.logo_url??null
+        logoUrl:storeProfile?.logo_url??null,
+        taxNotice
       });
       const textReceipt = [shop,branchName,tx.data.receipt_no,date,
         ...(tx.data.status==="voided"
@@ -155,7 +163,7 @@ export async function queueRoutedRecyclingReceipt(args: {
           : tx.data.settlement==="cash" ? "วิธีชำระเงิน: เงินสด" : "วิธีชำระเงิน: โอนเงิน (ตรวจสอบหลักฐาน)",
         ...lines.data.map(l=>`${l.name_snapshot} ${l.original_quantity} ${unitNames[l.original_unit]??l.original_unit} ${thaiMoney(Number(l.amount_minor))}`),
         `รวม ${thaiMoney(Number(tx.data.total_minor))} บาท`,
-        "เอกสารซื้อขายทั่วไป ไม่ใช่ใบกำกับภาษี"].join("\n");
+        taxNotice].join("\n");
       const requestKey=`rcy:${args.transactionId}:${args.requestId}:${route.printer.id}:${copy}`.slice(0,180);
       const existingJob=async () => {
         const result=await db.from("print_jobs")
