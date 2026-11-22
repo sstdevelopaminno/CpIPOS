@@ -20,7 +20,9 @@ export async function RecyclingTaxInvoiceRegister({scope,search}:{
 }){
  let report:Awaited<ReturnType<typeof loadRecyclingHistoryReport>>;
  try{
-  report=await loadRecyclingHistoryReport(scope,"receipts",{...search,direction:"sell"});
+  // The material-name/SKU query also searches stored transaction line snapshots.
+  // Default to the current month, not a single day, for easier historical lookup.
+  report=await loadRecyclingHistoryReport(scope,"receipts",{...search,period:search?.period??"month",direction:"sell",include_material_search:true});
  }catch(error){
   return <main className="recycling-tax-register-layout h-full w-full min-w-0 bg-white p-4" role="alert">
    ไม่สามารถอ่านทะเบียนขายออก Recycling ได้ ({error instanceof Error?error.message:"report_unavailable"})
@@ -44,6 +46,7 @@ export async function RecyclingTaxInvoiceRegister({scope,search}:{
      <Link href="/preview/pos/sales-summary" className={button}>สรุปซื้อ–ขาย</Link>
      <Link href="/preview/pos/receipts" className={button}>ใบเสร็จย้อนหลัง</Link>
      <Link href="/preview/pos/product-sales" className={button}>รายการวัสดุขายออก</Link>
+     <Link href="/preview/pos/tax-invoices?view=profiles" className={button}>ทะเบียนผู้ซื้อ / ข้อมูลผู้ออกเอกสาร</Link>
     </nav>
    </header>
 
@@ -76,14 +79,14 @@ export async function RecyclingTaxInvoiceRegister({scope,search}:{
       <option value="voided">VOID</option>
      </select>
     </label>
-    <label className="text-xs font-semibold">เลขเอกสาร / ผู้รับซื้อ
+    <label className="text-xs font-semibold">เลขบิล / คู่ค้า / ชื่อวัสดุ / SKU
      <input name="q" defaultValue={report.q} maxLength={80}
       className="mt-1 block h-10 w-40 rounded-md border border-slate-300 bg-white px-2 text-sm"/>
     </label>
     <button type="submit" className="min-h-10 rounded-md bg-blue-700 px-4 text-xs font-bold text-white">ค้นหา</button>
    </form>
    <p className="mx-3 mt-2 text-xs text-slate-600 md:mx-4">
-    ช่วง {report.from} ถึง {report.to} · แสดงเฉพาะขายออก · ไม่แปลงบิลรับซื้อเป็นใบกำกับภาษี
+    ช่วง {report.from} ถึง {report.to} · ค้นหาเฉพาะรายการขายออก (รวมชื่อวัสดุและ SKU) · บิลรับซื้อไม่ใช่บิลขายออก
    </p>
    <div className="mx-3 mt-3 min-h-[300px] min-w-0 flex-1 overflow-x-auto rounded-md border border-slate-200 md:mx-4">
     <table className="w-full min-w-[940px] text-xs">

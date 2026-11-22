@@ -13,6 +13,9 @@ const receiptsRoute=read("src/app/preview/pos/receipts/page.tsx");
 const productsRoute=read("src/app/preview/pos/product-sales/page.tsx");
 const summaryRoute=read("src/app/preview/pos/sales-summary/page.tsx");
 const taxApi=read("src/app/api/pos/tax-invoices/route.ts");
+const cashier=read("src/components/pos/recycling-pos-workspace.tsx");
+const profileRegistry=read("src/components/pos-preview/pos-tax-invoice-workspace.tsx");
+const receiptPreviewApi=read("src/app/api/pos/recycling/receipts/[id]/preview/route.ts");
 const css=read("src/app/globals.css");
 
 describe("CUSTOM Recycling more-menu pages 58/80 printing and UI isolation",()=>{
@@ -47,6 +50,9 @@ describe("CUSTOM Recycling more-menu pages 58/80 printing and UI isolation",()=>
   expect(receiptAction).toContain('onClick={()=>setOpen(true)}');
   expect(receiptAction).toContain('<RecyclingReceiptDialog open={open}');
   expect(receiptModal).toContain('data-testid="recycling-print-a5"');
+  expect(receiptModal).toContain('data-testid="recycling-print-a4"');
+  expect(receiptPreviewApi).toContain('"a4"');
+  expect(receiptPreviewApi).toContain('@page { size: ${paper==="a4"?"A4":"A5"} portrait;');
   expect(receiptModal).toContain('RecyclingPrintReceiptButton');
   expect(receiptModal).toContain('["80","80 มม."]');
   expect(receiptModal).toContain('["58","58 มม."]');
@@ -65,7 +71,11 @@ describe("CUSTOM Recycling more-menu pages 58/80 printing and UI isolation",()=>
   expect(taxRoute).toContain('isAuthorizedRecyclingTenant(posMenuScope.session.tenant_id)');
   expect(taxRoute).toContain('<RecyclingTaxInvoiceRegister scope={posMenuScope}');
   expect(taxRoute).toContain('<PosTaxInvoiceWorkspace');
-  expect(tax).toContain('loadRecyclingHistoryReport(scope,"receipts",{...search,direction:"sell"})');
+  expect(tax).toContain('loadRecyclingHistoryReport(scope,"receipts",{...search,period:search?.period??"month",direction:"sell",include_material_search:true})');
+  expect(taxRoute).toContain('registryOnly');
+  expect(profileRegistry).toContain('registryOnly');
+  expect(tax).toContain('ชื่อวัสดุ / SKU');
+  expect(tax).toContain('view=profiles');
    // The yellow warning panel is removed; transaction-level status remains visible.
    expect(tax).not.toContain('เงื่อนไขก่อนออกใบกำกับภาษี');
    expect(tax).not.toContain('border-amber-200 bg-amber-50 px-4 py-3');
@@ -80,5 +90,8 @@ describe("CUSTOM Recycling more-menu pages 58/80 printing and UI isolation",()=>
   expect(tax).not.toContain('.update(');
   expect(taxApi).toContain('.from("orders")');
   expect(taxApi).not.toContain('.from("recycling_transactions")');
+  expect(cashier).not.toContain('บันทึกรายการสำเร็จ หมายเลขอ้างอิง');
+  expect(cashier).toContain('setReceiptDialogOpen(true);');
+  expect(cashier).toContain('autoPrintNotice={printNotice}');
  });
 });

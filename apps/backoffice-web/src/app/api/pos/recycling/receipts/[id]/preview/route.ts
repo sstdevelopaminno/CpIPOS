@@ -35,7 +35,7 @@ export async function GET(request:Request,{params}:{params:Promise<{id:string}>}
     if(process.env.RECYCLING_STOCK_SCHEMA_READY!=="1")return fail(503,"ระบบใบรับซื้อยังไม่พร้อม");
     const query=new URL(request.url).searchParams;
     const paper=query.get("paper")??"auto";
-    if(!["auto","58","80","a5"].includes(paper))return fail(422,"ขนาดกระดาษไม่ถูกต้อง");
+    if(!["auto","58","80","a4","a5"].includes(paper))return fail(422,"ขนาดกระดาษไม่ถูกต้อง");
     const db=getSupabaseServiceClient();
     const {tenant_id:tenantId,branch_id:branchId,device_code:deviceCode,role}=scope.session;
     const auth:AuthContext={tenantId,branchId,userId:scope.session.user_id,
@@ -83,11 +83,11 @@ export async function GET(request:Request,{params}:{params:Promise<{id:string}>}
       logoUrl:profile?.logo_url??null,
       taxNotice:recyclingReceiptTaxNotice(taxSettings)
     });
-    // A5 uses the same stored receipt data and item rows, while the browser
-    // printer driver selects an A4/A5-capable device. Never force silent USB
+    // A4/A5 use the same stored receipt data and item rows, while the browser
+    // printer driver selects a sheet printer. Never force silent USB
     // printing from Vercel or mislabel this document as a tax invoice.
-    const a5Css=`<style id="recycling-a5-paper">
-      @page { size: A5 portrait; margin: 10mm; }
+    const pageCss=`<style id="recycling-sheet-paper">
+      @page { size: ${paper==="a4"?"A4":"A5"} portrait; margin: 10mm; }
       html,body { width: auto !important; min-width:0; margin:0; background:white; }
       .receipt { margin:0 !important; padding:0 !important; width:100% !important; max-width:none !important;
         font-size:13px !important; line-height:1.45; }
@@ -95,10 +95,10 @@ export async function GET(request:Request,{params}:{params:Promise<{id:string}>}
       .logo-wrap img {max-width:35mm;max-height:22mm;}
       .col-qty {width:27mm !important;} .col-total {width:35mm !important;}
       .foot {margin-top:5mm;}
-      @media screen {body{max-width:160mm;padding:8mm;margin:auto;box-shadow:0 0 0 1px #e2e8f0;}}
+      @media screen {body{max-width:${paper==="a4"?"190mm":"160mm"};padding:8mm;margin:auto;box-shadow:0 0 0 1px #e2e8f0;}}
       @media print {table tr, .summary-line {break-inside:avoid;}}
     </style>`;
-    return new Response(paper==="a5"?html.replace("</head>",a5Css+"</head>"):html,{
+    return new Response(paper==="a5"||paper==="a4"?html.replace("</head>",pageCss+"</head>"):html,{
       status:200,headers:{"Content-Type":"text/html; charset=utf-8",...headers}
     });
   }catch(error){

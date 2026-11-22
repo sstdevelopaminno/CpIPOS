@@ -7,7 +7,7 @@ import type { RecyclingReportQuery } from "@/lib/server/recycling-history-report
 import { getCurrentLanguage } from "@/lib/i18n";
 import { requirePermission, requirePosSession } from "@/lib/pos-session-guard";
 
-export default async function PosTaxInvoicesPage({searchParams}:{searchParams?:Promise<RecyclingReportQuery>}) {
+export default async function PosTaxInvoicesPage({searchParams}:{searchParams?:Promise<RecyclingReportQuery & {view?:string}>}) {
   const posMenuScope = await requirePosSession();
   await assertPosMenuPageAllowed(posMenuScope.session.tenant_id, "/preview/pos/tax-invoices");
   requirePermission(posMenuScope, "receipts:view");
@@ -15,7 +15,20 @@ export default async function PosTaxInvoicesPage({searchParams}:{searchParams?:P
   // Standard POS tax issuance still exists for non-Recycling packages,
   // but its orders-based API must not issue for recycling_transactions.
   if(await isAuthorizedRecyclingTenant(posMenuScope.session.tenant_id)){
-    return <RecyclingTaxInvoiceRegister scope={posMenuScope} search={await searchParams}/>;
+    const query=await searchParams;
+    // The existing buyer and seller registry may be used to prepare verified
+    // parties, but Recycling must never invoke the orders-based invoice issue path.
+    if(query?.view==="profiles"){
+      const lang=await getCurrentLanguage();
+      const role=String(posMenuScope.session.role??"staff").toLowerCase();
+      return <div className="recycling-tax-register-layout flex h-full min-h-0 w-full min-w-0 flex-col overflow-y-auto bg-white">
+        <nav className="flex flex-wrap gap-2 border-b border-slate-200 px-4 py-3">
+          <Link href="/preview/pos/tax-invoices" className="inline-flex min-h-10 items-center rounded-md border border-slate-300 px-4 py-2 text-sm font-bold">← กลับรายการขายออก</Link>
+        </nav>
+        <div className="min-h-0 flex-1"><PosTaxInvoiceWorkspace lang={lang} role={role} registryOnly /></div>
+      </div>;
+    }
+    return <RecyclingTaxInvoiceRegister scope={posMenuScope} search={query}/>;
   }
   const scope = posMenuScope;
   const lang = await getCurrentLanguage();

@@ -5,7 +5,7 @@ import { getRecyclingStockBranches } from "@/lib/server/recycling-stock-branch-s
 import { sumRecyclingReportMoney } from "@/lib/recycling-report-calculation";
 
 export type RecyclingReportKind = "summary" | "receipts" | "products";
-export type RecyclingReportQuery = {report_mode?:string;period?:string;date?:string;from?:string;to?:string;branch?:string;direction?:string;status?:string;q?:string;page?:string};
+export type RecyclingReportQuery = {report_mode?:string;period?:string;date?:string;from?:string;to?:string;branch?:string;direction?:string;status?:string;q?:string;page?:string;include_material_search?:boolean};
 export type RecyclingTransaction = {
  id:string; receipt_no:string; direction:"buy"|"sell"; settlement:"cash"|"bank_transfer"|"credit";
  total_minor:number; cogs_minor:number; status:"posted"|"voided"; branch_id:string;
@@ -66,15 +66,19 @@ export async function loadRecyclingHistoryReport(scope:PosSessionScope,kind:Recy
  const direction=["buy","sell"].includes(query.direction??"")?query.direction!:"all";
  const status=["posted","voided"].includes(query.status??"")?query.status!:"all";
  const q=(query.q??"").trim().slice(0,80).toLocaleLowerCase();
+ // Material lookup is opt-in outside product reports. Avoid fetching every
+ // line snapshot when a receipt/tax register first loads without a query.
+ const searchMaterialSnapshots=kind==="products"||(query.include_material_search===true&&Boolean(q));
  let matching=transactions.filter(t=>(kind!=="products"||t.direction==="sell")
    &&(direction==="all"||t.direction===direction)&&(status==="all"||t.status===status)
-   &&(kind==="products"||!q||[t.receipt_no,t.counterparty_name??""].some(x=>x.toLocaleLowerCase().includes(q))));
+   &&(searchMaterialSnapshots||!q||[t.receipt_no,t.counterparty_name??""].some(x=>x.toLocaleLowerCase().includes(q))));
  const pageRequested=Number(query.page??"1");
  const page=Number.isSafeInteger(pageRequested)?Math.max(1,Math.min(pageRequested,500)):1;
  const size=20;
  const lines:RecyclingLine[]=[];
- if(kind==="products"){
-  // Product list uses immutable material snapshots; purchases are never counted as sales.
+ if(searchMaterialSnapshots){
+  // Product reports and opt-in tax register search use immutable material snapshots.
+  // Direction filtering already forbids purchase records in the tax register.
   for(let i=0;i<matching.length;i+=65){
    const batch=matching.slice(i,i+65).map(t=>t.id);
    if(!batch.length)continue;
