@@ -25,7 +25,7 @@ const example:RecyclingInvoiceSnapshot={
     address:"1 Example Road",branch_no:"00000"
   },
   buyer_snapshot:{
-    display_name:"Synthetic VAT buyer",tax_id:"0105555555555",
+    display_name:"Synthetic VAT buyer",tax_id:"0105555555555",branch_no:"00000",
     address_line:"2 Example Road",subdistrict:"Example",district:"District",
     province:"Province",postal_code:"10000"
   },
@@ -92,6 +92,7 @@ describe("Recycling genuine VAT invoice (isolated UAT contract)",()=>{
     expect(vatIssue).toContain("v_existing.profile_id<>p_profile_id");
     expect(vatIssue).toContain("recycling_tax_invoice_already_issued_to_other_buyer");
     expect(vatIssue).toContain("recycling_tax_issuer_role_denied");
+    expect(vatIssue).toContain("recycling_tax_buyer_branch_required");
     expect(vatIssue).toContain("v_no:='RTI-'||lpad(v_seq::text,6,'0')");
     expect(vatSchema).toContain("recycling_tax_invoice_requires_credit_note_before_void");
   });
