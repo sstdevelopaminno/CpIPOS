@@ -45,6 +45,7 @@ describe("Recycling working capital cash reconciliation",()=>{
    expect(open).toContain('recycling_fund_source:fundSource');
    expect(open).toContain('recycling_fund_reference:fundReference||null');
    expect(open).toContain('reference_only_pending_accounting_reconciliation');
+   expect(open).toContain('if(recyclingRequested){');
    expect(open).toContain('body?.cash_count_confirmed!==true');
    expect(current).toContain('fund_source:typeof');
  });
