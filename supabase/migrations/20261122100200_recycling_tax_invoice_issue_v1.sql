@@ -16,7 +16,10 @@ declare
  v_no text;
  v_sale_date date;
 begin
- if p_buyer_branch_no is null or p_buyer_branch_no !~ '^[0-9]{5}(select 1 from public.user_branch_roles where
+ if p_buyer_branch_no is null or p_buyer_branch_no !~ '^[0-9]{5}$' then
+   raise exception 'recycling_tax_buyer_branch_required';
+ end if;
+ if not exists(select 1 from public.user_branch_roles where
    tenant_id=p_tenant_id and branch_id=p_branch_id and user_id=p_issued_by
    and role::text in ('owner','manager')) then
    raise exception 'recycling_tax_issuer_role_denied';
