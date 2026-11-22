@@ -6,7 +6,7 @@ const root=resolve(process.cwd(),"../..");
 const readWeb=(p:string)=>readFileSync(resolve(process.cwd(),p),"utf8");
 const readRepo=(p:string)=>readFileSync(resolve(root,p),"utf8");
 
-const migration=readRepo("supabase/migrations/20261122124500_recycling_tenant_receipt_sequence.sql");
+const migration=readRepo("supabase/migrations/20261122054149_recycling_tenant_receipt_sequence_20261122.sql");
 const cashier=readWeb("src/components/pos/recycling-pos-workspace.tsx");
 const currentRoute=readWeb("src/app/api/pos/recycling/shifts/current/route.ts");
 const postRoute=readWeb("src/app/api/pos/recycling/transactions/route.ts");
