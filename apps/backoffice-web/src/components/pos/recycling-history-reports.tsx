@@ -5,7 +5,7 @@ import Link from "next/link";
 import type { PosSessionScope } from "@/lib/pos-session-guard";
 import { loadRecyclingHistoryReport, type RecyclingReportKind, type RecyclingReportQuery } from "@/lib/server/recycling-history-reports";
 
-const titles:Record<RecyclingReportKind,string>={summary:"สรุปยอดขาย",receipts:"ใบเสร็จย้อนหลัง",products:"รายการขายสินค้า"};
+const titles:Record<RecyclingReportKind,string>={summary:"สรุปยอดรับซื้อ–ขายออก",receipts:"ใบเสร็จย้อนหลัง",products:"รายการขายสินค้า"};
 const unitNames:Record<string,string>={kg:"กก.",khid:"ขีด",g:"กรัม",ton:"ตัน",piece:"ชิ้น",stem:"ต้น"};
 const btn="inline-flex min-h-10 items-center justify-center rounded-lg border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50";
 const minor=(value:number)=>new Intl.NumberFormat("th-TH",{minimumFractionDigits:2,maximumFractionDigits:2}).format(Number(value)/100);
@@ -35,7 +35,7 @@ export async function RecyclingHistoryReports({scope,kind,search}:{
  return <main className={kind==="summary"?"recycling-summary-layout flex h-full min-h-0 w-full min-w-0 flex-col overflow-y-auto bg-white text-slate-900":"mx-auto w-full max-w-[1450px] p-3 text-slate-900 md:p-5"} data-testid={"recycling-history-"+kind}>
   <section className={kind==="summary"?"flex min-h-0 w-full flex-1 flex-col bg-white":"rounded-2xl border border-slate-200 bg-white p-4 shadow-sm md:p-5"}>
    <header className={kind==="summary"?"flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 bg-slate-50 px-3 py-2 md:px-4":"flex flex-wrap items-start justify-between gap-3 border-b border-slate-200 pb-4"}>
-    <div className={kind==="summary"?"min-w-0":"min-w-0"}><Link href="/preview/pos/more" className={btn}>← กลับเมนูเพิ่มเติม</Link>
+    <div className="min-w-0"><Link href="/preview/pos/more" className={btn}>← กลับเมนูเพิ่มเติม</Link>
       <h1 className={kind==="summary"?"mt-2 text-base font-extrabold":"mt-4 text-xl font-extrabold"}>{titles[kind]} <span className="text-xs font-bold text-blue-700">CUSTOM Recycling</span></h1>
       <p className="mt-1 text-xs text-slate-500">ข้อมูลรับซื้อและขายออกแยกกัน · ไม่รวมกับรายการขายของ POS ทั่วไป</p></div>
     <div className="flex flex-wrap gap-2 print:hidden">
@@ -43,7 +43,7 @@ export async function RecyclingHistoryReports({scope,kind,search}:{
        period:report.period,date:report.date,from:report.from,to:report.to,branch:report.branch,
        direction:report.direction,status:report.status,q:report.q
       }}/>}
-      <Link className={btn} href="/preview/pos/sales-summary">สรุปยอดขาย</Link>
+      <Link className={btn} href="/preview/pos/sales-summary">สรุปซื้อ–ขาย</Link>
       <Link className={btn} href="/preview/pos/receipts">ใบเสร็จย้อนหลัง</Link>
       <Link className={btn} href="/preview/pos/product-sales">รายการขายสินค้า</Link>
       {canUseStandard&&<Link className={btn} href={kind==="summary"?"/preview/pos/sales-summary?report_mode=standard":
