@@ -66,12 +66,14 @@ export async function RecyclingSalesListPageContent({scope,search={}}:{
     const db=getSupabaseServiceClient();
     const ids=visible.map(t=>t.id);
     const lines=await db.from("recycling_transaction_lines")
-      .select("transaction_id,name_snapshot")
+      .select("transaction_id,name_snapshot",{count:"exact"})
       .eq("tenant_id",scope.session.tenant_id)
       .in("branch_id",report.branchOptions.map(x=>x.id))
       .in("transaction_id",ids).limit(2001);
-    // Fail closed: never display a partial count of products under heavy load.
-    if(lines.error||(lines.data??[]).length>2000){
+    // PostgREST can cap returned rows below our requested limit.
+    // Require exact count parity so a silent cap cannot misstate item totals.
+    if(lines.error||lines.count===null||lines.count>2000||
+       lines.count!==(lines.data??[]).length){
       return <section role="alert" className="m-4 rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
         ไม่สามารถอ่านรายละเอียดวัสดุได้ครบ กรุณาลดช่วงวันที่หรือติดต่อฝ่าย IT
       </section>;
