@@ -9,6 +9,7 @@ import { normalizeRecyclingBarcodeInput, physicalRecyclingBarcodeKey } from "@/l
 import { recyclingCashierShortcutFromCode, RECYCLING_SHORTCUT_DELAY_MS, type RecyclingCashierShortcut } from "@/lib/recycling-cashier-shortcuts";
 import { parseRecyclingHeldBills, recyclingHeldKey, type HeldRecyclingBill } from "@/lib/recycling-held-bills";
 import { calculateRecyclingLine, recyclingUnitLabel } from "@/lib/recycling-calculation";
+import { recyclingVatMinor } from "@/lib/recycling-tax-invoice";
 import { formatRecyclingUnitPrice, RECYCLING_PRICE_UNIT_LABELS } from "@/lib/recycling-price-units";
 import type { RecyclingCatalogItem, RecyclingUnit } from "@/lib/server/recycling-pos-service";
 import { RecyclingSalesModeSwitcher } from "@/components/pos/recycling-sales-mode-switcher";
@@ -109,6 +110,11 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
   const [settlement, setSettlement] = useState<"cash" | "bank_transfer">("cash");
   const [posting, setPosting] = useState(false);
   const [postError, setPostError] = useState("");
+  const [vatQuote,setVatQuote]=useState<{
+    configured:boolean;rollout_enabled:boolean;ready:boolean;
+    rate_pct:number;mode:string;reason:string|null;
+  }|null>(null);
+  const [vatQuoteLoading,setVatQuoteLoading]=useState(false);
   const [posted, setPosted] = useState<{ id: string; receipt_no?: string; total_minor: number; printRequestId: string } | null>(null);
   const [receiptDialogOpen,setReceiptDialogOpen]=useState(false);
   const requestIdRef = useRef("");
@@ -223,6 +229,14 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
   const visibleLines = lines.filter(line => line.direction === direction);
   // Sum satang, not floating-point baht: 0.10 + 0.20 must remain 0.30.
   const total = Number(visibleLines.reduce((sum,line)=>sum+BigInt(Math.round(line.total*100)),0n))/100;
+  const baseMinor=Math.round(total*100);
+  const vatApplied=direction==="sell" && vatQuote?.configured===true &&
+    vatQuote.rollout_enabled===true && vatQuote.ready===true && vatQuote.rate_pct===7;
+  const vatPreviewMinor=vatApplied?recyclingVatMinor(baseMinor,7):0;
+  const grossPreviewMinor=baseMinor+vatPreviewMinor;
+  const saleVatReady=direction==="buy" ||
+    (vatQuote!==null&&(!vatQuote.configured||
+      (vatQuote.rollout_enabled&&vatQuote.ready&&vatQuote.rate_pct===7)));
   const categories=useMemo(()=>Array.from(new Set(products.map(item=>item.category)))
     .sort((a,b)=>a.localeCompare(b,"th")), [products]);
   // Sorting 1,000 product cards for every scanner character stalls checkout.
@@ -367,9 +381,27 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
     setLines(current=>current.filter(line=>line.key!==latest.key));
     setHeldNotice("ลบรายการล่าสุดออกจากตะกร้าแล้ว");
   }
+  async function refreshVatQuote(){
+    setVatQuoteLoading(true);setVatQuote(null);
+    try{
+      const response=await fetch("/api/pos/recycling/vat/quote",{
+        credentials:"same-origin",cache:"no-store"
+      });
+      const result=await response.json().catch(()=>null) as {
+        data?:{configured:boolean;rollout_enabled:boolean;ready:boolean;rate_pct:number;mode:string;reason:string|null};
+        error?:{message?:string};
+      }|null;
+      if(!response.ok||!result?.data)throw Error(result?.error?.message??"VAT settings unavailable");
+      setVatQuote(result.data);
+    }catch{
+      setVatQuote(null);
+      setPostError("ยังตรวจสอบ VAT ของสาขาไม่ได้ กรุณาตรวจสอบระบบก่อนยืนยันบิล");
+    }finally{setVatQuoteLoading(false);}
+  }
   function openCheckout(){
     if(!canUseShift||posting||!visibleLines.length)return;
     setCheckoutOpen(true);setSettlement("cash");setPostError("");
+    if(direction==="sell")void refreshVatQuote();
   }
 
   function changeDirection(next: Direction) {
@@ -445,6 +477,9 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
 
   async function postTransaction() {
     if (postingRef.current || posting || !canUseShift || !transactionWritesEnabled || !checkoutOpen || !visibleLines.length) return;
+    if(direction==="sell"&&!saleVatReady){
+      setPostError("ยังตรวจสอบภาษีขายไม่ผ่าน ไม่สามารถบันทึกรับชำระเงินได้");return;
+    }
     if (settlement === "bank_transfer") {
       setPostError("ต้องตรวจหลักฐานธนาคารก่อนจึงจะยืนยันการจ่ายหรือรับเงินโอนได้");
       return;
@@ -494,7 +529,11 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
           recycling_request_key_reused: "พบการส่งบิลด้วยรหัสเดิมแต่รายละเอียดเปลี่ยน กรุณาตรวจสอบใบรับซื้อก่อนทำรายการใหม่",
           recycling_branch_invalid: "สาขาที่กำลังใช้งานไม่พร้อมรับซื้อ–ขายออก",
           recycling_user_not_in_branch: "บัญชีผู้ใช้งานไม่ได้รับสิทธิ์ทำรายการในสาขานี้",
-          recycling_ledger_not_balanced: "การตรวจสอบบัญชีไม่ผ่าน ระบบไม่ได้บันทึกบิล กรุณาติดต่อฝ่ายบัญชีหรือ IT"
+          recycling_ledger_not_balanced: "การตรวจสอบบัญชีไม่ผ่าน ระบบไม่ได้บันทึกบิล กรุณาติดต่อฝ่ายบัญชีหรือ IT",
+          recycling_vat_registration_not_verified:"ร้านยังไม่มีหลักฐานจดทะเบียน VAT ที่ผ่านการยืนยัน ห้ามออกใบกำกับภาษี",
+          recycling_vat_account_not_ready:"ยังไม่ได้ตั้งบัญชีภาษีขาย 2200 ในผังบัญชี",
+          recycling_vat_settings_invalid:"การตั้งค่า VAT ของสาขาไม่ถูกต้อง กรุณาให้ฝ่ายบัญชีตรวจสอบ",
+          recycling_vat_settings_unsupported:"รองรับ VAT 7% แบบบวกเพิ่มในบิลเพียงหนึ่งรายการเท่านั้น"
         };
         setPostError(reasons[code] ?? body?.error?.message ?? "บันทึกไม่สำเร็จ ยังไม่ควรจ่ายหรือรับเงิน");
         return;
@@ -1099,7 +1138,7 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
               event.preventDefault();event.stopPropagation();
               if(settlement==="bank_transfer"){
                 setPostError("ยังไม่สามารถยืนยันเงินโอนโดยไม่มีหลักฐานธนาคารที่ตรวจสอบแล้ว");
-              }else if(canUseShift && transactionWritesEnabled && visibleLines.length && !posting){
+              }else if(canUseShift && transactionWritesEnabled && visibleLines.length && !posting && saleVatReady){
                 event.currentTarget.closest("form")?.requestSubmit();
               }
             }
@@ -1138,7 +1177,7 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
         <div className="mt-5 flex justify-end gap-2">
           <button type="button" disabled={posting} onClick={() => setCheckoutOpen(false)}
             className="rounded-lg border border-slate-300 px-5 py-3 text-sm font-bold text-slate-700 disabled:opacity-50">ย้อนกลับ</button>
-          <button type="submit" disabled={!canUseShift || !transactionWritesEnabled || posting || settlement === "bank_transfer" || !visibleLines.length}
+          <button type="submit" disabled={!canUseShift || !transactionWritesEnabled || posting || settlement === "bank_transfer" || !visibleLines.length || !saleVatReady || vatQuoteLoading}
             className="rounded-lg bg-blue-700 px-5 py-3 text-sm font-extrabold text-white disabled:cursor-not-allowed disabled:opacity-50">
             {posting ? "กำลังบันทึก..." : direction === "buy" ? "ยืนยันจ่ายเงินและออกใบรับซื้อ" : "ยืนยันรับชำระและออกใบเสร็จขายออก"}
           </button>
