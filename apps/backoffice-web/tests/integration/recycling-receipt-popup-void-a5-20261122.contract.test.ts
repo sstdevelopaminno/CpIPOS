@@ -83,7 +83,8 @@ describe("CUSTOM Recycling receipt after atomic purchase/sale",()=>{
     expect(autoPrint).toContain("loadTaxSettings(args.auth)");
     expect(autoPrint).toContain("documentNotice:isTaxRecorded");
     expect(autoPrint).toContain("taxAmount:vat/100");
-    expect(preview).toContain("taxNotice:recyclingReceiptTaxNotice(taxSettings)");
+    expect(preview).toContain('tx.data.tax_state==="vat_recorded"');
+    expect(preview).toContain('recyclingReceiptTaxNotice(taxSettings)');
     expect(autoPrint).not.toContain("calculateTaxBreakdown(");
     expect(preview).not.toContain("calculateTaxBreakdown(");
   });
