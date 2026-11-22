@@ -1,10 +1,11 @@
 import { isAuthorizedCustomGeneralSaleTenant } from "@/lib/server/recycling-general-sale-entitlement";
 import { RecyclingSummaryPrintButton } from "@/components/pos/recycling-summary-print-button";
+import { RecyclingSummaryWorkspace } from "@/components/pos/recycling-summary-workspace";
 import Link from "next/link";
 import type { PosSessionScope } from "@/lib/pos-session-guard";
 import { loadRecyclingHistoryReport, type RecyclingReportKind, type RecyclingReportQuery } from "@/lib/server/recycling-history-reports";
 
-const titles:Record<RecyclingReportKind,string>={summary:"สรุปยอดขาย",receipts:"ใบเสร็จย้อนหลัง",products:"รายการขายสินค้า"};
+const titles:Record<RecyclingReportKind,string>={summary:"สรุปยอดรับซื้อ–ขายออก",receipts:"ใบเสร็จย้อนหลัง",products:"รายการขายสินค้า"};
 const unitNames:Record<string,string>={kg:"กก.",khid:"ขีด",g:"กรัม",ton:"ตัน",piece:"ชิ้น",stem:"ต้น"};
 const btn="inline-flex min-h-10 items-center justify-center rounded-lg border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50";
 const minor=(value:number)=>new Intl.NumberFormat("th-TH",{minimumFractionDigits:2,maximumFractionDigits:2}).format(Number(value)/100);
@@ -31,18 +32,18 @@ export async function RecyclingHistoryReports({scope,kind,search}:{
   period:report.period,date:report.date,from:report.from,to:report.to,branch:report.branch,
   direction:report.direction,status:report.status,q:report.q,page:String(p)
  }).toString();
- return <main className="mx-auto w-full max-w-[1450px] p-3 text-slate-900 md:p-5" data-testid={"recycling-history-"+kind}>
-  <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm md:p-5">
-   <header className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-200 pb-4">
-    <div><Link href="/preview/pos/more" className={btn}>← กลับเมนูเพิ่มเติม</Link>
-      <h1 className="mt-4 text-xl font-extrabold">{titles[kind]} <span className="text-xs font-bold text-blue-700">CUSTOM Recycling</span></h1>
+ return <main className={kind==="summary"?"recycling-summary-layout flex h-full min-h-0 w-full min-w-0 flex-col overflow-y-auto bg-white text-slate-900":"mx-auto w-full max-w-[1450px] p-3 text-slate-900 md:p-5"} data-testid={"recycling-history-"+kind}>
+  <section className={kind==="summary"?"flex min-h-0 w-full flex-1 flex-col bg-white":"rounded-2xl border border-slate-200 bg-white p-4 shadow-sm md:p-5"}>
+   <header className={kind==="summary"?"flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 bg-slate-50 px-3 py-2 md:px-4":"flex flex-wrap items-start justify-between gap-3 border-b border-slate-200 pb-4"}>
+    <div className="min-w-0"><Link href="/preview/pos/more" className={btn}>← กลับเมนูเพิ่มเติม</Link>
+      <h1 className={kind==="summary"?"mt-2 text-base font-extrabold":"mt-4 text-xl font-extrabold"}>{titles[kind]} <span className="text-xs font-bold text-blue-700">CUSTOM Recycling</span></h1>
       <p className="mt-1 text-xs text-slate-500">ข้อมูลรับซื้อและขายออกแยกกัน · ไม่รวมกับรายการขายของ POS ทั่วไป</p></div>
     <div className="flex flex-wrap gap-2 print:hidden">
       {kind==="summary"&&<RecyclingSummaryPrintButton filters={{
        period:report.period,date:report.date,from:report.from,to:report.to,branch:report.branch,
        direction:report.direction,status:report.status,q:report.q
       }}/>}
-      <Link className={btn} href="/preview/pos/sales-summary">สรุปยอดขาย</Link>
+      <Link className={btn} href="/preview/pos/sales-summary">สรุปซื้อ–ขาย</Link>
       <Link className={btn} href="/preview/pos/receipts">ใบเสร็จย้อนหลัง</Link>
       <Link className={btn} href="/preview/pos/product-sales">รายการขายสินค้า</Link>
       {canUseStandard&&<Link className={btn} href={kind==="summary"?"/preview/pos/sales-summary?report_mode=standard":
@@ -51,7 +52,7 @@ export async function RecyclingHistoryReports({scope,kind,search}:{
       </Link>}
     </div>
    </header>
-   <form method="GET" className="mt-4 flex flex-wrap items-end gap-3 rounded-lg bg-slate-50 p-3 print:hidden" aria-label="ตัวกรองรายงาน">
+   <form method="GET" className={kind==="summary"?"mx-3 mt-3 flex flex-wrap items-end gap-2 rounded-md bg-slate-50 p-3 print:hidden md:mx-4":"mt-4 flex flex-wrap items-end gap-3 rounded-lg bg-slate-50 p-3 print:hidden"} aria-label="ตัวกรองรายงาน">
      <label className="text-xs font-semibold">ช่วงเวลา
        <select name="period" defaultValue={report.period} className="mt-1 block h-10 rounded-lg border border-slate-300 bg-white px-2 text-sm">
         <option value="day">รายวัน</option><option value="month">รายเดือน</option>
@@ -73,32 +74,8 @@ export async function RecyclingHistoryReports({scope,kind,search}:{
      {kind!=="summary"&&<label className="text-xs font-semibold">{kind==="products"?"ค้นหาบิล / วัสดุ / SKU":"ค้นหาบิล / ผู้ติดต่อ"}<input name="q" defaultValue={report.q} maxLength={80} className="mt-1 block h-10 w-36 rounded-lg border border-slate-300 px-2 text-sm"/></label>}
      <button type="submit" className="h-10 rounded-lg bg-blue-700 px-4 text-sm font-bold text-white">ดูรายการ</button>
    </form>
-   <p className="mt-3 text-xs text-slate-600">ช่วง {report.from} ถึง {report.to} · สกุลเงิน THB · เงินโอนแสดงจากรายการ ไม่ใช่การยืนยันจากธนาคาร</p>
-   {kind==="summary"&&<>
-     <div className="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
-      {[
-       ["ขายออก",minor(report.totals.sellMinor)+" บาท"],["รับซื้อ",minor(report.totals.buyMinor)+" บาท"],
-       ["เงินสดรับ",minor(report.totals.cashInMinor)+" บาท"],["เงินสดจ่าย",minor(report.totals.cashOutMinor)+" บาท"],
-       ["โอนเข้าที่ระบุ",minor(report.totals.transferInMinor)+" บาท"],["โอนออกที่ระบุ",minor(report.totals.transferOutMinor)+" บาท"],
-       ["ยอดเครดิตขายออก",minor(report.totals.creditInMinor)+" บาท"],["ยอดเครดิตรับซื้อ",minor(report.totals.creditOutMinor)+" บาท"]
-      ].map(([label,value])=><div key={label} className="rounded-xl border border-slate-200 p-3"><p className="text-xs text-slate-500">{label}</p><strong className="mt-1 block text-lg text-blue-900">{value}</strong></div>)}
-     </div>
-     <p className="mt-3 text-xs font-semibold text-slate-600">บันทึกรับซื้อ {report.totals.buyCount} บิล · ขายออก {report.totals.sellCount} บิล · ยกเลิก {report.totals.voidCount} บิล (ไม่รวมในยอดเงิน)</p>
-     <h2 className="mb-2 mt-5 font-bold">สรุปกะที่มีธุรกรรม Recycling</h2>
-     <div className="overflow-x-auto rounded-xl border border-slate-200"><table className="w-full min-w-[1080px] text-sm">
-       <thead className="bg-slate-100"><tr>{["เปิดกะ","ปิดกะ","สาขา","รับซื้อ","ขายออก","เงินต้นกะ","คาดหวัง","นับได้จริง","สถานะ"].map(x=><th className="px-3 py-3 text-left" key={x}>{x}</th>)}</tr></thead>
-       <tbody>{report.shifts.length?report.shifts.map(s=><tr key={s.id} className="border-t border-slate-100">
-         <td className="px-3 py-3">{when(s.opened_at)}</td><td className="px-3 py-3">{when(s.closed_at)}</td>
-         <td className="px-3 py-3">{branchNames.get(s.branch_id)??"—"}</td>
-         <td className="px-3 py-3">{minor(report.transactions.filter(t=>t.shift_id===s.id&&t.direction==="buy"&&t.status==="posted").reduce((a,t)=>a+Number(t.total_minor),0))}</td>
-         <td className="px-3 py-3">{minor(report.transactions.filter(t=>t.shift_id===s.id&&t.direction==="sell"&&t.status==="posted").reduce((a,t)=>a+Number(t.total_minor),0))}</td>
-         <td className="px-3 py-3">{s.opening_cash===null?"—":Number(s.opening_cash).toFixed(2)}</td>
-         <td className="px-3 py-3">{s.expected_cash===null?"รอตรวจสอบ":Number(s.expected_cash).toFixed(2)}</td>
-         <td className="px-3 py-3">{s.actual_cash===null?"ยังไม่ได้นับ":Number(s.actual_cash).toFixed(2)}</td>
-         <td className="px-3 py-3">{s.status==="closed"?"ปิดแล้ว":"เปิดอยู่"}</td>
-       </tr>):<tr><td colSpan={9} className="p-10 text-center text-slate-500">ไม่มีกะ Recycling ในช่วงนี้</td></tr>}</tbody>
-     </table></div>
-    </>}
+   <p className={kind==="summary"?"mx-3 mt-2 text-xs text-slate-600 md:mx-4":"mt-3 text-xs text-slate-600"}>ช่วง {report.from} ถึง {report.to} · สกุลเงิน THB · เงินโอนแสดงจากรายการ ไม่ใช่การยืนยันจากธนาคาร</p>
+   {kind==="summary"&&<RecyclingSummaryWorkspace report={report} branchNames={Object.fromEntries(branchNames)}/>}
    {kind==="receipts"&&<div className="mt-4 overflow-x-auto rounded-xl border border-slate-200">
      <table className="w-full min-w-[950px] text-sm"><thead className="bg-slate-100"><tr>
      {["วันที่","เลขเอกสาร","ประเภทเอกสาร","สาขา","วิธีชำระ","ยอดเงิน","สถานะ","เอกสาร / พิมพ์"].map(h=><th key={h} className="px-3 py-3 text-left">{h}</th>)}</tr></thead>
@@ -134,7 +111,7 @@ export async function RecyclingHistoryReports({scope,kind,search}:{
        {report.page<report.pages&&<Link className={btn} href={pageLink(report.page+1)}>ถัดไป</Link>}
      </div>
    </footer>}
-   <p className="mt-4 text-xs text-slate-500">เอกสาร Recycling เป็นหลักฐานการซื้อขายทั่วไป ไม่ใช่ใบกำกับภาษี · รายงานนี้ไม่รวมบิล POS ทั่วไปหรือรายการ VOID ในยอดเงินจริง</p>
+   <p className={kind==="summary"?"mx-3 mb-3 mt-2 text-xs text-slate-500 md:mx-4":"mt-4 text-xs text-slate-500"}>เอกสาร Recycling เป็นหลักฐานการซื้อขายทั่วไป ไม่ใช่ใบกำกับภาษี · รายงานนี้ไม่รวมบิล POS ทั่วไปหรือรายการ VOID ในยอดเงินจริง</p>
   </section>
  </main>;
 }

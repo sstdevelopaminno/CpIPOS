@@ -28,7 +28,7 @@ export function RecyclingSummaryPrintButton({filters}:{filters:RecyclingReportQu
  return <div className="flex flex-col gap-1 print:hidden">
   <button type="button" disabled={busy} onClick={()=>void run()}
     className="min-h-10 rounded-lg border border-blue-300 bg-white px-3 text-sm font-semibold text-blue-700 disabled:opacity-60">
-    {busy?"กำลังส่งพิมพ์...":"พิมพ์สรุปยอดขาย (58/80 มม.)"}
+    {busy?"กำลังส่งพิมพ์...":"พิมพ์สรุปรับซื้อ–ขายออก (58/80 มม.)"}
   </button>
   {notice&&<p role="status" className="max-w-xs text-xs text-green-800">{notice}</p>}
   {error&&<p role="alert" className="max-w-xs text-xs text-red-800">{error}</p>}

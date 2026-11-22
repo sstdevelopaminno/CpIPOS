@@ -16,7 +16,7 @@ export type RecyclingLine = {id:string;transaction_id:string;line_no:number;sku_
 export type RecyclingHistoryReport = {
  kind:RecyclingReportKind; from:string;to:string;date:string;period:string;branch:string;direction:string;status:string;q:string;
  branchOptions:Array<{id:string;name:string}>;sessionBranchId:string;
- transactions:RecyclingTransaction[];lines:RecyclingLine[];
+ transactions:RecyclingTransaction[];shiftTransactions:RecyclingTransaction[];lines:RecyclingLine[];
  shifts:Array<{id:string;branch_id:string;opened_at:string;closed_at:string|null;opening_cash:number|null;expected_cash:number|null;actual_cash:number|null;status:string}>;
  totals:Record<"buyCount"|"sellCount"|"voidCount"|"buyMinor"|"sellMinor"|"cogsMinor"|"cashInMinor"|"cashOutMinor"|"transferInMinor"|"transferOutMinor"|"creditInMinor"|"creditOutMinor",number>;
  page:number;pages:number;visible:RecyclingTransaction[];
@@ -96,8 +96,14 @@ export async function loadRecyclingHistoryReport(scope:PosSessionScope,kind:Recy
  const pages=Math.max(1,Math.ceil(matching.length/size));
  const visible=matching.slice((page-1)*size,page*size);
  let shifts:RecyclingHistoryReport["shifts"]=[];
+ let shiftTransactions:RecyclingTransaction[]=[];
  if(kind==="summary"){
   const shiftIds=[...new Set(matching.map(t=>t.shift_id).filter((x):x is string=>Boolean(x)))];
+  // A shift drill-down must show its complete posted+VOID audit and BOTH
+  // purchase/sale directions, even if the overview is filtered to one type.
+  // This preserves correct cash reconciliation and never changes report totals.
+  const selectedShiftIds=new Set(shiftIds);
+  shiftTransactions=transactions.filter(t=>Boolean(t.shift_id)&&selectedShiftIds.has(t.shift_id!));
   for(let i=0;i<shiftIds.length;i+=65){
    const v=await db.from("shifts")
     .select("id,branch_id,opened_at,closed_at,opening_cash,expected_cash,actual_cash,status")
@@ -108,6 +114,6 @@ export async function loadRecyclingHistoryReport(scope:PosSessionScope,kind:Recy
   shifts.sort((a,b)=>b.opened_at.localeCompare(a.opened_at));
  }
  return {kind,from,to,date,period,branch,direction,status,q,sessionBranchId:scope.session.branch_id,
-  branchOptions:branches.map(b=>({id:b.id,name:b.name})),transactions:matching,lines,shifts,
+  branchOptions:branches.map(b=>({id:b.id,name:b.name})),transactions:matching,shiftTransactions,lines,shifts,
   totals:sumRecyclingReportMoney(kind==="summary"?matching:transactions),page,pages,visible};
 }
