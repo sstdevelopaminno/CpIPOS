@@ -109,8 +109,8 @@ begin
     or (repeat_sale->>'vat_minor')::bigint<>700 then
     raise exception 'UAT_VAT_IDEMPOTENT_REPLAY_FAILED: %',repeat_sale;
  end if;
- select public.recycling_issue_tax_invoice(t,b,tx_id,buyer,manager_id) into invoice;
- select public.recycling_issue_tax_invoice(t,b,tx_id,buyer,manager_id) into repeated_invoice;
+ select public.recycling_issue_tax_invoice(t,b,tx_id,buyer,manager_id,'00000') into invoice;
+ select public.recycling_issue_tax_invoice(t,b,tx_id,buyer,manager_id,'00000') into repeated_invoice;
  if invoice->>'invoice_no'<>'RTI-000001'
     or (repeated_invoice->>'idempotent')<>'true'
     or repeated_invoice->>'id'<>invoice->>'id' then
