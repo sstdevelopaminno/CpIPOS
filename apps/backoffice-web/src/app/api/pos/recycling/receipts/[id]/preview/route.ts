@@ -5,6 +5,8 @@ import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 import { resolvePrinterRoutes } from "@/lib/printing/printer-routing-service";
 import { renderRecyclingSharedReceipt } from "@/lib/printing/recycling-receipt-print-service";
 import { loadReceiptStoreProfile } from "@/lib/services/store-profile-service";
+import { loadTaxSettings } from "@/lib/services/pos-settings-service";
+import { recyclingReceiptTaxNotice } from "@/lib/printing/recycling-tax-receipt-note";
 
 export const dynamic="force-dynamic";
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -36,7 +38,10 @@ export async function GET(request:Request,{params}:{params:Promise<{id:string}>}
     if(!["auto","58","80","a5"].includes(paper))return fail(422,"ขนาดกระดาษไม่ถูกต้อง");
     const db=getSupabaseServiceClient();
     const {tenant_id:tenantId,branch_id:branchId,device_code:deviceCode,role}=scope.session;
-    const [tx,lines,tenant,branch,profile]=await Promise.all([
+    const auth:AuthContext={tenantId,branchId,userId:scope.session.user_id,
+      platformRole:"tenant_user",
+      branchRole:role==="owner"||role==="manager"||role==="accountant"?role:"staff"};
+    const [tx,lines,tenant,branch,profile,taxSettings]=await Promise.all([
       db.from("recycling_transactions")
         .select("id,receipt_no,direction,settlement,counterparty_name,total_minor,status,void_reason,created_at")
         .eq("id",id).eq("tenant_id",tenantId).eq("branch_id",branchId).maybeSingle(),
@@ -46,7 +51,8 @@ export async function GET(request:Request,{params}:{params:Promise<{id:string}>}
         .order("line_no"),
       db.from("tenants").select("name,display_name").eq("id",tenantId).maybeSingle(),
       db.from("branches").select("name").eq("id",branchId).eq("tenant_id",tenantId).maybeSingle(),
-      loadReceiptStoreProfile(tenantId)
+      loadReceiptStoreProfile(tenantId),
+      loadTaxSettings(auth).catch(()=>null)
     ]);
     if(tx.error||lines.error||tenant.error||branch.error||!tx.data||
        !["posted","voided"].includes(tx.data.status)||!lines.data?.length)return fail(404,"ไม่พบใบรับซื้อหรือขายออก");
@@ -59,9 +65,6 @@ export async function GET(request:Request,{params}:{params:Promise<{id:string}>}
     let width:58|80=80;
     if(paper==="58")width=58;
     else if(paper==="auto"){
-      const auth:AuthContext={tenantId,branchId,userId:scope.session.user_id,
-        platformRole:"tenant_user",
-        branchRole:role==="owner"||role==="manager"||role==="accountant"?role:"staff"};
       // Missing printer setup should not prevent on-screen proof or A5 printing.
       try{
         const routes=await resolvePrinterRoutes({auth,purpose:"receipt",
@@ -77,7 +80,8 @@ export async function GET(request:Request,{params}:{params:Promise<{id:string}>}
       createdAt:tx.data.created_at,counterparty:tx.data.counterparty_name||"-",
       settlement:tx.data.settlement,totalMinor:storedTotal,lines:lines.data,
       storeAddress:profile?.company_address??null,storePhone:profile?.contact_phone??null,
-      logoUrl:profile?.logo_url??null
+      logoUrl:profile?.logo_url??null,
+      taxNotice:recyclingReceiptTaxNotice(taxSettings)
     });
     // A5 uses the same stored receipt data and item rows, while the browser
     // printer driver selects an A4/A5-capable device. Never force silent USB
