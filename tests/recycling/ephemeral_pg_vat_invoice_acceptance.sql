@@ -2,9 +2,9 @@
 -- Exercise an actual 7% VAT server posting, double entry, Finance and issuance.
 begin;
 insert into public.users_profiles(id,is_active)
- values('99999999-9999-4999-8999-999999999999',true);
+ values('dededede-dede-4ede-8ede-dededededede',true);
 insert into public.user_branch_roles(user_id,tenant_id,branch_id,role)
- values('99999999-9999-4999-8999-999999999999',
+ values('dededede-dede-4ede-8ede-dededededede',
         '11111111-1111-4111-8111-111111111111',
         '22222222-2222-4222-8222-222222222222','manager');
 insert into public.finance_accounting_chart(
@@ -23,7 +23,7 @@ values('11111111-1111-4111-8111-111111111111',
        '0105555555555','Synthetic VAT registered recycler',
        '1 Example Road, Fake Province','00000',
        'SYNTHETIC-UAT-DOCUMENT-DO-NOT-USE',
-       '99999999-9999-4999-8999-999999999999',now(),
+       'dededede-dede-4ede-8ede-dededededede',now(),
        (now() at time zone 'Asia/Bangkok')::date-interval '1 day',true);
 insert into public.pos_tax_invoice_profiles(
   id,tenant_id,branch_id,entity_type,display_name,tax_id,address_line,
@@ -44,7 +44,7 @@ declare
  b uuid:='22222222-2222-4222-8222-222222222222';
  u uuid:='33333333-3333-4333-8333-333333333333';
  a uuid:='44444444-4444-4444-8444-444444444444';
- manager_id uuid:='99999999-9999-4999-8999-999999999999';
+ manager_id uuid:='dededede-dede-4ede-8ede-dededededede';
  shift_id uuid:='85858585-8585-4858-8858-858585858585';
  product uuid:='55555555-5555-4555-8555-555555555555';
  buyer uuid:='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
