@@ -940,19 +940,7 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
           <strong className="text-2xl font-extrabold tabular-nums text-blue-900">{formatMoney(total)} ฿</strong>
         </div>
         {postError && <p role="alert" className="mt-3 rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm font-semibold text-rose-800">{postError}</p>}
-        {posted && <p role="status" className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm font-semibold text-emerald-900">
-          บันทึกรายการสำเร็จ หมายเลขอ้างอิง {posted.receipt_no ?? posted.id}
-          · ยอดที่บันทึก {formatMoney(posted.total_minor / 100)} บาท
-          {printing && <span className="mt-2 block text-xs">กำลังส่งคิวพิมพ์อัตโนมัติ...</span>}
-          {printNotice && <span role={printNotice.ok ? "status" : "alert"} className={"mt-2 block text-xs " + (printNotice.ok ? "text-emerald-800" : "text-amber-800")}>{printNotice.message}</span>}
-          {printNotice && !printNotice.ok && <button type="button" disabled={printing}
-            className="mt-2 rounded-md border border-amber-300 bg-white px-3 py-2 text-xs font-bold text-amber-950 disabled:opacity-50"
-            onClick={() => void queueReceiptPrint(posted.id, window.crypto.randomUUID())}>ส่งพิมพ์ใหม่เมื่อยืนยันว่าใบเสร็จเดิมไม่ออก (ไม่บันทึกบิลใหม่)</button>}
-          <button type="button" onClick={()=>setReceiptDialogOpen(true)}
-            className="mt-2 block w-fit rounded-lg bg-emerald-700 px-3 py-2 text-sm font-bold text-white">
-            ดูใบเสร็จและพิมพ์ใบรับซื้อ–ขายออก (Popup)
-          </button>
-        </p>}
+
         {heldNotice && <p role="status" className="mt-2 text-xs font-semibold text-blue-800">{heldNotice}</p>}
         {heldError && <p role="alert" className="mt-2 text-xs font-semibold text-rose-800">{heldError}</p>}
         <div className="mt-3 flex flex-wrap items-center justify-end gap-2" data-testid="recycling-cart-actions">
