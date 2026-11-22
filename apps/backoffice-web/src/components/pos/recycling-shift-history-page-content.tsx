@@ -43,7 +43,8 @@ export default async function RecyclingShiftHistoryPageContent() {
     <RecyclingShiftControl branchName={scope.branch?.name ?? "สาขาที่เข้าสู่ระบบ"}/>
     <section className="flex min-h-0 min-w-0 flex-1 flex-col">
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 px-4 py-3">
-        <h1 className="text-base font-extrabold text-slate-900">ประวัติเปิด/ปิดกะ Recycling</h1>
+        <div><h1 className="text-base font-extrabold text-slate-900">ประวัติกะ · เงินทุนหมุนเวียนรับซื้อ</h1>
+          <p className="mt-1 text-xs text-slate-500">เงินสดจ่ายรับซื้อเป็นเงินออก · ขายให้โรงงานเพิ่มเงินสดเฉพาะยอดที่รับจริง · ปิดกะด้วยผลนับเงินจริง</p></div>
         <span className="text-xs text-slate-500">แสดง {shifts.length} รายการล่าสุดของสาขา</span>
       </div>
       <div className="min-h-0 w-full flex-1 overflow-x-auto overflow-y-auto">
@@ -53,11 +54,11 @@ export default async function RecyclingShiftHistoryPageContent() {
             <th className="px-3 py-3">วันที่เปิด–ปิดกะ</th>
             <th className="px-3 py-3 text-right">รับซื้อ (บิล)</th>
             <th className="px-3 py-3 text-right">ขายออก (บิล)</th>
-            <th className="px-3 py-3 text-right">เงินสดต้นกะ</th>
-            <th className="px-3 py-3 text-right">เงินสดรับ</th>
-            <th className="px-3 py-3 text-right">เงินสดจ่าย</th>
-            <th className="px-3 py-3 text-right">คาดว่าคงเหลือ</th>
-            <th className="px-3 py-3 text-right">นับได้จริง</th>
+            <th className="px-3 py-3 text-right">ทุนเงินสดเปิดกะ</th>
+            <th className="px-3 py-3 text-right">ขายออก · เงินสดรับ</th>
+            <th className="px-3 py-3 text-right">รับซื้อ · เงินสดจ่าย</th>
+            <th className="px-3 py-3 text-right">คงเหลือตามระบบ</th>
+            <th className="px-3 py-3 text-right">คงเหลือนับจริง</th>
             <th className="px-3 py-3">สถานะ</th>
             <th className="px-3 py-3">ใบสรุป</th>
           </tr>
@@ -95,7 +96,7 @@ export default async function RecyclingShiftHistoryPageContent() {
       </div>
     </section>
     <p className="border-t border-slate-200 px-4 py-2 text-xs text-slate-500">
-      แสดงไม่เกิน 60 กะล่าสุดของสาขาที่เข้าสู่ระบบ หากต้องการข้อมูลเพิ่มเติมให้ตรวจจากรายงานแบบแบ่งหน้า
+      ยอดรับ–จ่ายในตารางอ้างอิงธุรกรรม Recycling ของกะ ไม่ใช่ยอดเงินฝากธนาคารหรือเงินทุนที่เบิกเพิ่มโดยไม่ได้บันทึก · แสดงไม่เกิน 60 กะล่าสุด
     </p>
   </main>;
 }
