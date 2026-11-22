@@ -976,7 +976,14 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
           <div className="flex items-center justify-between rounded-lg bg-blue-50 p-4">
           <div><span className="text-sm font-semibold text-slate-600">{direction === "buy" ? "ยอดเงินจ่ายผู้ขาย" : "ยอดรับเงินจากผู้ซื้อ"}</span>
             <small className="block text-xs text-slate-500">{visibleLines.length} รายการ (ยังไม่บันทึก)</small></div>
-          <strong className="text-2xl font-extrabold tabular-nums text-blue-900">{formatMoney(total)} ฿</strong>
+          <div className="text-right">
+            {vatApplied&&<small className="block text-xs font-semibold text-blue-800">
+              ก่อน VAT {formatMoney(total)} + VAT 7% {formatMoney(vatPreviewMinor/100)}
+            </small>}
+            <strong className="text-2xl font-extrabold tabular-nums text-blue-900">
+              {formatMoney(grossPreviewMinor/100)} ฿
+            </strong>
+          </div>
         </div>
         {postError && <p role="alert" className="mt-3 rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm font-semibold text-rose-800">{postError}</p>}
 
@@ -1115,8 +1122,19 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
           <span className="text-sm font-semibold text-slate-700">
             {direction === "buy" ? "ยอดที่ร้านต้องจ่าย" : "ยอดที่ร้านต้องรับ"}
           </span>
-          <strong className="text-2xl font-extrabold tabular-nums text-blue-900">{formatMoney(total)} ฿</strong>
+          <div className="text-right">
+            {vatApplied&&<small className="block text-xs font-semibold text-blue-800">
+              ก่อน VAT {formatMoney(total)} + VAT 7% {formatMoney(vatPreviewMinor/100)}
+            </small>}
+            <strong className="text-2xl font-extrabold tabular-nums text-blue-900">
+              {formatMoney(grossPreviewMinor/100)} ฿
+            </strong>
+          </div>
         </div>
+        {direction==="sell"&&vatQuoteLoading&&<p role="status" className="mt-2 text-xs text-blue-700">กำลังตรวจสอบ VAT จากเซิร์ฟเวอร์...</p>}
+        {direction==="sell"&&vatQuote?.configured&&!saleVatReady&&<p role="alert" className="mt-2 rounded-md bg-amber-50 p-3 text-xs font-bold text-amber-900">
+          ตั้ง VAT ของสาขาแล้ว แต่ยังไม่ผ่านเงื่อนไขการจดทะเบียนภาษีหรือผังบัญชี ({vatQuote.reason??"VAT not ready"}) กรุณาติดต่อฝ่ายบัญชี
+        </p>}
         <label htmlFor="recycling-counterparty" className="mt-4 block text-sm font-semibold text-slate-800">
           {direction === "buy" ? "ชื่อผู้ขายวัสดุ" : "ชื่อผู้ซื้อวัสดุ"}
           <span className="ml-1 text-xs font-normal text-slate-500">(ไม่บังคับ · เว้นว่างแสดง - บนบิล)</span>
