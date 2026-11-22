@@ -1,14 +1,23 @@
 import { assertPosMenuPageAllowed } from "@/lib/server/pos-menu-policy-service";
 import Link from "next/link";
 import { PosTaxInvoiceWorkspace } from "@/components/pos-preview/pos-tax-invoice-workspace";
+import { isAuthorizedRecyclingTenant } from "@/lib/server/recycling-pos-service";
+import { RecyclingTaxInvoiceRegister } from "@/components/pos/recycling-tax-invoice-register";
+import type { RecyclingReportQuery } from "@/lib/server/recycling-history-reports";
 import { getCurrentLanguage } from "@/lib/i18n";
 import { requirePermission, requirePosSession } from "@/lib/pos-session-guard";
 
-export default async function PosTaxInvoicesPage() {
+export default async function PosTaxInvoicesPage({searchParams}:{searchParams?:Promise<RecyclingReportQuery>}) {
   const posMenuScope = await requirePosSession();
   await assertPosMenuPageAllowed(posMenuScope.session.tenant_id, "/preview/pos/tax-invoices");
-  const scope = await requirePosSession();
-  requirePermission(scope, "receipts:view");
+  requirePermission(posMenuScope, "receipts:view");
+  // Only CUSTOM Recycling uses the new audit-only tax document register.
+  // Standard POS tax issuance still exists for non-Recycling packages,
+  // but its orders-based API must not issue for recycling_transactions.
+  if(await isAuthorizedRecyclingTenant(posMenuScope.session.tenant_id)){
+    return <RecyclingTaxInvoiceRegister scope={posMenuScope} search={await searchParams}/>;
+  }
+  const scope = posMenuScope;
   const lang = await getCurrentLanguage();
   const role = String(scope.session.role ?? "staff").toLowerCase();
 
