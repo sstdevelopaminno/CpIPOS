@@ -159,7 +159,7 @@ function entityLabel(value: TaxEntityType, lang: Language) {
   return "บุคคลธรรมดา";
 }
 
-export function PosTaxInvoiceWorkspace({ lang, role }: { lang: Language; role: string }) {
+export function PosTaxInvoiceWorkspace({ lang, role, registryOnly = false }: { lang: Language; role: string; registryOnly?: boolean }) {
   const [profiles, setProfiles] = useState<TaxProfile[]>([]);
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
@@ -436,21 +436,23 @@ export function PosTaxInvoiceWorkspace({ lang, role }: { lang: Language; role: s
         <header className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-200 px-5 py-5 sm:px-6">
           <div>
             <p className="text-xs font-black uppercase tracking-[0.18em] text-blue-600">CpIPOS Tax Invoice</p>
-            <h1 className="mt-1 text-2xl font-black text-slate-950">{lang === "th" ? "ออกใบกำกับภาษี" : "Tax Invoice"}</h1>
+            <h1 className="mt-1 text-2xl font-black text-slate-950">{registryOnly ? "ทะเบียนผู้ซื้อและข้อมูลผู้ออกเอกสาร" : lang === "th" ? "ออกใบกำกับภาษี" : "Tax Invoice"}</h1>
             <p className="mt-1 text-sm font-semibold text-slate-500">
-              {lang === "th"
-                ? "ทะเบียนผู้เสียภาษี → เลือกบิลย้อนหลัง → ตรวจยอดภาษีจากบิลจริง → พิมพ์ตามกระดาษ 58/80mm ของเครื่องที่ตั้งไว้"
-                : "Tax registry → historical receipt → persisted tax review → configured 58/80mm receipt printer."}
+              {registryOnly
+                ? "บันทึกชื่อ ที่อยู่ และเลขผู้เสียภาษีของผู้ซื้อและร้านค้า ข้อมูลนี้ไม่ใช่การออกใบกำกับภาษี Recycling"
+                : lang === "th"
+                  ? "ทะเบียนผู้เสียภาษี → เลือกบิลย้อนหลัง → ตรวจยอดภาษีจากบิลจริง → พิมพ์ตามกระดาษ 58/80mm ของเครื่องที่ตั้งไว้"
+                  : "Tax registry → historical receipt → persisted tax review → configured 58/80mm receipt printer."}
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
             {canManageSeller ? (
               <button type="button" onClick={() => setSellerOpen(true)} className="rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-black text-slate-700 hover:bg-slate-50">
-                {lang === "th" ? "ตั้งค่าผู้ออกใบกำกับภาษี" : "Seller tax setup"}
+                {registryOnly ? "ข้อมูลผู้ขาย / ร้านของเรา" : lang === "th" ? "ตั้งค่าผู้ออกใบกำกับภาษี" : "Seller tax setup"}
               </button>
             ) : null}
             <button type="button" onClick={openNewProfile} className="rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-black text-white shadow-sm hover:bg-blue-700">
-              + {lang === "th" ? "เพิ่มรายการใหม่" : "New tax profile"}
+              + {registryOnly ? "เพิ่มข้อมูลผู้ซื้อ" : lang === "th" ? "เพิ่มรายการใหม่" : "New tax profile"}
             </button>
           </div>
         </header>
@@ -499,9 +501,11 @@ export function PosTaxInvoiceWorkspace({ lang, role }: { lang: Language; role: s
                       <td className="px-4 py-3 text-center font-black text-slate-700">{profile.invoice_count}</td>
                       <td className="px-4 py-3 text-sm font-semibold text-slate-500">{dateTime(profile.last_issued_at, lang)}</td>
                       <td className="px-4 py-3 text-right">
-                        <button type="button" onClick={() => openIssue(profile)} className="rounded-lg bg-blue-600 px-3 py-2 text-xs font-black text-white hover:bg-blue-700">
-                          {lang === "th" ? "เลือกบิล / ออกใบกำกับ" : "Choose bill"}
-                        </button>
+                        {registryOnly
+                          ? <span className="text-xs font-semibold text-slate-500">ข้อมูลผู้ซื้อพร้อมใช้อ้างอิง</span>
+                          : <button type="button" onClick={() => openIssue(profile)} className="rounded-lg bg-blue-600 px-3 py-2 text-xs font-black text-white hover:bg-blue-700">
+                              {lang === "th" ? "เลือกบิล / ออกใบกำกับ" : "Choose bill"}
+                            </button>}
                       </td>
                     </tr>
                   ))}
@@ -600,7 +604,7 @@ export function PosTaxInvoiceWorkspace({ lang, role }: { lang: Language; role: s
         </div>
       ) : null}
 
-      {issueProfile ? (
+      {!registryOnly && issueProfile ? (
         <div className="fixed inset-0 z-[220] grid place-items-center bg-slate-950/55 p-3" role="dialog" aria-modal="true">
           <section className="flex max-h-[95vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
             <header className="flex items-start justify-between gap-3 border-b border-slate-200 px-5 py-4">
