@@ -33,6 +33,7 @@ export function RecyclingTaxInvoiceAction({
  const [detail,setDetail]=useState<Document|null>(null);
  const [buyers,setBuyers]=useState<Buyer[]>([]);
  const [buyerId,setBuyerId]=useState("");
+ const [buyerBranchNo,setBuyerBranchNo]=useState("");
  const [pin,setPin]=useState("");
  const [paper,setPaper]=useState<Paper>("a4");
  const [paperReady,setPaperReady]=useState(false);
@@ -65,16 +66,17 @@ export function RecyclingTaxInvoiceAction({
  }
  function openDialog(){
    setOpen(true);setError("");setDetail(null);setPaper("a4");
-   setPin("");setBuyerId("");void refresh();
+   setPin("");setBuyerId("");setBuyerBranchNo("");void refresh();
  }
  async function issue(){
-   if(issuing||!detail?.eligible||!detail.issuing_enabled||!detail.seller_verified||!buyerId||pin.length<4)return;
+   if(issuing||!detail?.eligible||!detail.issuing_enabled||!detail.seller_verified||!buyerId||pin.length<4||!/^[0-9]{5}$/.test(buyerBranchNo))return;
    setIssuing(true);setError("");
    try{
      const response=await fetch("/api/pos/recycling/tax-invoices",{
        method:"POST",credentials:"same-origin",
        headers:{"Content-Type":"application/json"},
-       body:JSON.stringify({transaction_id:transactionId,profile_id:buyerId,manager_pin:pin})
+       body:JSON.stringify({transaction_id:transactionId,profile_id:buyerId,
+         buyer_branch_no:buyerBranchNo,manager_pin:pin})
      });
      const result=await response.json().catch(()=>null) as Api<{invoice?:Invoice}>|null;
      if(!response.ok||!result?.data?.invoice?.id)
@@ -167,13 +169,19 @@ export function RecyclingTaxInvoiceAction({
             {buyers.length===0&&<p className="text-xs text-amber-800">
               ยังไม่มีทะเบียนผู้ซื้อ กรุณากลับไปเมนู “ทะเบียนผู้ซื้อ / ข้อมูลผู้ออกเอกสาร” เพื่อเพิ่มชื่อ ที่อยู่ และเลขผู้เสียภาษี
             </p>}
+            <label className="block text-sm font-bold">เลขสาขาของผู้ซื้อ (5 หลัก)
+              <input type="text" inputMode="numeric" value={buyerBranchNo}
+                onChange={e=>setBuyerBranchNo(e.target.value.replace(/[^0-9]/g,"").slice(0,5))}
+                maxLength={5} placeholder="กรอกตามข้อมูลผู้ซื้อ เช่น 00000 สำหรับสำนักงานใหญ่"
+                className="mt-1 block h-11 w-full rounded-md border border-slate-300 px-3"/>
+            </label>
             <label className="block text-sm font-bold">PIN Owner / Manager
               <input type="password" inputMode="numeric" value={pin}
                 onChange={e=>setPin(e.target.value)} maxLength={30}
                 className="mt-1 block h-11 w-full rounded-md border border-slate-300 px-3"/>
             </label>
             <button type="button" onClick={()=>void issue()}
-              disabled={issuing||!detail.eligible||!detail.issuing_enabled||!detail.seller_verified||!buyerId||pin.length<4}
+              disabled={issuing||!detail.eligible||!detail.issuing_enabled||!detail.seller_verified||!buyerId||pin.length<4||!/^[0-9]{5}$/.test(buyerBranchNo)}
               className="rounded-md bg-blue-700 px-5 py-3 text-sm font-bold text-white disabled:opacity-40">
               {issuing?"กำลังออกเอกสาร...":"ยืนยันออกใบกำกับภาษีจากยอด VAT ที่บันทึกจริง"}
             </button>
