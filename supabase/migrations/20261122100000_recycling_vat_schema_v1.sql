@@ -98,7 +98,17 @@ begin
      or old.vat_minor is distinct from new.vat_minor
      or old.tax_state is distinct from new.tax_state
      or old.tax_snapshot is distinct from new.tax_snapshot then
-    raise exception 'recycling_tax_snapshot_immutable';
+    -- The v2 posting RPC creates a placeholder and finalizes its immutable
+    -- tax snapshot within the SAME transaction. Historical documents cannot
+    -- acquire a new VAT snapshot on a later date / transaction.
+    if not (old.base_minor is null and old.vat_minor is null
+       and old.tax_snapshot is null and old.tax_state is null
+       and old.created_at=transaction_timestamp()
+       and old.finance_document_id is null
+       and old.status='posted' and new.status='posted'
+       and new.base_minor is not null and new.vat_minor is not null) then
+      raise exception 'recycling_tax_snapshot_immutable';
+    end if;
   end if;
   return new;
 end;
