@@ -48,7 +48,7 @@ describe("CUSTOM Recycling sales-list: purchase and sale isolation",()=>{
       "รายการซื้อ–ขายวัสดุรีไซเคิล","รับซื้อเข้าร้าน","ขายออก",
       "เงินสดจ่ายรับซื้อ","เงินสดรับจากการขายออก",
       "เลขเอกสาร","ผู้ขาย / ผู้ซื้อ","รายการวัสดุ",
-      "วิธีรับ–จ่ายเงิน","ยกเลิก (VOID)","ดู / พิมพ์เอกสาร"
+      "วิธีรับ–จ่ายเงิน","ยกเลิก (VOID)","RecyclingSalesListRowActions"
     ])expect(page).toContain(text);
     expect(page).toContain('status==="all"||t.status===status');
     expect(page).toContain('direction==="all"||t.direction===direction');
