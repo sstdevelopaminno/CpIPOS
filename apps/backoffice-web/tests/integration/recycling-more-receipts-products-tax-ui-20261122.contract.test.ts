@@ -79,9 +79,9 @@ describe("CUSTOM Recycling more-menu pages 58/80 printing and UI isolation",()=>
    // The yellow warning panel is removed; transaction-level status remains visible.
    expect(tax).not.toContain('เงื่อนไขก่อนออกใบกำกับภาษี');
    expect(tax).not.toContain('border-amber-200 bg-amber-50 px-4 py-3');
-   expect(tax).toContain('ทะเบียนนี้เป็นรายการตรวจสอบภายใน');
-   expect(tax).toContain('ไม่บันทึก VAT เพิ่ม');
-  expect(tax).toContain('ยังไม่ยืนยันการออกใบกำกับภาษี');
+   expect(tax).toContain('ทะเบียนนี้แสดงรายการขายและสถานะภาษีที่บันทึกจริง');
+   expect(tax).toContain('บันทึก VAT');
+  expect(tax).toContain('<RecyclingTaxInvoiceAction transactionId={t.id}');
   expect(tax).toContain('<RecyclingReportDocumentAction transactionId={t.id}');
   expect(tax).toContain('t.branch_id===report.sessionBranchId');
   expect(tax).not.toContain('action: "print_invoice"');
