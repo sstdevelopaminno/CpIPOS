@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { RecyclingPrintReceiptButton } from "@/components/pos/recycling-print-receipt-button";
 
-type Paper="auto"|"58"|"80"|"a5";
+type Paper="auto"|"58"|"80"|"a4"|"a5";
 
 /** Shared in-app proof for a successful purchase or an existing receipt.
  * Does not make or repeat a financial transaction. The POS checkout already
@@ -20,14 +20,17 @@ export function RecyclingReceiptDialog({
   printing?:boolean;
 }){
   const [paper,setPaper]=useState<Paper>("auto");
+  const [a4Ready,setA4Ready]=useState(false);
   const [a5Ready,setA5Ready]=useState(false);
   const [a5Error,setA5Error]=useState("");
   const closeRef=useRef<HTMLButtonElement>(null);
+  const a4Ref=useRef<HTMLIFrameElement>(null);
   const a5Ref=useRef<HTMLIFrameElement>(null);
   const visibleRef=useRef<HTMLIFrameElement>(null);
   useEffect(()=>{
     if(!open)return;
     setPaper("auto");
+    setA4Ready(false);
     setA5Ready(false);
     setA5Error("");
     window.requestAnimationFrame(()=>closeRef.current?.focus());
@@ -35,6 +38,16 @@ export function RecyclingReceiptDialog({
   if(!open)return null;
   const base="/api/pos/recycling/receipts/"+encodeURIComponent(transactionId)+"/preview";
   const src=(size:Paper)=>base+"?paper="+size;
+  function printA4(){
+    if(!a4Ready){setA5Error("เอกสาร A4 ยังไม่พร้อมพิมพ์ กรุณาลองอีกครั้ง");return;}
+    const frame=paper==="a4"?visibleRef.current:a4Ref.current;
+    if(!frame?.contentWindow){setA5Error("ไม่สามารถเชื่อมกับหน้าต่างพิมพ์ A4");return;}
+    try{
+      frame.contentWindow.focus();
+      frame.contentWindow.print(); // Browser print dialog, never a silent USB job.
+      setA5Error("");
+    }catch{setA5Error("เครื่องพิมพ์ A4 ไม่พร้อม กรุณาเลือกเครื่องในหน้าต่างพิมพ์");}
+  }
   function printA5(){
     if(!a5Ready){setA5Error("เอกสาร A5 ยังไม่พร้อมพิมพ์ กรุณาลองอีกครั้ง");return;}
     const frame=paper==="a5"?visibleRef.current:a5Ref.current;
@@ -68,9 +81,9 @@ export function RecyclingReceiptDialog({
       <div className="flex shrink-0 flex-wrap items-center gap-1.5 border-b border-slate-200 bg-white px-4 py-2"
         role="group" aria-label="ขนาดใบเสร็จ">
         {([
-          ["auto","ตามเครื่องพิมพ์"],["58","58 มม."],["80","80 มม."],["a5","A5"]
+          ["auto","ตามเครื่องพิมพ์"],["58","58 มม."],["80","80 มม."],["a4","A4"],["a5","A5"]
         ] as const).map(([size,label])=>
-          <button type="button" key={size} onClick={()=>{if((paper==="a5")!==(size==="a5"))setA5Ready(false);setPaper(size);}} aria-pressed={paper===size}
+          <button type="button" key={size} onClick={()=>{if((paper==="a4")!==(size==="a4"))setA4Ready(false);if((paper==="a5")!==(size==="a5"))setA5Ready(false);setPaper(size);}} aria-pressed={paper===size}
             className={"min-h-9 rounded-md border px-3 text-xs font-bold "+
               (paper===size?"border-blue-700 bg-blue-700 text-white":"border-slate-300 bg-white text-slate-700")}>
             {label}
@@ -79,10 +92,14 @@ export function RecyclingReceiptDialog({
       </div>
       <div className="min-h-0 flex-1 overflow-hidden bg-slate-100 p-2 sm:p-3">
         <iframe key={src(paper)} ref={visibleRef} src={src(paper)}
-          onLoad={()=>{if(paper==="a5")setA5Ready(true);}}
+          onLoad={()=>{if(paper==="a4")setA4Ready(true);if(paper==="a5")setA5Ready(true);}}
           title="ตัวอย่างใบเสร็จจากรายการซื้อขายจริง"
           className="h-full w-full rounded-lg border border-slate-200 bg-white"/>
       </div>
+      {paper!=="a4"&&<iframe ref={a4Ref} src={src("a4")}
+        onLoad={()=>setA4Ready(true)}
+        title="เอกสาร A4 สำหรับพิมพ์" tabIndex={-1} aria-hidden="true"
+        style={{position:"absolute",left:"-10000px",top:0,width:800,height:1100}}/>}
       {paper!=="a5"&&<iframe ref={a5Ref} src={src("a5")}
         onLoad={()=>setA5Ready(true)}
         title="เอกสาร A5 สำหรับพิมพ์" tabIndex={-1} aria-hidden="true"
@@ -96,10 +113,15 @@ export function RecyclingReceiptDialog({
         {a5Error&&<p role="alert" className="text-xs font-semibold text-rose-700">{a5Error}</p>}
         <div className="flex flex-wrap items-center gap-2">
           <RecyclingPrintReceiptButton receiptId={transactionId} showBrowserButton={false}/>
+          <button type="button" disabled={!a4Ready} onClick={printA4}
+            data-testid="recycling-print-a4"
+            className="min-h-11 rounded-lg border border-blue-300 bg-blue-50 px-4 text-sm font-bold text-blue-900 disabled:opacity-40">
+            พิมพ์หลักฐาน A4
+          </button>
           <button type="button" disabled={!a5Ready} onClick={printA5}
             data-testid="recycling-print-a5"
             className="min-h-11 rounded-lg border border-blue-300 bg-blue-50 px-4 text-sm font-bold text-blue-900 disabled:opacity-40">
-            พิมพ์เอกสาร A5 (เครื่องพิมพ์ A4/A5)
+            พิมพ์หลักฐาน A5
           </button>
           <button type="button" onClick={onClose}
             className="ml-auto min-h-11 rounded-lg bg-slate-800 px-5 text-sm font-bold text-white">
@@ -108,7 +130,7 @@ export function RecyclingReceiptDialog({
         </div>
         <p className="text-[11px] leading-5 text-slate-500">
           ใบเสร็จความร้อนส่งเข้า Print Agent อัตโนมัติหลังบันทึกสำเร็จ (เมื่อกำหนดเครื่องพิมพ์แล้ว)
-          ส่วน A5 เปิดหน้าต่างพิมพ์ของ Windows/เบราว์เซอร์เพื่อเลือกเครื่อง A4/A5 และกระดาษตามไดรเวอร์
+          ส่วน A4/A5 เปิดหน้าต่างพิมพ์ของ Windows/เบราว์เซอร์เพื่อเลือกเครื่องและขนาดกระดาษตามไดรเวอร์ เอกสารนี้ยังไม่ใช่ใบกำกับภาษี
         </p>
       </footer>
     </section>
