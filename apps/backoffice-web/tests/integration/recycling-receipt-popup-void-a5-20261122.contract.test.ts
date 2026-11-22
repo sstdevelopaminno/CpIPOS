@@ -27,7 +27,7 @@ describe("CUSTOM Recycling receipt after atomic purchase/sale",()=>{
     expect(cashier).toContain('onClick={()=>setReceiptDialogOpen(true)}');
     expect(cashier).toContain('requestIdRef.current = ""');
     expect(dialog).toContain('data-testid="recycling-receipt-modal"');
-    expect(dialog).toContain('onClose={');
+    expect(dialog).toContain('onClick={onClose}');
     expect(ordinary).not.toContain("RecyclingReceiptDialog");
   });
   it("uses existing profile logo/address, device routing 58/80 and fallbacks when no printer",()=>{
