@@ -33,7 +33,8 @@ describe("CUSTOM Recycling independent history reports",()=>{
   expect(finance).toContain('transferInMinor');
   expect(finance).toContain('creditOutMinor');
   expect(view).toContain("ไม่รวมกับรายการขายของ POS ทั่วไป");
-  expect(view).toContain("ดูรายงานโหมดขายทั่วไป");
+  expect(view).not.toContain("ดูรายงานโหมดขายทั่วไป");
+  expect(view).not.toContain("report_mode=standard");
  });
  it("uses material snapshots and routes historical receipt to existing 58/80 print path",()=>{
   expect(service).toContain('.from("recycling_transaction_lines")');
@@ -41,7 +42,10 @@ describe("CUSTOM Recycling independent history reports",()=>{
   expect(service).toContain("sku_snapshot");
   expect(service).toContain("matchingLineIds");
   expect(view).toContain("ค้นหาบิล / วัสดุ / SKU");
-  expect(view).toContain("/preview/pos/recycling/receipts/");
+  expect(view).toContain("RecyclingReportDocumentAction");
+  expect(view).toContain("transactionId={r.id}");
+  expect(view).toContain("transactionId={t.id}");
+  expect(read("src/components/pos/recycling-report-document-action.tsx")).toContain("<RecyclingReceiptDialog");
   expect(view).toContain("เข้าสู่สาขาต้นทางเพื่อพิมพ์");
   expect(view).toContain('r.status==="voided"');
  });
