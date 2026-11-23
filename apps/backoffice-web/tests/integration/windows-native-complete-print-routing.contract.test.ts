@@ -114,6 +114,22 @@ describe("Windows local POS printing: sale, reprint, kitchen, shift, notices and
     expect(resolveWindowsAgentJob({ ...base, html: "<html>" + "X".repeat(250_001) })).toBeNull();
   });
 
+  it("limits 5s idle claim fallback to the authenticated fast Windows printer in the foreground", () => {
+    const route = read("src/app/api/pos/windows-print/agent/route.ts");
+    const worker = read("src/components/printing/windows-native-print-agent.tsx");
+    expect(route).toContain('metadata.target_runtime === "windows_native"');
+    expect(route).toContain('metadata.windows_device_code');
+    expect(route).toContain('windows_html_fast_renderer === true');
+    expect(route).toContain('prewarm_fast_html: prewarmFastHtml');
+    expect(worker).toContain('enrolledFastPrinter = response.prewarm_fast_html === true');
+    expect(worker).toContain('enrolledFastPrinter = false;');
+    expect(worker).toContain('idlePolls > 7 ? 30_000 : 12_000');
+    expect(worker).toContain('document.visibilityState === "visible"');
+    expect(worker).toContain('nextMs = Math.min(nextMs, 5_000)');
+    expect(worker).toContain('const waitMs = urgentWakePending ? 0 : nextMs;');
+    expect(worker).toContain('if (stopped || inFlight) return;');
+  });
+
   it("keeps Windows agent active after every secure claim and does not rely on stale registry data for drawers", () => {
     const route = read("src/app/api/pos/windows-print/agent/route.ts");
     const drawer = read("src/lib/printing/cash-drawer-controller-service.ts");
