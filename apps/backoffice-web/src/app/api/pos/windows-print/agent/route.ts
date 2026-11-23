@@ -93,6 +93,10 @@ export async function POST(req: Request) {
     if (profiles.length === 0) return storeNoCache(fail("windows_printer_not_assigned", "Owner must assign a Windows-native printer profile first.", 409));
     const prewarmFastHtml = profiles.some(profile =>
       asRecord(profile.metadata).windows_html_fast_renderer === true);
+    // Separate opt-in from HTML prewarm so enabling prewarm on another
+    // Windows store never silently raises its Vercel polling frequency.
+    const fastIdlePollMs = profiles.some(profile =>
+      asRecord(profile.metadata).windows_fast_idle_poll_ms === 5000) ? 5000 : null;
 
     const agentName = `Windows Native POS · ${session.device_code}`;
     const lookup = db.from("print_agents").select(AGENT_COLUMNS)
@@ -151,7 +155,8 @@ export async function POST(req: Request) {
         app_version: "windows-native-webpos-0.2.0"
       });
       const job = jobs[0] ?? null;
-      if (!job) return storeNoCache(ok({ jobs: [], prewarm_fast_html: prewarmFastHtml }));
+      if (!job) return storeNoCache(ok({ jobs: [], prewarm_fast_html: prewarmFastHtml,
+        fast_idle_poll_ms: fastIdlePollMs }));
       // Never reprint a sale completed while this Windows station was offline.
       // The leased stale job is explicitly parked as failed, not replayed.
       if (!Number.isFinite(Date.parse(job.created_at)) ||
@@ -187,6 +192,7 @@ export async function POST(req: Request) {
         : typeof metadata.order_no === "string" ? metadata.order_no : null;
       return storeNoCache(ok({
         prewarm_fast_html: prewarmFastHtml,
+        fast_idle_poll_ms: fastIdlePollMs,
         jobs: [{
           id: job.id,
           agent_attempt_id: job.agent_attempt_id,
