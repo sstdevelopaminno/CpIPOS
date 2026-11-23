@@ -37,6 +37,8 @@ describe("Grocery POS: separate SKU/category columns and show latest scanned pho
   it("uses only the grocery sidebar blank area; all other cart modes retain their original items", () => {
     expect(sales).toContain('const groceryRetail = !opticalRetailActive && startupRetailKind === "general_sale" && quickMode === "home"');
     expect(sales).toContain("<PosGroceryLastScannedPreview product={cart.length > 0 ? lastGroceryScannedProduct : null} language={lang} />");
+    expect(sales).toContain('data-testid="pos-grocery-cart-preview-region"');
+    expect(sales).toContain('<div className="hidden" aria-hidden="true">{renderCartList()}</div>');
     expect(sales).toContain(") : renderCartList()}");
     expect(sales).toContain("groceryRetail={groceryRetail}");
     expect(sales).toContain("previouslyHadCartItemsRef.current && cart.length === 0");
