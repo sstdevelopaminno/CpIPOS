@@ -33,6 +33,28 @@ describe("Windows local POS printing: sale, reprint, kitchen, shift, notices and
   });
 
 
+  it("uses a persistent Windows WebView2 host only behind per-device fast HTML opt-in",()=>{
+    const bridge=read("../windows-runtime-native/Cpipos.WindowsRuntime/LocalPrintBridge.cs");
+    const warm=read("../windows-runtime-native/Cpipos.WindowsRuntime/WarmHtmlReceiptPrinter.cs");
+    const route=read("src/app/api/pos/windows-print/agent/route.ts");
+    const worker=read("src/components/printing/windows-native-print-agent.tsx");
+    expect(bridge).toContain('request.Path == "/print/prewarm"');
+    expect(bridge).toContain('IsAuthorizedBridgeRequest(request)');
+    expect(bridge).toContain('fastSetting.ValueKind == JsonValueKind.True');
+    expect(bridge).toContain('_warmHtmlPrinter.PrintAsync');
+    expect(bridge).toContain('if (fastHtml)');
+    expect(warm).toContain("Application.Run(host)");
+    expect(warm).toContain("source.TrySetResult((host, browser))");
+    expect(warm).toContain("CoreWebView2.PrintAsync(settings)");
+    expect(route).toContain('windows_html_fast_renderer === true');
+    expect(route).toContain('prewarm_fast_html: prewarmFastHtml');
+    expect(route).toContain("fast_html: resolved.kind");
+    expect(worker).toContain('response.prewarm_fast_html === true');
+    expect(worker).toContain("void prewarmWindowsHtmlRenderer()");
+    expect(worker).toContain("fastHtml: job.fast_html === true");
+    expect(worker.indexOf("markAttempted(job.id)")).toBeLessThan(worker.indexOf("printWindowsReceiptHtml(job.html"));
+  });
+
   it("accepts an offscreen Thai HTML receipt after DOM readiness instead of checking innerText on a Promise", () => {
     const bridge = read("../windows-runtime-native/Cpipos.WindowsRuntime/LocalPrintBridge.cs");
     expect(bridge).toContain("body.textContent");
