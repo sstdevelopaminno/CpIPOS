@@ -177,7 +177,8 @@ export async function queueRoutedRecyclingReceipt(args: {
   });
   const jobs = [];
   for (const route of routes) {
-    for (let copy=1;copy<=route.copies;copy+=1) {
+      // All copies of a receipt share the same immutable HTML/text payload.
+      // Render once per route, not once per paper copy.
       const printerMetadata=route.printer.metadata && typeof route.printer.metadata==="object" &&
         !Array.isArray(route.printer.metadata) ? route.printer.metadata as Record<string,unknown> : {};
       const centerOnPaper=printerMetadata.target_runtime==="windows_native" &&
@@ -219,6 +220,7 @@ export async function queueRoutedRecyclingReceipt(args: {
         ]:[]),
         `รวม ${thaiMoney(Number(tx.data.total_minor))} บาท`,
         taxNotice].join("\n");
+      for (let copy=1;copy<=route.copies;copy+=1) {
       const requestKey=`rcy:${args.transactionId}:${args.requestId}:${route.printer.id}:${copy}`.slice(0,180);
       // The queue has a unique (tenant_id, branch_id, idempotency_key) index.
       // enqueuePrintJob returns the existing scoped job on a duplicate key.
