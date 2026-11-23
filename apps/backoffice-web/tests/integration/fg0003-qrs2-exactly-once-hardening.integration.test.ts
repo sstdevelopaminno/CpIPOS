@@ -54,11 +54,12 @@ describe("Restaurant QR exactly-once hardening contracts", () => {
     expect(qrOrdering).toContain('lifecycle: "restaurant_qr_pos_review_v1"');
   });
 
-  it("returns existing Restaurant QR print jobs on duplicate idempotency and separates routed copies", () => {
-    expect(printService).toContain("isRestaurantQrScope");
+  it("preserves Restaurant QR exactly-once semantics under global scoped print idempotency", () => {
     expect(printService).toContain("isUniqueConstraintError");
     expect(printService).toContain("loadExistingPrintJobByIdempotencyKey");
-    expect(printService).toContain("if (existing) return existing");
+    expect(printService).toContain("if (existing) {");
+    expect(printService).toContain("print_idempotency_key_conflict");
+    expect(printService).toContain("printer_scope_mismatch");
     expect(routedPrintService).toContain("buildRoutePrintIdempotencyKey");
     expect(routedPrintService).toContain("printer:${args.route.printer.id}");
     expect(routedPrintService).toContain("device:${args.route.printerDeviceId");
