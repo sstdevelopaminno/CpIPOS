@@ -21,11 +21,11 @@ describe("Recycling barcode thermal printing",()=>{
    expect(small.widthMm).toBeLessThan(medium.widthMm);
    expect(medium.widthMm).toBeLessThanOrEqual(large.widthMm);
    expect(large.widthMm).toBeLessThanOrEqual(full.widthMm);
-   expect(full.widthMm).toBeLessThanOrEqual(paper===80?70:48);
+   expect(full.widthMm).toBeLessThanOrEqual(paper===80?64:44);
    expect(full.widthMm/full.modules).toBeGreaterThanOrEqual(0.20);
    const html=renderRecyclingBarcodeLabel({sku,name:"เหล็กแท่ง",branchName:"สาขาหลัก",paper,size:"large",centerOnPaper:true});
    expect(html).toContain('width:'+large.widthMm.toFixed(2)+'mm;max-width');
-   expect(html).toContain('margin-left:'+(paper===80?5:5)+'mm');
+   expect(html).toContain('margin-left:'+(paper===80?8:7)+'mm');
    expect(html).toContain('role="img"');
   }
  });
