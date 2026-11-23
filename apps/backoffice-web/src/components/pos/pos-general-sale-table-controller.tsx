@@ -5,6 +5,7 @@ import { formatSalesMoney, normalizeSalesCurrency } from "@/lib/pos-money";
 import { generalSaleUi, type GeneralSaleLanguage } from "@/lib/pos-general-sale-i18n";
 import { POS_MODE_FEATURES } from "@/lib/pos-feature-map";
 import { isAuthorizedOpticalRetailMode } from "@/lib/pos-sales-modes";
+import { asciiKeyFromScannerCode, validatedGroceryScanQuantity } from "@/lib/grocery-scan-input";
 import {
   buildGeneralSaleCartTableRows,
   buildGeneralSaleCartTableSignature,
@@ -95,7 +96,7 @@ function formatMoney(value: number): string {
   ));
 }
 
-function addLookupProductToReactCart(product: GeneralSaleLookupProduct): Promise<GeneralSaleAddProductResult["status"] | "timeout"> {
+function addLookupProductToReactCart(product: GeneralSaleLookupProduct, quantity = 1): Promise<GeneralSaleAddProductResult["status"] | "timeout"> {
   return new Promise((resolve) => {
     const requestId = createRequestId();
     let settled = false;
@@ -116,7 +117,7 @@ function addLookupProductToReactCart(product: GeneralSaleLookupProduct): Promise
 
     const timeoutId = window.setTimeout(() => finish("timeout"), CART_BRIDGE_TIMEOUT_MS);
     window.addEventListener(GENERAL_SALE_ADD_PRODUCT_RESULT_EVENT, onResult as EventListener);
-    const detail: GeneralSaleAddProductRequest = { requestId, product };
+    const detail: GeneralSaleAddProductRequest = { requestId, product, quantity };
     window.dispatchEvent(new CustomEvent<GeneralSaleAddProductRequest>(GENERAL_SALE_ADD_PRODUCT_EVENT, { detail }));
   });
 }
@@ -414,7 +415,10 @@ export function PosGeneralSaleTableController({ lang = "th" }: { lang?: Lang }) 
     let opticalLastKeyAt = 0;
     let opticalFastKeyCount = 0;
     let opticalPastedCode = false;
-    const scanQueue: string[] = [];
+    let groceryScanTimer: number | null = null;
+    let groceryLastKeyAt = 0;
+    let groceryFastKeyCount = 0;
+    const scanQueue: Array<{ code: string; quantity: number }> = [];
     const lookupProductsById = new Map<string, GeneralSaleLookupProduct>();
     const copy = generalSaleUi[lang];
 
@@ -468,6 +472,9 @@ export function PosGeneralSaleTableController({ lang = "th" }: { lang?: Lang }) 
       }
       opticalFastKeyCount = 0;
       opticalPastedCode = false;
+      if (groceryScanTimer !== null) window.clearTimeout(groceryScanTimer);
+      groceryScanTimer = null;
+      groceryFastKeyCount = 0;
       if (opticalBillScanTimer !== null) {
         window.clearTimeout(opticalBillScanTimer);
         opticalBillScanTimer = null;
@@ -681,7 +688,19 @@ export function PosGeneralSaleTableController({ lang = "th" }: { lang?: Lang }) 
       tableRenderTimer = window.setTimeout(renderTable, delayMs);
     };
 
-    const submitScan = async (rawCode: string, status: HTMLElement, input: HTMLInputElement, submit: HTMLButtonElement) => {
+    const submitScan = async (rawCode: string, status: HTMLElement, input: HTMLInputElement, submit: HTMLButtonElement, requestedQuantity?: number) => {
+      const amountInput = scannerPanel?.querySelector<HTMLInputElement>('[data-pos-grocery-scan-quantity="1"]');
+      const quantity = opticalActive ? 1 : (requestedQuantity ?? validatedGroceryScanQuantity(amountInput?.value ?? "1"));
+      if (quantity === null || !Number.isSafeInteger(quantity) || quantity < 1 || quantity > 9999) {
+        status.textContent = lang === "th" ? "จำนวนต้องเป็นเลขจำนวนเต็ม 1–9999" : "Quantity must be a whole number from 1 to 9999";
+        status.dataset.tone = "error";
+        amountInput?.focus();
+        return;
+      }
+      if (groceryScanTimer !== null) {
+        window.clearTimeout(groceryScanTimer);
+        groceryScanTimer = null;
+      }
       const originalSku = rawCode.trim();
       const scanCode = normalizeGeneralSaleScanCode(originalSku);
       if (!scanCode) {
@@ -698,7 +717,7 @@ export function PosGeneralSaleTableController({ lang = "th" }: { lang?: Lang }) 
           status.dataset.tone = "error";
           return;
         }
-        scanQueue.push(opticalActive ? originalSku : scanCode);
+        scanQueue.push({ code: opticalActive ? originalSku : originalSku, quantity });
         status.textContent = lang === "lo" ? `ເພີ່ມ ${scanCode} ເຂົ້າຄິວແລ້ວ · ລໍຖ້າ ${scanQueue.length} ລາຍການ` : lang === "th" ? `รับรหัส ${scanCode} เข้าคิวแล้ว · รอ ${scanQueue.length} รายการ` : `Queued ${scanCode} · ${scanQueue.length} waiting`;
         status.dataset.tone = "pending";
         return;
@@ -711,15 +730,13 @@ export function PosGeneralSaleTableController({ lang = "th" }: { lang?: Lang }) 
       status.dataset.tone = "pending";
       const lookupStartedAt = window.performance.now();
       const controller = new AbortController();
-      const lookupTimeout = opticalActive
-        ? window.setTimeout(() => controller.abort(), PRODUCT_LOOKUP_TIMEOUT_MS)
-        : null;
+      const lookupTimeout = window.setTimeout(() => controller.abort(), PRODUCT_LOOKUP_TIMEOUT_MS);
       try {
         // One exact SKU lookup per completed scan; never on each keystroke.
-        const response = await fetch(`/api/pos/products/lookup?sku=${encodeURIComponent(opticalActive ? originalSku : scanCode)}`, {
+        const response = await fetch(`/api/pos/products/lookup?sku=${encodeURIComponent(originalSku)}`, {
           cache: "no-store",
           credentials: "include",
-          ...(opticalActive ? { signal: controller.signal } : {})
+          signal: controller.signal
         });
         const body = (await response.json().catch(() => null)) as ProductLookupResponse | null;
         if (!response.ok || body?.error || !body?.data?.product) {
@@ -737,7 +754,7 @@ export function PosGeneralSaleTableController({ lang = "th" }: { lang?: Lang }) 
           status.dataset.tone = "error";
           return;
         }
-        const bridgeStatus = await addLookupProductToReactCart(product);
+        const bridgeStatus = await addLookupProductToReactCart(product, quantity);
         if (destroyed || !generalSaleActive) return;
         if (bridgeStatus !== "added") {
           status.textContent = copy.addFailed;
@@ -746,6 +763,7 @@ export function PosGeneralSaleTableController({ lang = "th" }: { lang?: Lang }) 
         }
         status.textContent = lang === "lo" ? `ເພີ່ມ ${product.name} (${scanCode}) ໃນຕາຕະລາງແລ້ວ` : lang === "th" ? `เพิ่ม ${product.name} (${scanCode}) ลงตารางแล้ว` : `Added ${product.name} (${scanCode}) to the table.`;
         status.dataset.tone = "success";
+        if (!opticalActive && amountInput) amountInput.value = "1";
         status.dataset.scanElapsedMs = String(Math.round(window.performance.now() - lookupStartedAt));
         scheduleTableRender(0);
       } catch {
@@ -759,7 +777,7 @@ export function PosGeneralSaleTableController({ lang = "th" }: { lang?: Lang }) 
         // Do not steal focus when the cashier is entering a deposit/bill reference.
         if (document.activeElement === input || document.activeElement === document.body) input.focus();
         const nextCode = scanQueue.shift();
-        if (nextCode && !destroyed && generalSaleActive) window.setTimeout(() => void submitScan(nextCode, status, input, submit), 0);
+        if (nextCode && !destroyed && generalSaleActive) window.setTimeout(() => void submitScan(nextCode.code, status, input, submit, nextCode.quantity), 0);
       }
     };
 
@@ -806,13 +824,32 @@ export function PosGeneralSaleTableController({ lang = "th" }: { lang?: Lang }) 
       const productGroup = document.createElement("div");
       productGroup.className = "min-w-0";
       const form = document.createElement("form");
-      form.className = opticalActive ? "flex max-w-[440px] items-center gap-2" : "grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]";
+      form.className = opticalActive ? "flex max-w-[440px] items-center gap-2" : "flex flex-wrap items-end gap-2";
+      if (!opticalActive) {
+        const quantityLabel = document.createElement("label");
+        quantityLabel.className = "grid shrink-0 gap-1 text-xs font-bold text-emerald-900";
+        quantityLabel.textContent = lang === "en" ? "Quantity" : lang === "lo" ? "ຈຳນວນ" : "จำนวน";
+        const qtyInput = document.createElement("input");
+        qtyInput.type = "number";
+        qtyInput.min = "1";
+        qtyInput.max = "9999";
+        qtyInput.step = "1";
+        qtyInput.value = "1";
+        qtyInput.inputMode = "numeric";
+        qtyInput.dataset.posGroceryScanQuantity = "1";
+        qtyInput.className = "posui-payment-modal__input w-24 text-center font-extrabold tabular-nums";
+        qtyInput.setAttribute("aria-label", lang === "th" ? "จำนวนสินค้าที่จะสแกน" : "Quantity for next scan");
+        quantityLabel.appendChild(qtyInput);
+        form.appendChild(quantityLabel);
+      }
       const input = document.createElement("input");
       input.type = "text";
       input.inputMode = "text";
       input.autocomplete = "off";
       input.spellcheck = false;
-      if (opticalActive) input.maxLength = 128;
+      input.lang = "en";
+      input.setAttribute("autocapitalize", "characters");
+      input.maxLength = 128;
       input.className = "posui-payment-modal__input min-w-0 flex-1";
       input.placeholder = opticalActive ? copy.opticalPlaceholder : copy.groceryPlaceholder;
       input.setAttribute("aria-label", copy.skuAria);
@@ -824,7 +861,9 @@ export function PosGeneralSaleTableController({ lang = "th" }: { lang?: Lang }) 
       const status = document.createElement("small");
       status.className = "block min-h-4 pt-1 text-xs font-bold text-slate-600";
       status.setAttribute("aria-live", "polite");
+      if (!opticalActive) input.classList.add("min-w-[190px]", "flex-[1_1_240px]");
       form.append(input, submit);
+      if (!opticalActive) submit.classList.add("sr-only", "focus:not-sr-only");
       form.addEventListener("submit", (event) => {
         event.preventDefault();
         if (opticalAutoScanTimer !== null) {
@@ -839,6 +878,45 @@ export function PosGeneralSaleTableController({ lang = "th" }: { lang?: Lang }) 
         if (!value) return;
         void submitScan(value, status, input, submit);
       });
+      if (!opticalActive) {
+        // Keyboard-wedge scanners on a Thai host layout still send physical
+        // KeyA/KeyB/Digit0 codes. Translate only inside this ASCII barcode field.
+        input.addEventListener("keydown", (event) => {
+          if (event.isComposing || event.ctrlKey || event.altKey || event.metaKey) return;
+          if (event.key.length !== 1) return;
+          const now = window.performance.now();
+          groceryFastKeyCount = now - groceryLastKeyAt <= OPTICAL_SCAN_KEY_INTERVAL_MS ? groceryFastKeyCount + 1 : 1;
+          groceryLastKeyAt = now;
+          const mapped = asciiKeyFromScannerCode(event.code, event.key, event.shiftKey);
+          if (!mapped) return;
+          event.preventDefault();
+          const cursor = input.selectionStart ?? input.value.length;
+          const end = input.selectionEnd ?? cursor;
+          input.setRangeText(mapped, cursor, end, "end");
+          input.dispatchEvent(new Event("input", { bubbles: true }));
+        });
+        input.addEventListener("input", (event) => {
+          if (groceryScanTimer !== null) window.clearTimeout(groceryScanTimer);
+          groceryScanTimer = null;
+          const raw = input.value.trim();
+          const paste = event instanceof InputEvent &&
+            (event.inputType === "insertFromPaste" || (event.data?.length ?? 0) >= 4);
+          if (!raw || raw.length < 4 || (!paste && groceryFastKeyCount < 5)) return;
+          // Single lookup after a completed scan burst (or paste), never one
+          // request per character. A manual SKU remains Enter-to-confirm.
+          groceryScanTimer = window.setTimeout(() => {
+            groceryScanTimer = null;
+            if (destroyed || opticalActive || !generalSaleActive || input.value.trim() !== raw) return;
+            groceryFastKeyCount = 0;
+            void submitScan(raw, status, input, submit);
+          }, paste ? 0 : OPTICAL_SCAN_IDLE_MS);
+        });
+        input.addEventListener("blur", () => {
+          if (groceryScanTimer !== null) window.clearTimeout(groceryScanTimer);
+          groceryScanTimer = null;
+          groceryFastKeyCount = 0;
+        });
+      }
       if (opticalActive) {
         // Automatic after barcode/paste/typing settles, including scanners
         // without an Enter suffix. No per-keystroke backend requests.
