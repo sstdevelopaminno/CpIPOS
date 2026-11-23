@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { isValidProductSku, normalizeProductSku } from "@/lib/product-sku";
 import { mergeCategoryCountItems } from "@/lib/pos/category-normalization";
 
 type CategoryItem = {
@@ -18,6 +19,7 @@ type IngredientItem = {
 
 type ProductItem = {
   id: string;
+  sku?: string | null;
   name: string;
   category: string | null;
   price: number;
@@ -146,6 +148,7 @@ export function EditProductPopupButton({
   const [categoryCustomMode, setCategoryCustomMode] = useState(false);
   const [categoryCustomName, setCategoryCustomName] = useState("");
   const [productName, setProductName] = useState(product.name);
+  const [skuInput, setSkuInput] = useState(product.sku ?? "");
   const [isRecommended, setIsRecommended] = useState(product.isRecommended === true);
   const [stockQuantity, setStockQuantity] = useState("0");
   const [storePrice, setStorePrice] = useState(String(product.price));
@@ -170,6 +173,7 @@ export function EditProductPopupButton({
   useEffect(() => {
     setCategoryName(product.category ?? "");
     setProductName(product.name);
+    setSkuInput(product.sku ?? "");
     setStorePrice(String(product.price));
     setSpecialPrice(product.specialPrice == null ? "" : String(product.specialPrice));
     setDeliveryPrice(String(product.deliveryPrice));
@@ -201,6 +205,7 @@ export function EditProductPopupButton({
     setCategoryCustomName("");
     setCategoryName(product.category ?? "");
     setProductName(product.name);
+    setSkuInput(product.sku ?? "");
     setStorePrice(String(product.price));
     setSpecialPrice(product.specialPrice == null ? "" : String(product.specialPrice));
     setDeliveryPrice(String(product.deliveryPrice));
@@ -340,6 +345,11 @@ export function EditProductPopupButton({
 
     const resolvedCategory = categoryCustomMode ? categoryCustomName.trim() : categoryName.trim();
     const resolvedName = productName.trim();
+    const normalizedSku = normalizeProductSku(skuInput);
+    if (!isValidProductSku(normalizedSku)) {
+      setErrorText(th ? "SKU ต้องมี 1–40 ตัว ใช้อักษรอังกฤษ ตัวเลข - _ . เท่านั้น" : "SKU must be 1–40 ASCII letters, digits, - _ . only.");
+      return;
+    }
     const resolvedStock = Number(stockQuantity);
     const resolvedStorePrice = Number(storePrice);
     const resolvedSpecialPrice = specialPrice.trim() === "" ? null : Number(specialPrice);
@@ -407,6 +417,7 @@ export function EditProductPopupButton({
           action: "update_product_with_stock_setup",
           branch_id: branchId,
           product_id: product.id,
+          sku: normalizedSku,
           name: resolvedName,
           category: resolvedCategory,
           stock_quantity: useIngredientRecipe ? 0 : resolvedStock,
@@ -512,6 +523,10 @@ export function EditProductPopupButton({
               </label>
 
               <label className="grid gap-1 text-xs font-semibold text-slate-700"><span>{th ? "ชื่อสินค้า" : "Product Name"}</span><input value={productName} onChange={(event) => setProductName(event.target.value)} className="min-h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900" /></label>
+              <label className="grid gap-1 text-xs font-semibold text-slate-700"><span>{th ? "รหัสสินค้า SKU / บาร์โค้ด (แก้ไขได้)" : "SKU / Barcode (editable)"}</span>
+                <input value={skuInput} onChange={(event) => setSkuInput(event.target.value)} lang="en" autoCapitalize="characters" maxLength={40} placeholder="SKU-001" className="min-h-10 rounded-lg border border-blue-300 bg-white px-3 font-mono text-sm text-slate-900" />
+                <small className="text-xs text-slate-500">{th ? "รหัสต้องไม่ซ้ำในร้าน/สาขา และใช้สำหรับยิงและพิมพ์บาร์โค้ด" : "Must be unique in the branch; used for scanning and printing."}</small>
+              </label>
               <label className="grid gap-1 text-xs font-semibold text-slate-700"><span>{th ? "ราคาหน้าร้าน" : "Store Price"}</span><input value={storePrice} onChange={(event) => setStorePrice(event.target.value)} type="number" min={0} step="0.01" className="min-h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900" /></label>
               <label className="grid gap-1 text-xs font-semibold text-amber-800">
                 <span>{th ? "ราคาพิเศษ" : "Special Price"}</span>
