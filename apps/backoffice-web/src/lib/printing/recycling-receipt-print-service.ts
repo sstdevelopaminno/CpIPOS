@@ -159,6 +159,16 @@ export async function queueRoutedRecyclingReceipt(args: {
     runtimeDeviceCode:args.runtimeDeviceCode,legacyRole:"receipt"
   });
   if (!routes.length) throw new Error("recycling_receipt_printer_not_configured");
+  // Accelerated Windows polling is explicit per printer profile, not enabled
+  // for Android, other Windows stores, or unassigned branch/device routes.
+  const fastWindowsWake = routes.some(route => {
+    const meta = route.printer.metadata && typeof route.printer.metadata === "object" &&
+      !Array.isArray(route.printer.metadata)
+      ? route.printer.metadata as Record<string,unknown> : {};
+    return meta.target_runtime === "windows_native" &&
+      meta.windows_receipt_fast_wake === true &&
+      meta.windows_device_code === args.runtimeDeviceCode;
+  });
   const jobs = [];
   for (const route of routes) {
     for (let copy=1;copy<=route.copies;copy+=1) {
@@ -257,6 +267,7 @@ export async function queueRoutedRecyclingReceipt(args: {
   }
   return jobs.map(job=>({
     id:job.id,status:job.status,printer_id:job.printer_id,
-    printed_at:job.printed_at,last_error:job.last_error
+    printed_at:job.printed_at,last_error:job.last_error,
+    fast_wake:fastWindowsWake
   }));
 }
