@@ -14,6 +14,7 @@ export function RecyclingPrintReceiptButton({ receiptId, showBrowserButton = tru
     setPending(true);
     setStatus("");
     setError("");
+    window.dispatchEvent(new Event("cpi-windows-fast-print-prime"));
     try {
       const response=await fetch(`/api/pos/recycling/receipts/${receiptId}/print`,{
         method:"POST",credentials:"same-origin",

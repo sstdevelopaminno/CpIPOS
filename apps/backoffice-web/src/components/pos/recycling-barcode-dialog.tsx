@@ -29,6 +29,7 @@ export function RecyclingBarcodeDialog({item,branchId,branchName,onClose}:{
  async function print(){
   if(!valid||busy)return;
   setBusy(true);setError("");setNotice("");
+  window.dispatchEvent(new Event("cpi-windows-fast-print-prime"));
   try{
    const response=await fetch("/api/pos/recycling/barcodes/print",{
     method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},

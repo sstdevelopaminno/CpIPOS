@@ -23,6 +23,7 @@ export function RecyclingSummaryPrintButton({filters}:{filters:RecyclingReportQu
  async function run(){
   if(!open||busy||attempted)return;
   setBusy(true);setAttempted(true);setNotice("");setError("");
+  window.dispatchEvent(new Event("cpi-windows-fast-print-prime"));
   try{
    const response=await fetch("/api/pos/recycling/reports/print",{
     method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},

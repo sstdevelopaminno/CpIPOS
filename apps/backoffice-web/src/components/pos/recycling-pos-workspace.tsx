@@ -85,6 +85,20 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
     }else setSearch(next);
   }
   const [searchMode,setSearchMode]=useState<"barcode"|"name">("barcode");
+  const [searchPreferencesOpen,setSearchPreferencesOpen]=useState(false);
+  const searchPreferencesButtonRef=useRef<HTMLButtonElement>(null);
+  const searchPreferencesCloseRef=useRef<HTMLButtonElement>(null);
+  useEffect(()=>{
+    if(searchPreferencesOpen) window.requestAnimationFrame(()=>searchPreferencesCloseRef.current?.focus());
+  },[searchPreferencesOpen]);
+  function selectScannerMode(next:"barcode"|"name"){
+    setSearchMode(next);
+    updateScannerSearch("");
+    setScanFeedback("idle");
+    setCatalogPage(1);
+    setSearchPreferencesOpen(false);
+    window.requestAnimationFrame(()=>scannerRef.current?.focus());
+  }
   const [selectedCategory,setSelectedCategory]=useState("all");
   const [catalogPage,setCatalogPage]=useState(1);
   const [error, setError] = useState("");
@@ -744,6 +758,14 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
   // browser shortcuts never install global keyboard handlers.
   function onWorkspaceKeyDown(event:KeyboardEvent<HTMLElement>){
     if(event.defaultPrevented||event.nativeEvent.isComposing)return;
+    if(searchPreferencesOpen){
+      if(event.key==="Escape"){
+        event.preventDefault();event.stopPropagation();
+        setSearchPreferencesOpen(false);
+        window.requestAnimationFrame(()=>searchPreferencesButtonRef.current?.focus());
+      }
+      return;
+    }
     if(event.key==="Escape"){
       if(posting)return; // never dismiss an in-flight payment
       if(!scanErrorPopup&&!pending&&!checkoutOpen&&!cancelOpen&&!heldOpen)return;
@@ -856,6 +878,14 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
       <section className="recycling-scanner-panel flex min-h-0 min-w-0 flex-col bg-white p-3">
         <div className="flex items-center justify-between gap-3">
           <h2 className="text-base font-extrabold text-slate-900">ยิงบาร์โค้ด / ค้นหาวัสดุ</h2>
+          <div className="flex shrink-0 items-center gap-2">
+            <button type="button" ref={searchPreferencesButtonRef}
+              data-testid="recycling-scanner-search-settings"
+              aria-haspopup="dialog" aria-expanded={searchPreferencesOpen}
+              onClick={()=>setSearchPreferencesOpen(true)}
+              className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-bold text-blue-800 hover:bg-blue-100">
+              <span aria-hidden="true">⚙</span> ตั้งค่าค้นหา
+            </button>
           <span data-testid="recycling-scanner-feedback" role="status" aria-live="polite"
             className="inline-flex items-center gap-2 rounded-lg bg-slate-100 px-2 py-1 text-xs text-slate-600">
             <span aria-hidden="true" className={"h-2.5 w-2.5 rounded-full " +
@@ -864,19 +894,37 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
             {products.length} รายการ
             <span className="sr-only">{scanFeedback==="success"?"สแกนสำเร็จ":scanFeedback==="error"?"สแกนผิดพลาด":"พร้อมสแกน"}</span>
           </span>
+          </div>
         </div>
-        <div className="mt-3 flex flex-wrap items-center gap-2" role="group" aria-label="วิธีค้นหาวัสดุ">
-          <button type="button" aria-pressed={searchMode==="barcode"}
-            onClick={()=>{setSearchMode("barcode");updateScannerSearch("");setScanFeedback("idle");setCatalogPage(1);scannerRef.current?.focus();}}
-            className={"rounded-md border px-3 py-1.5 text-xs font-bold "+(searchMode==="barcode"?"border-blue-600 bg-blue-600 text-white":"border-slate-200 bg-white text-slate-600")}>
-            สแกนบาร์โค้ด (EN อัตโนมัติ)
-          </button>
-          <button type="button" aria-pressed={searchMode==="name"}
-            onClick={()=>{setSearchMode("name");updateScannerSearch("");setScanFeedback("idle");setCatalogPage(1);scannerRef.current?.focus();}}
-            className={"rounded-md border px-3 py-1.5 text-xs font-bold "+(searchMode==="name"?"border-blue-600 bg-blue-600 text-white":"border-slate-200 bg-white text-slate-600")}>
-            ค้นหาชื่อวัสดุ (ไทย/อังกฤษ)
-          </button>
-        </div>
+        {searchPreferencesOpen&&<div role="presentation" className="fixed inset-0 z-[1760] flex items-center justify-center bg-slate-950/70 p-4"
+          onMouseDown={event=>{if(event.target===event.currentTarget){setSearchPreferencesOpen(false);searchPreferencesButtonRef.current?.focus();}}}>
+          <section role="dialog" aria-modal="true" aria-labelledby="recycling-scanner-search-settings-title"
+            data-testid="recycling-scanner-search-settings-modal"
+            onKeyDown={event=>{if(event.key==="Escape"){event.preventDefault();event.stopPropagation();setSearchPreferencesOpen(false);searchPreferencesButtonRef.current?.focus();}else event.stopPropagation();}}
+            className="w-full max-w-md rounded-xl border border-slate-200 bg-white p-5 text-slate-900 shadow-2xl">
+            <div className="flex items-center justify-between gap-3">
+              <h3 id="recycling-scanner-search-settings-title" className="text-base font-extrabold">วิธีค้นหาวัสดุ</h3>
+              <button type="button" ref={searchPreferencesCloseRef} onClick={()=>{setSearchPreferencesOpen(false);searchPreferencesButtonRef.current?.focus();}}
+                className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold">ปิด (Esc)</button>
+            </div>
+            <p className="mt-2 text-sm text-slate-600">เลือกวิธีค้นหาเพื่อใช้งานในช่องค้นหาเดิมของหน้าขาย</p>
+            <div className="mt-4 grid gap-3">
+              <button type="button" aria-pressed={searchMode==="barcode"}
+                onClick={()=>selectScannerMode("barcode")}
+                className={"min-h-12 rounded-lg border px-4 py-3 text-left text-sm font-bold "+(searchMode==="barcode"?"border-blue-600 bg-blue-600 text-white":"border-slate-300 bg-white text-slate-800")}>
+                สแกนบาร์โค้ด (EN อัตโนมัติ)
+              </button>
+              <button type="button" aria-pressed={searchMode==="name"}
+                onClick={()=>selectScannerMode("name")}
+                className={"min-h-12 rounded-lg border px-4 py-3 text-left text-sm font-bold "+(searchMode==="name"?"border-blue-600 bg-blue-600 text-white":"border-slate-300 bg-white text-slate-800")}>
+                ค้นหาชื่อวัสดุ (ไทย/อังกฤษ)
+              </button>
+            </div>
+          </section>
+        </div>}
+        <span data-testid="recycling-search-mode-label" className="mt-2 text-xs font-semibold text-slate-500">
+          โหมดปัจจุบัน: {searchMode==="barcode"?"สแกนบาร์โค้ด (EN อัตโนมัติ)":"ค้นหาชื่อวัสดุ (ไทย/อังกฤษ)"}
+        </span>
         <label className="mt-2 block text-sm font-semibold text-slate-700" htmlFor="recycling-barcode">
           {searchMode==="barcode"?"รหัสสินค้า / SKU":"ชื่อวัสดุ / ประเภท / SKU"}
         </label>

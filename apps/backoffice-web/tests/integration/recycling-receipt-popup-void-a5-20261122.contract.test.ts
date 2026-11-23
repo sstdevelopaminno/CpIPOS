@@ -76,10 +76,11 @@ describe("CUSTOM Recycling receipt after atomic purchase/sale",()=>{
     const configured={is_enabled:true as const,calculation_base:"net_after_discount" as const,
       lines:[{id:"vat-7",label:"VAT 7%",rate_pct:7,
         mode:"add_to_bill" as const,is_active:true}]};
-    expect(recyclingReceiptTaxNotice(configured)).toContain("ตั้งค่าภาษีของสาขาเปิดอยู่");
+    expect(recyclingReceiptTaxNotice(configured)).toContain("ยอดนี้ไม่ได้แยกภาษี");
+    expect(recyclingReceiptTaxNotice(configured)).toContain("กรุณาติดต่อฝ่ายบัญชี");
     expect(recyclingReceiptTaxNotice(configured)).toContain("ไม่ใช่ใบกำกับภาษี");
     expect(recyclingReceiptTaxNotice({...configured,is_enabled:false})).toBe(
-      "เอกสารซื้อขายทั่วไป ไม่ใช่ใบกำกับภาษี");
+      "เอกสารซื้อขายทั่วไป ไม่ใช่ใบกำกับภาษี หากต้องการใบกำกับภาษี กรุณาติดต่อฝ่ายบัญชี");
     expect(autoPrint).toContain("loadTaxSettings(args.auth)");
     expect(autoPrint).toContain("documentNotice:isTaxRecorded");
     expect(autoPrint).toContain("taxAmount:vat/100");
@@ -118,7 +119,9 @@ describe("CUSTOM Recycling invoice corrections / VOID through sales-list modal",
   });
   it("does not directly edit posted prices/weights/stock without audited reversal",()=>{
     expect(actions).toContain("ไม่อนุญาตให้แก้ยอดเงิน น้ำหนัก ราคาหรือคู่ค้าในเอกสารเดิมโดยตรง");
-    expect(actions).toContain("ยกเลิกต้นฉบับตามสิทธิ์ แล้วจึงสร้างบิลใหม่");
+    expect(actions).toContain("แล้วใช้คำสั่ง VOID ตามสิทธิ์");
+    expect(actions).toContain("จากนั้นจึงออกบิลใหม่");
+    expect(actions).toContain("ส่งคำขอให้ฝ่ายบัญชี");
     expect(actions).not.toContain("/api/pos/recycling/transactions/"+'"+receiptId+"/edit');
     expect(actions).not.toContain(".update(");
     expect(voidRoute).toContain('process.env.RECYCLING_VOID_ENABLED!=="1"');

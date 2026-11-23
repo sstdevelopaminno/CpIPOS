@@ -182,6 +182,14 @@ export function WindowsNativePrintAgent() {
       }
     }
 
+    // UI can signal that it is ABOUT to enqueue a new receipt/barcode/report.
+    // Prime the agent only for the explicitly enrolled fast Windows profile;
+    // other stores retain their original network/idle polling behavior.
+    function primeFastPrint() {
+      if (!enrolledFastPrinter || authenticatedFastIdlePollMs !== 5000 ||
+          document.visibilityState !== "visible") return;
+      wake(new Event("cpi-windows-print-agent-wake"));
+    }
     function wake(event?: Event) {
       if (stopped) return;
       fastPollingActiveUntil = Date.now() + 120_000;
@@ -204,6 +212,7 @@ export function WindowsNativePrintAgent() {
     window.addEventListener("pointerdown", onCashierActivity, { passive: true });
     window.addEventListener("keydown", onCashierActivity);
     window.addEventListener("cpi-windows-print-agent-wake", wake);
+    window.addEventListener("cpi-windows-fast-print-prime", primeFastPrint);
     window.addEventListener("focus", wake);
     document.addEventListener("visibilitychange", onVisibilityChange);
     void poll();
@@ -211,6 +220,7 @@ export function WindowsNativePrintAgent() {
       stopped = true;
       window.removeEventListener("pointerdown", onCashierActivity);
       window.removeEventListener("keydown", onCashierActivity);
+      window.removeEventListener("cpi-windows-fast-print-prime", primeFastPrint);
       window.removeEventListener("cpi-windows-print-agent-wake", wake);
       window.removeEventListener("focus", wake);
       document.removeEventListener("visibilitychange", onVisibilityChange);

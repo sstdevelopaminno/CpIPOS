@@ -8,7 +8,7 @@ import { loadReceiptStoreProfile } from "@/lib/services/store-profile-service";
 import { renderReceiptHtml } from "@/lib/printing/receipt-html-template";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 import { loadTaxSettings } from "@/lib/services/pos-settings-service";
-import { recyclingReceiptTaxNotice } from "@/lib/printing/recycling-tax-receipt-note";
+import { recyclingReceiptTaxNotice, RECYCLING_RECEIPT_ACCOUNTING_NOTICE } from "@/lib/printing/recycling-tax-receipt-note";
 
 type MaterialLine = {
   line_no: number;
@@ -103,8 +103,8 @@ export function renderRecyclingSharedReceipt(args: {
     // A Recycling purchase is a cash payout, not cash received/change.
     hideCashTenderBreakdown:isBuy,
     documentNotice:isTaxRecorded
-      ? "VAT 7% บันทึกจากบิลเดิม · เอกสารนี้เป็นใบเสร็จ ไม่ใช่ใบกำกับภาษี"
-      : args.taxNotice??"เอกสารซื้อขายทั่วไป ไม่ใช่ใบกำกับภาษี",
+      ? "VAT 7% บันทึกจากบิลเดิม · ไม่ใช่ใบกำกับภาษี หากต้องการใบกำกับภาษี กรุณาติดต่อฝ่ายบัญชี"
+      : args.taxNotice??RECYCLING_RECEIPT_ACCOUNTING_NOTICE,
     voidWarning:args.status === "voided"
       ? `เอกสารยกเลิก VOID — ไม่ใช้ยืนยันธุรกรรมที่ยังมีผล (${args.voidReason ?? "ยกเลิก"})` : null,
     // Credit records document the receivable/payable, not an actual cash movement.
