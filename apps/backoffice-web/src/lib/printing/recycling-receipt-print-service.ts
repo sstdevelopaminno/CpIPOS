@@ -220,24 +220,11 @@ export async function queueRoutedRecyclingReceipt(args: {
         `รวม ${thaiMoney(Number(tx.data.total_minor))} บาท`,
         taxNotice].join("\n");
       const requestKey=`rcy:${args.transactionId}:${args.requestId}:${route.printer.id}:${copy}`.slice(0,180);
-      const existingJob=async () => {
-        const result=await db.from("print_jobs")
-          .select("id,status,printer_id,printed_at,last_error")
-          .eq("tenant_id",args.auth.tenantId!)
-          .eq("branch_id",args.auth.branchId!)
-          .eq("idempotency_key",requestKey)
-          .maybeSingle();
-        if (result.error) throw new Error("recycling_receipt_print_lookup_failed");
-        return result.data;
-      };
-      const existing=await existingJob();
-      if (existing) {
-        jobs.push(existing);
-        continue;
-      }
-      let job;
-      try {
-        job=await enqueuePrintJob({
+      // The queue has a unique (tenant_id, branch_id, idempotency_key) index.
+      // enqueuePrintJob returns the existing scoped job on a duplicate key.
+      // Avoid a serial SELECT-before-INSERT on every fresh cashier receipt.
+      // processPrintJob itself refuses jobs already claimed/printed.
+      const job=await enqueuePrintJob({
         auth:args.auth,printer:route.printer,orderId:null,
         printerRole:"receipt",idempotencyKey:requestKey,
         payloadText:textReceipt,
@@ -263,17 +250,6 @@ export async function queueRoutedRecyclingReceipt(args: {
           payload_html:html
         }
       });
-      } catch (error) {
-        // A concurrent retry may have inserted the same request before ours.
-        // The request key is unique, so return the existing queued job rather
-        // than printing or queuing another copy.
-        const message=error instanceof Error?error.message.toLowerCase():"";
-        if (!message.includes("duplicate key") && !message.includes("unique constraint")) throw error;
-        const raced=await existingJob();
-        if (!raced) throw error;
-        jobs.push(raced);
-        continue;
-      }
       const serverDirect=(route.printer.metadata &&
         typeof route.printer.metadata==="object"&&!Array.isArray(route.printer.metadata))
         ? route.printer.metadata as Record<string,unknown> : {};
