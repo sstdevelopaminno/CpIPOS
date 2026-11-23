@@ -5,13 +5,17 @@
  * never change the OS language, global keyboard handlers, or normal typing.
  */
 export function asciiKeyFromScannerCode(code: string, key: string, shift: boolean): string | null {
-  if (!key || key.length !== 1 || /^[\x20-\x7e]$/.test(key)) return null;
+  if (!key || key.length !== 1) return null;
+  // Some Thai layouts output ASCII "/" and "-" for the physical Digit2/3.
+  // Map numeric scan keys before the ASCII pass-through check, otherwise
+  // a valid 1234 barcode becomes 1/-4 without a visible error.
+  if (/^Digit[0-9]$/.test(code) && !shift) return code.slice(5);
+  if (/^Numpad[0-9]$/.test(code)) return code.slice(6);
+  if (/^[\x20-\x7e]$/.test(key)) return null;
   if (/^Key[A-Z]$/.test(code)) {
     const c = code.slice(3);
     return shift ? c : c.toLowerCase();
   }
-  if (/^Digit[0-9]$/.test(code)) return code.slice(5);
-  if (/^Numpad[0-9]$/.test(code)) return code.slice(6);
   if (code === "Minus" || code === "NumpadSubtract") return "-";
   if (code === "Period" || code === "NumpadDecimal") return ".";
   if (code === "Slash" || code === "NumpadDivide") return "/";
