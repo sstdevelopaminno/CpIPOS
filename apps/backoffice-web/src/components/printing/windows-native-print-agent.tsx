@@ -9,6 +9,7 @@ type Job = {
   order_no: string | null;
   reprint?: boolean;
   kind: "html" | "cash_drawer";
+  render_mode?: "html" | "native_text";
   sale_receipt?: boolean;
   html: string | null;
   text?: string | null;
@@ -103,7 +104,8 @@ export function WindowsNativePrintAgent() {
                   ? await printWindowsReceiptHtml(job.html, {
                       orderNo: job.sale_receipt === true ? job.order_no : null,
                       reprint: job.reprint === true,
-                      plainText: job.text ?? null
+                      plainText: job.text ?? null,
+                      renderMode: job.render_mode === "native_text" ? "native_text" : "html"
                     })
                   : (() => { throw new Error("windows_job_payload_invalid"); })();
               await command({
