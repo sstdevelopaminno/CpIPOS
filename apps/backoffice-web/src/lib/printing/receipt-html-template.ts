@@ -46,6 +46,8 @@ export type ReceiptHtmlInput = {
   compactRecycling?: boolean;
   /** Printer-specific calibration: center narrow Recycling thermal content on 58/80mm media. */
   centerThermalContent?: boolean;
+  /** Calibrated X offset in mm for an explicitly bound Recycling Windows printer. */
+  thermalOffsetMm?: number;
 };
 
 const DEFAULT_RECEIPT_LOGO_URL = "/brand/cpipos-logo.png";
@@ -119,8 +121,10 @@ export function renderReceiptHtml(input: ReceiptHtmlInput) {
   const layout = input.compactRecycling ? recyclingLayout : regularLayout;
   // XP-80T 80mm roll prints only approximately 72mm; leave additional room for Windows driver offset.
   // Keep font sizes and all monetary values unchanged; wrap long lines instead of clipping.
+  const thermalOffsetMm = Number.isFinite(input.thermalOffsetMm)
+    ? Math.max(-6, Math.min(6, Number(input.thermalOffsetMm))) : 0;
   const printableLeftMm = input.compactRecycling && input.centerThermalContent
-    ? (paper - layout.printableMm) / 2 : 1;
+    ? Math.max(0, (paper - layout.printableMm) / 2 + thermalOffsetMm) : 1;
   const logoUrl = clean(input.logoUrl) ?? DEFAULT_RECEIPT_LOGO_URL;
   const storeName = clean(input.storeName) ?? clean(input.branchName) ?? "CpIPOS";
   const branchName = clean(input.branchName);
