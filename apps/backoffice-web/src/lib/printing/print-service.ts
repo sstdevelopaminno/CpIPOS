@@ -700,7 +700,7 @@ export async function enqueuePrintJob(input: EnqueuePrintJobInput): Promise<Prin
           existing.printer_id !== input.printer.id ||
           existing.printer_role !== input.printerRole ||
           existing.order_id !== input.orderId ||
-          (existing.kitchen_ticket_id ?? null) !== (input.kitchenTicketId ?? null)
+          ((existing as PrintJobRow & { kitchen_ticket_id?: string | null }).kitchen_ticket_id ?? null) !== (input.kitchenTicketId ?? null)
         ) {
           throw new Error("print_idempotency_key_conflict");
         }
