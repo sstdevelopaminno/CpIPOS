@@ -69,6 +69,7 @@ export function WindowsNativePrintAgent() {
     // printing gets a shorter *idle* safety poll. Other tenants retain the
     // existing 12/30s cadence, and no polling occurs without local bridge.
     let enrolledFastPrinter = false;
+    let authenticatedFastIdlePollMs: 5000 | null = null;
     const abort = new AbortController();
 
     async function poll() {
@@ -80,8 +81,9 @@ export function WindowsNativePrintAgent() {
       let nextMs = Date.now() < priorityPollUntil ? 1_000 : (idlePolls > 7 ? 30_000 : 12_000);
       try {
         const data = await command({ action: "claim" }, abort.signal);
-        const response = data as { jobs?: Job[]; prewarm_fast_html?: boolean };
+        const response = data as { jobs?: Job[]; prewarm_fast_html?: boolean; fast_idle_poll_ms?: number | null };
         enrolledFastPrinter = response.prewarm_fast_html === true;
+        authenticatedFastIdlePollMs = response.fast_idle_poll_ms === 5000 ? 5000 : null;
         // Only prewarm when the authenticated claim identifies a printer
         // enrolled in fast HTML mode for this exact Windows POS session.
         if (response.prewarm_fast_html === true && !warmRequested) {
@@ -150,6 +152,7 @@ export function WindowsNativePrintAgent() {
       } catch (error) {
         // Never increase polling against an unhealthy/unreachable endpoint.
         enrolledFastPrinter = false;
+        authenticatedFastIdlePollMs = null;
         // No automatic retries of a claimed print; a later poll only claims a
         // different fresh job. On disconnect, the lease expires and server
         // rejects jobs too old for safe automatic printing.
@@ -161,8 +164,9 @@ export function WindowsNativePrintAgent() {
         inFlight = false;
         if (!stopped) {
           if (Date.now() < priorityPollUntil) nextMs = Math.min(nextMs, 1_000);
-          else if (enrolledFastPrinter && document.visibilityState === "visible")
-            nextMs = Math.min(nextMs, 5_000);
+          else if (enrolledFastPrinter && authenticatedFastIdlePollMs === 5000 &&
+                   document.visibilityState === "visible")
+            nextMs = Math.min(nextMs, authenticatedFastIdlePollMs);
           // A receipt can be enqueued while an earlier empty claim request
           // is still in flight. Honor the wake after that claim completes;
           // never claim concurrently or replay a prior job.
