@@ -33,7 +33,19 @@ export function recyclingDailyShiftCloseText(shift:RecyclingDailyShiftReport):st
   "ไม่ใช่ใบเสร็จหรือใบกำกับภาษี"
  ].join("\n");
 }
-export function renderRecyclingDailyShiftCloseHtml(shift:RecyclingDailyShiftReport,paper:58|80){
+export function renderRecyclingDailyShiftCloseHtml(
+ shift:RecyclingDailyShiftReport,paper:58|80,
+ calibration?:{printableWidthMm?:number;offsetMm?:number}
+){
+ // Override only for an explicitly assigned Windows Recycling printer.
+ const calibrated = paper===80 && calibration &&
+   typeof calibration.printableWidthMm==="number" &&
+   Number.isFinite(calibration.printableWidthMm) &&
+   calibration.printableWidthMm>=56 && calibration.printableWidthMm<=70;
+ const printableWidthMm=calibrated ? calibration.printableWidthMm! : paper===80?74:53;
+ const offsetMm=calibrated && Number.isFinite(calibration.offsetMm)
+   ? Math.max(-6,Math.min(6,Number(calibration.offsetMm))) : 0;
+ const leftMm=calibrated ? Math.max(0,(paper-printableWidthMm)/2+offsetMm) : null;
  const m=shift.metadata,auto=m.close_reason==="recycling_daily_auto_close_midnight";
  const opening=shift.openingCash===null?"ยังไม่ยืนยัน":fmt(Number(shift.openingCash));
  const expected=shift.expectedCash===null?minor(m.recycling_expected_cash_minor):fmt(Number(shift.expectedCash));
@@ -50,7 +62,8 @@ export function renderRecyclingDailyShiftCloseHtml(shift:RecyclingDailyShiftRepo
  const body=rows.map(([key,value])=>'<div class="r"><span>'+safe(key)+'</span><strong>'+safe(value)+'</strong></div>').join("");
  return '<!doctype html><html lang="th"><head><meta charset="utf-8"/><title>ปิดกะ CUSTOM Recycling</title>'
   +'<style>@page{size:'+paper+'mm auto;margin:0}*{box-sizing:border-box}html,body{margin:0;padding:0;width:'+paper+'mm;background:#fff;color:#000;'
-  +'font:11px/1.4 Tahoma,"Noto Sans Thai",sans-serif}main{width:'+(paper===80?74:53)+'mm;padding:3mm 1mm;margin:0 auto}'
+  +'font:11px/1.4 Tahoma,"Noto Sans Thai",sans-serif}main{width:'+printableWidthMm+'mm;padding:3mm 1mm;margin:'+
+   (leftMm===null?'0 auto':'0 0 0 '+leftMm+'mm')+'}'
   +'h1{font-size:14px;text-align:center;margin:0 0 3mm}.r{display:flex;justify-content:space-between;gap:3mm;margin:2mm 0}'
   +'.r span{flex:1;min-width:0;overflow-wrap:anywhere}.r strong{text-align:right;white-space:nowrap}'
   +'p{font-size:10px;margin:2mm 0;overflow-wrap:anywhere}hr{border:0;border-top:1px dashed #000;margin:3mm 0}</style></head>'

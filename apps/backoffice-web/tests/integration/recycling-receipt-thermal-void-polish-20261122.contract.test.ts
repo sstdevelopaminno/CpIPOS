@@ -68,6 +68,28 @@ describe("CUSTOM Recycling 58/80mm thermal receipt legibility",()=>{
     expect(printer).toContain("printerMetadata.windows_receipt_offset_mm");
     expect(printer).toContain("Math.max(-6,Math.min(6,rawOffset))");
   });
+  it("expands ONLY the enrolled 80mm Recycling Windows receipt to 70mm while preserving the calibrated center",()=>{
+    const expanded=renderReceiptHtml({...common,paperWidthMm:80,
+      centerThermalContent:true,thermalOffsetMm:-4,thermalPrintableWidthMm:70});
+    const original=renderReceiptHtml({...common,paperWidthMm:80});
+    const allOtherWindows=renderReceiptHtml({...common,paperWidthMm:80,
+      centerThermalContent:true,thermalOffsetMm:-4});
+    const ordinary=renderReceiptHtml({...common,paperWidthMm:80,
+      compactRecycling:false,centerThermalContent:true,thermalPrintableWidthMm:70});
+    const narrow58=renderReceiptHtml({...common,paperWidthMm:58,
+      centerThermalContent:true,thermalPrintableWidthMm:70});
+    const invalid=renderReceiptHtml({...common,paperWidthMm:80,
+      centerThermalContent:true,thermalPrintableWidthMm:80});
+    expect(expanded).toContain("width: 70mm; margin: 0 0 0 1mm");
+    expect(expanded).toContain("--receipt-printable-width-mm: 70");
+    expect(original).toContain("--receipt-printable-width-mm: 56");
+    expect(allOtherWindows).toContain("--receipt-printable-width-mm: 56");
+    expect(ordinary).toContain("--receipt-printable-width-mm: 56");
+    expect(narrow58).toContain("--receipt-printable-width-mm: 45");
+    expect(invalid).toContain("--receipt-printable-width-mm: 56");
+    expect(printer).toContain("printerMetadata.windows_receipt_printable_mm");
+    expect(printer).toContain("thermalPrintableWidthMm");
+  });
   it("does not change CSS or item layout of ordinary POS receipts",()=>{
     const html=renderReceiptHtml({...common,compactRecycling:false,paperWidthMm:58});
     expect(html).toContain('class="receipt"');

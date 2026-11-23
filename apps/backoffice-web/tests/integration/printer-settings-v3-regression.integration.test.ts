@@ -78,7 +78,9 @@ describe("printer settings v3 regression coverage", () => {
     expect(registry).toContain('windows_receipt_offset_mm: Number.isFinite(offset)');
     expect(ui).toContain('editId && windowsNativeBound && mode === "usb"');
     expect(ui).toContain('id="windows-thermal-offset-mm" type="range" min="-6" max="6" step="0.5"');
-    expect(ui).toContain('metadata:{windows_receipt_offset_mm:thermalOffsetMm}');
+    expect(ui).toContain('metadata:{windows_receipt_offset_mm:thermalOffsetMm,');
+    expect(ui).toContain('windows_receipt_printable_mm:thermalPrintableMm');
+    expect(route).toContain('windows_printer_printable_width_invalid');
     expect(route).toContain('windows_printer_offset_invalid');
     expect(route).toContain('!Number.isInteger(proposedOffset*2)');
   });

@@ -34,7 +34,9 @@ export function RecyclingShiftPrintButton({shiftId,automatic=false}:{
     method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},
     body:JSON.stringify({print_mode:"manual",request_id:crypto.randomUUID()})
    });
-   const body=await response.json().catch(()=>null) as Result<{jobs?:unknown[]}>|null;
+   const body=await response.json().catch(()=>null) as Result<{jobs?:Array<{id:string;status:string}>}>|null;
+   if(response.ok && (body?.data?.jobs?.length??0)>0)
+    window.dispatchEvent(new Event("cpi-windows-print-agent-wake"));
    setMessage(response.ok?"ส่งใบสรุปปิดกะเข้าคิวพิมพ์แล้ว":
      body?.error?.message??"ไม่สามารถพิมพ์รายงานได้");
   }catch{setMessage("เครื่องพิมพ์ไม่พร้อมใช้งาน");}
@@ -217,6 +219,19 @@ export function RecyclingShiftControl({branchName}: {branchName:string}) {
         setShift(body.data.shift);setNeedsJoin(false);
         setMessage("เปิดกะพร้อมเงินทุนรับซื้อที่ตรวจนับจริงแล้ว (ยังไม่ใช่การโอนเงินจากบัญชี)");
         setModalKind(null);setOpeningCash("");setCashCountConfirmed(false);setFundReference("");
+        // Opening slip is an optional, idempotent Windows-only print AFTER
+        // the persisted opening cash/shift commit. Never retry the shift POST.
+        void fetch("/api/pos/recycling/shifts/"+encodeURIComponent(body.data.shift.id)+"/open-print",{
+          method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},
+          body:"{}",keepalive:true
+        }).then(async printed=>{
+          const result=await printed.json().catch(()=>null) as Result<{
+            jobs?:Array<{id:string;status:string;fast_wake?:boolean}>;skipped?:boolean
+          }>|null;
+          if(printed.ok && result?.data?.jobs?.some(job=>job.fast_wake===true && job.status==="pending"))
+            window.dispatchEvent(new Event("cpi-windows-print-agent-wake"));
+          else if(!printed.ok)console.warn("[recycling-shift-open] confirmed shift; optional printer queue unavailable");
+        }).catch(()=>console.warn("[recycling-shift-open] optional print request unavailable"));
         router.refresh();
       } else {
         setActionError(body?.error?.message??"เปิดกะไม่สำเร็จ กรุณาตรวจสอบสิทธิ์และกะที่เปิดค้าง");
@@ -276,6 +291,12 @@ export function RecyclingShiftControl({branchName}: {branchName:string}) {
         });
         if(!print.ok){
           setMessage("ปิดกะสำเร็จ แต่ส่งพิมพ์อัตโนมัติไม่สำเร็จ สามารถพิมพ์ย้อนหลังได้");
+        }else{
+          const printed=await print.json().catch(()=>null) as Result<{
+            jobs?:Array<{id:string;status:string}>
+          }>|null;
+          if((printed?.data?.jobs?.length??0)>0)
+            window.dispatchEvent(new Event("cpi-windows-print-agent-wake"));
         }
       }catch{
         setMessage("ปิดกะสำเร็จ แต่คิวพิมพ์ยังไม่ยืนยัน สามารถพิมพ์ย้อนหลังได้");

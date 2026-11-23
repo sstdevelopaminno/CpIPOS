@@ -48,6 +48,8 @@ export type ReceiptHtmlInput = {
   centerThermalContent?: boolean;
   /** Calibrated X offset in mm for an explicitly bound Recycling Windows printer. */
   thermalOffsetMm?: number;
+  /** Explicit Windows Recycling printer calibration, not the nominal 80mm paper width. */
+  thermalPrintableWidthMm?: number;
 };
 
 const DEFAULT_RECEIPT_LOGO_URL = "/brand/cpipos-logo.png";
@@ -118,7 +120,18 @@ export function renderReceiptHtml(input: ReceiptHtmlInput) {
   const recyclingLayout = paper === 58
     ? { printableMm: 45, basePx: 11.5, titlePx: 13.5, mutedPx: 10, metaPx: 10.8, unitPx: 10, summaryPx: 11.5, grandPx: 15.5, footerPx: 10, logoMaxWidthMm: 27, logoMaxHeightMm: 11, qtyMm: 8.5, totalMm: 16.5 }
     : { printableMm: 56, basePx: 12.5, titlePx: 15.5, mutedPx: 11.25, metaPx: 11.8, unitPx: 11, summaryPx: 12.5, grandPx: 17, footerPx: 11, logoMaxWidthMm: 39, logoMaxHeightMm: 13, qtyMm: 11, totalMm: 22 };
-  const layout = input.compactRecycling ? recyclingLayout : regularLayout;
+  // Most 80mm thermal mechanisms expose less than 80mm of printable pixels.
+  // Expand ONLY a calibrated Recycling Windows printer, up to a conservative
+  // 70mm ink area with room for driver clipping; other tenants are unchanged.
+  const calibratedRecyclingWidthMm =
+    input.compactRecycling && input.centerThermalContent && paper === 80 &&
+    typeof input.thermalPrintableWidthMm === "number" &&
+    Number.isFinite(input.thermalPrintableWidthMm) &&
+    input.thermalPrintableWidthMm >= 56 && input.thermalPrintableWidthMm <= 70
+      ? input.thermalPrintableWidthMm : null;
+  const layout = input.compactRecycling
+    ? { ...recyclingLayout, printableMm: calibratedRecyclingWidthMm ?? recyclingLayout.printableMm }
+    : regularLayout;
   // XP-80T 80mm roll prints only approximately 72mm; leave additional room for Windows driver offset.
   // Keep font sizes and all monetary values unchanged; wrap long lines instead of clipping.
   const thermalOffsetMm = Number.isFinite(input.thermalOffsetMm)

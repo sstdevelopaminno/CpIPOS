@@ -36,12 +36,23 @@ describe("routed shift report print stability", () => {
     const routed = src("apps/backoffice-web/src/lib/printing/routed-print-service.ts");
     expect(routed).toContain('purpose: "shift_report"');
     expect(routed).toContain('fallbackPurposes: ["receipt"]');
-    expect(routed).toContain('printerRole: "report"');
+    expect(routed).toContain('printerRole: route.printer.printer_role');
+    expect(routed).toContain('route.printer.printer_role!=="receipt" && route.printer.printer_role!=="report"');
     expect(routed).toContain('payload_format: "shift_report_html_v1"');
     expect(routed).toContain("payload_html: safeReportHtml");
-    expect(routed).toContain("renderRecyclingDailyShiftCloseHtml(recycled,paper) : reportHtml");
+    expect(routed).toContain("renderRecyclingDailyShiftCloseHtml(recycled,paper,");
+    expect(routed).toContain("windows_receipt_printable_mm");
     expect(routed).toContain("args.autoFirst ? routes.slice(0, 1) : routes");
     expect(routed).toContain("args.autoFirst ? { ...route, copies: 1 } : route");
+  });
+
+  it("wakes the attached Windows Print Agent after confirmed Recycling close and manual print",()=>{
+    const ctrl=src("apps/backoffice-web/src/components/pos/recycling-shift-control.tsx");
+    expect(ctrl).toContain('body:JSON.stringify({print_mode:"auto_first"})');
+    expect(ctrl).toContain('window.dispatchEvent(new Event("cpi-windows-print-agent-wake"))');
+    expect(ctrl).toContain("const printed=await print.json().catch(()=>null)");
+    expect(ctrl).toContain("if((printed?.data?.jobs?.length??0)>0)");
+    expect(ctrl).toContain("body:JSON.stringify({print_mode:\"manual\",request_id:crypto.randomUUID()})");
   });
 
   it("allows the Windows in-session agent to claim approved report HTML without relaxing device assignment", () => {
