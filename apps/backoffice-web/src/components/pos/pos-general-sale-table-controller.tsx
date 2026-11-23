@@ -140,13 +140,13 @@ function ensureGeneralSaleStyles() {
     .cpipos-sd-table__summary p { margin: 0; color: #065f46; font-size: 13px; font-weight: 800; }
     .cpipos-sd-table__summary strong { color: #ea580c; font-size: 18px; font-weight: 900; }
     .cpipos-sd-table__scroll { width: 100%; overflow: auto; max-height: min(58vh, 620px); overscroll-behavior: contain; }
-    .cpipos-sd-table table { width: 100%; min-width: 900px; border-collapse: collapse; table-layout: fixed; }
+    .cpipos-sd-table table { width: 100%; min-width: 1150px; border-collapse: collapse; table-layout: fixed; }
     .cpipos-sd-table th { position: sticky; top: 0; z-index: 1; padding: 10px 8px; background: #f8fafc; border-bottom: 1px solid #e2e8f0; color: #334155; font-size: 12px; font-weight: 900; text-align: left; }
     .cpipos-sd-table td { padding: 10px 8px; border-bottom: 1px solid #eef2f7; color: #0f172a; font-size: 13px; vertical-align: middle; }
     .cpipos-sd-table tbody tr:last-child td { border-bottom: 0; }
     .cpipos-sd-table__index { width: 50px; text-align: center !important; }
-    .cpipos-sd-table__sku { width: 135px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-weight: 800; }
-    .cpipos-sd-table__category { width: 135px; }
+    .cpipos-sd-table__sku { width: 230px; min-width: 0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-weight: 800; overflow-wrap: anywhere; word-break: break-word; white-space: normal; }
+    .cpipos-sd-table__category { width: 145px; min-width: 0; overflow-wrap: anywhere; word-break: break-word; }
     .cpipos-sd-table__name { width: auto; min-width: 220px; font-weight: 800; }
     .cpipos-sd-table__name small { display: block; margin-top: 3px; color: #64748b; font-weight: 600; }
     .cpipos-sd-table__qty { width: 150px; }
@@ -595,9 +595,14 @@ export function PosGeneralSaleTableController({ lang = "th" }: { lang?: Lang }) 
 
         // Fixed column geometry avoids min-content growth from Lao labels,
         // long optical product names and six-digit LAK prices.
-        if (opticalActive) {
+        {
           const colgroup = document.createElement("colgroup");
-          for (const cls of ["cpipos-sd-table__name", "cpipos-sd-table__qty", "cpipos-sd-table__money", "cpipos-sd-table__money", "cpipos-sd-table__actions"]) {
+          // The regular grocery table needs explicit column geometry too:
+          // long auto-generated SKU codes must not paint over Category.
+          const columnClasses = opticalActive
+            ? fullClasses.slice(3)
+            : fullClasses;
+          for (const cls of columnClasses) {
             const col = document.createElement("col");
             col.className = cls;
             colgroup.appendChild(col);
@@ -613,6 +618,7 @@ export function PosGeneralSaleTableController({ lang = "th" }: { lang?: Lang }) 
           const skuCell = document.createElement("td");
           skuCell.className = "cpipos-sd-table__sku";
           skuCell.textContent = row.sku;
+          skuCell.title = row.sku; // Full identifier remains available on hover.
           const categoryCell = document.createElement("td");
           categoryCell.className = "cpipos-sd-table__category";
           categoryCell.textContent = row.category;
