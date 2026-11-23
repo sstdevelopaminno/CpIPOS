@@ -20,16 +20,28 @@ export async function RecyclingSalesContent({
   const shiftQuery = db.from("shifts").select("status")
     .eq("tenant_id", tenantId).eq("branch_id",branchId)
     .eq("status","open").order("opened_at",{ascending:false}).limit(1);
-  const [products,branch,tenant,operator,shift,generalSaleEnabled] = await Promise.all([
+  const [products,branch,tenant,operator,shift,generalSaleEnabled,printerProfiles] = await Promise.all([
     getRecyclingCatalog(tenantId,branchId),
     db.from("branches").select("name").eq("tenant_id",tenantId).eq("id",branchId).maybeSingle(),
     db.from("tenants").select("name,display_name").eq("id",tenantId).maybeSingle(),
     db.from("users_profiles").select("full_name").eq("id",operatorUserId).maybeSingle(),
     deviceCode ? shiftQuery.eq("device_code",deviceCode).maybeSingle() : shiftQuery.maybeSingle(),
-    isAuthorizedCustomGeneralSaleTenant(tenantId)
+    isAuthorizedCustomGeneralSaleTenant(tenantId),
+    // Fail closed on unavailable printer metadata: receipt printing still
+    // works through the normal polling path, without changing any other store.
+    db.from("printer_profiles").select("metadata").eq("tenant_id",tenantId)
+      .eq("branch_id",branchId).eq("enabled",true)
   ]);
   if (branch.error || !branch.data || tenant.error || !tenant.data || operator.error || shift.error)
     throw new Error("recycling_sales_shop_scope_unavailable");
+  const fastWindowsReceiptEnabled = Boolean(deviceCode && !printerProfiles.error &&
+    (printerProfiles.data ?? []).some(row => {
+      const meta = row.metadata && typeof row.metadata === "object" && !Array.isArray(row.metadata)
+        ? row.metadata as Record<string,unknown> : {};
+      return meta.target_runtime === "windows_native" &&
+        meta.windows_receipt_fast_wake === true &&
+        meta.windows_device_code === deviceCode;
+    }));
   // Match the stock manager's uploaded thumbnail, not the deprecated metadata URL.
   const media=await loadProductMediaMap({tenantId,branchId});
   const mediaByProduct:Record<string,string>={};
@@ -47,5 +59,6 @@ export async function RecyclingSalesContent({
     sellerName={operator.data?.full_name?.trim() || "—"}
     shiftStatus={shift.data?.status ?? "ยังไม่เปิดกะ"}
     generalSaleEnabled={generalSaleEnabled}
-    transactionWritesEnabled={process.env.RECYCLING_TRANSACTION_WRITES_ENABLED==="1"} />;
+    transactionWritesEnabled={process.env.RECYCLING_TRANSACTION_WRITES_ENABLED==="1"}
+    fastWindowsReceiptEnabled={fastWindowsReceiptEnabled} />;
 }

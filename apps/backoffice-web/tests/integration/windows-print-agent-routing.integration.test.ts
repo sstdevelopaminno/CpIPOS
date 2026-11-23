@@ -63,6 +63,42 @@ describe("Windows print agent device and receipt safety", () => {
     expect(report).not.toContain('printerRole:"report"');
   });
 
+  it("wakes only explicitly scoped Recycling Windows profiles after sale commit or reprint", () => {
+    const service = source("src/lib/printing/recycling-receipt-print-service.ts");
+    const loader = source("src/components/pos/recycling-sales-content.tsx");
+    const checkout = source("src/components/pos/recycling-pos-workspace.tsx");
+    const manual = source("src/components/pos/recycling-print-receipt-button.tsx");
+    const agent = source("src/components/printing/windows-native-print-agent.tsx");
+    expect(service).toContain('meta.target_runtime === "windows_native"');
+    expect(service).toContain('meta.windows_receipt_fast_wake === true');
+    expect(service).toContain('meta.windows_device_code === args.runtimeDeviceCode');
+    expect(service).toContain("fast_wake:fastWindowsWake");
+    expect(loader).toContain('meta.windows_receipt_fast_wake === true');
+    expect(loader).toContain('meta.windows_device_code === deviceCode');
+    expect(checkout).toContain('if (fastWindowsReceiptEnabled)');
+    expect(checkout).toContain('jobs.some(job=>job.fast_wake===true)');
+    expect(checkout.indexOf('const committedId = body.data.transaction.id'))
+      .toBeLessThan(checkout.indexOf('await queueReceiptPrint(committedId, currentRequestId)'));
+    expect(manual).toContain('jobs.some(job=>job.fast_wake===true');
+    expect(agent).toContain('const urgent = event?.type === "cpi-windows-print-agent-wake"');
+    expect(agent).toContain("if (urgent) urgentWakePending = true");
+    expect(agent).toContain("const waitMs = urgentWakePending ? 0 : nextMs");
+    expect(agent).toContain('markAttempted(job.id)');
+  });
+
+  it("keeps the full HTML receipt renderer available for preview parity", () => {
+    const agentRoute = source("src/app/api/pos/windows-print/agent/route.ts");
+    const native = source("src/lib/printing/windows-local-printer-test.ts");
+    const receipt = source("src/lib/printing/recycling-receipt-print-service.ts");
+    expect(receipt).toContain("renderRecyclingSharedReceipt({");
+    expect(receipt).toContain("payload_html:html");
+    expect(agentRoute).toContain('windows_print_render_mode === "native_text"');
+    expect(agentRoute).toContain('? "native_text" : "html"');
+    expect(native).toContain('...(nativeText ? {} : { html: printableHtml })');
+    expect(native).toContain("native_webview2_html_receipt");
+    expect(native).toContain("native_dotnet_print_document");
+  });
+
   it("Android bootstrap does not select and rotate the Windows agent key", () => {
     const android = source("src/app/api/android-pos/print-agent/bootstrap/route.ts");
     expect(android).toContain('meta.runtime !== "windows_native_print_agent_v1"');

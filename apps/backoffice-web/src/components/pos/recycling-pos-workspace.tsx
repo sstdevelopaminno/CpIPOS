@@ -38,7 +38,7 @@ function CatalogImage({ item, mediaUrl }: { item: RecyclingCatalogItem; mediaUrl
     : <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-slate-100 text-xl" aria-hidden="true">♻️</div>;
 }
 
-export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByProduct, branchName, storeName, deviceCode, sellerName, shiftStatus, generalSaleEnabled, transactionWritesEnabled }: {
+export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByProduct, branchName, storeName, deviceCode, sellerName, shiftStatus, generalSaleEnabled, transactionWritesEnabled, fastWindowsReceiptEnabled }: {
   products: RecyclingCatalogItem[];
   tenantId: string;
   branchId: string;
@@ -50,6 +50,7 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
   shiftStatus: string;
   generalSaleEnabled: boolean;
   transactionWritesEnabled: boolean;
+  fastWindowsReceiptEnabled: boolean;
 }) {
   const [shiftGate,setShiftGate]=useState<"checking"|"open"|"blocked">("checking");
   const [shiftOpenedAt,setShiftOpenedAt]=useState("");
@@ -439,6 +440,11 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
     if (printing) return;
     setPrinting(true);
     setPrintNotice(null);
+    // Prime a short claim burst while the server enqueues the receipt.
+    // This runs only for an explicitly enrolled Windows test printer.
+    if (fastWindowsReceiptEnabled) {
+      window.dispatchEvent(new Event("cpi-windows-print-agent-wake"));
+    }
     try {
       const response = await fetch(
         "/api/pos/recycling/receipts/" + transactionId + "/print", {
@@ -448,7 +454,7 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
         }
       );
       const result = await response.json().catch(() => null) as {
-        data?: {queued?:boolean; jobs?:Array<{status?:string}>};
+        data?: {queued?:boolean; jobs?:Array<{status?:string;fast_wake?:boolean}>};
         error?: {message?:string};
       } | null;
       if (!response.ok || result?.data?.queued !== true) {
@@ -462,6 +468,11 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
         setPrintNotice({ok:false,message:
           "พบงานพิมพ์ไม่สำเร็จ กรุณาตรวจเครื่องพิมพ์และคิวงานก่อนส่งพิมพ์ใหม่"});
         return;
+      }
+      // The job now exists; claim it immediately rather than waiting for the
+      // agent's normal 12–30 second idle polling interval.
+      if (jobs.some(job=>job.fast_wake===true)) {
+        window.dispatchEvent(new Event("cpi-windows-print-agent-wake"));
       }
       const allPrinted = jobs.every(job=>job.status==="printed");
       setPrintNotice({ok:true,message:allPrinted

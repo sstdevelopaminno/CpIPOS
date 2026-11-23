@@ -21,7 +21,7 @@ export function RecyclingPrintReceiptButton({ receiptId, showBrowserButton = tru
         body:JSON.stringify({request_id:crypto.randomUUID()})
       });
       const result=await response.json().catch(()=>null) as {
-        data?: {queued?: boolean;jobs?: Array<{id:string;status:string}>};
+        data?: {queued?: boolean;jobs?: Array<{id:string;status:string;fast_wake?:boolean}>};
         error?: {code?: string;message?: string};
       }|null;
       if (!response.ok || !result?.data?.queued) {
@@ -29,6 +29,9 @@ export function RecyclingPrintReceiptButton({ receiptId, showBrowserButton = tru
         return;
       }
       const jobs=result.data.jobs??[];
+      if (jobs.some(job=>job.fast_wake===true && job.status==="pending")) {
+        window.dispatchEvent(new Event("cpi-windows-print-agent-wake"));
+      }
       setStatus(jobs.every(job=>job.status==="printed")
         ? "เครื่องพิมพ์ยืนยันการพิมพ์แล้ว"
         : `ส่งคำขอไปยังคิวเครื่องพิมพ์ ${jobs.length} งานแล้ว กรุณาตรวจสถานะที่เครื่องหรือ Print Agent`);
