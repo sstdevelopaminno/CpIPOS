@@ -70,6 +70,9 @@ export function WindowsNativePrintAgent() {
     // existing 12/30s cadence, and no polling occurs without local bridge.
     let enrolledFastPrinter = false;
     let authenticatedFastIdlePollMs: 5000 | null = null;
+    // Do not run 5-second polls all day when the cashier station is idle:
+    // only accelerate during a short, recently active cashier window.
+    let fastPollingActiveUntil = 0;
     const abort = new AbortController();
 
     async function poll() {
@@ -165,7 +168,8 @@ export function WindowsNativePrintAgent() {
         if (!stopped) {
           if (Date.now() < priorityPollUntil) nextMs = Math.min(nextMs, 1_000);
           else if (enrolledFastPrinter && authenticatedFastIdlePollMs === 5000 &&
-                   document.visibilityState === "visible")
+                   document.visibilityState === "visible" &&
+                   Date.now() < fastPollingActiveUntil)
             nextMs = Math.min(nextMs, authenticatedFastIdlePollMs);
           // A receipt can be enqueued while an earlier empty claim request
           // is still in flight. Honor the wake after that claim completes;
@@ -180,6 +184,7 @@ export function WindowsNativePrintAgent() {
 
     function wake(event?: Event) {
       if (stopped) return;
+      fastPollingActiveUntil = Date.now() + 120_000;
       priorityPollUntil = Date.now() + 16_000;
       idlePolls = 0;
       const urgent = event?.type === "cpi-windows-print-agent-wake";
@@ -193,12 +198,19 @@ export function WindowsNativePrintAgent() {
     function onVisibilityChange() {
       if (document.visibilityState === "visible") wake();
     }
+    function onCashierActivity() {
+      fastPollingActiveUntil = Date.now() + 120_000;
+    }
+    window.addEventListener("pointerdown", onCashierActivity, { passive: true });
+    window.addEventListener("keydown", onCashierActivity);
     window.addEventListener("cpi-windows-print-agent-wake", wake);
     window.addEventListener("focus", wake);
     document.addEventListener("visibilitychange", onVisibilityChange);
     void poll();
     return () => {
       stopped = true;
+      window.removeEventListener("pointerdown", onCashierActivity);
+      window.removeEventListener("keydown", onCashierActivity);
       window.removeEventListener("cpi-windows-print-agent-wake", wake);
       window.removeEventListener("focus", wake);
       document.removeEventListener("visibilitychange", onVisibilityChange);
