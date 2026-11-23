@@ -170,10 +170,13 @@ export async function getPrinterSettingsRegistry(auth: AuthContext) {
     const profileMetadata = profile.metadata && typeof profile.metadata === "object" &&
       !Array.isArray(profile.metadata) ? profile.metadata as Record<string,unknown> : {};
     const offset = Number(profileMetadata.windows_receipt_offset_mm);
+    const rawPrintable = Number(profileMetadata.windows_receipt_printable_mm);
     return [{
       ...device,
       windows_native_printer: profileMetadata.target_runtime === "windows_native",
       windows_receipt_offset_mm: Number.isFinite(offset) ? Math.max(-6,Math.min(6,offset)) : 0,
+      windows_receipt_printable_mm: profile.paper_width_mm===80 &&
+        Number.isFinite(rawPrintable)&&rawPrintable>=56&&rawPrintable<=70 ? rawPrintable : 56,
       ip_address: profile.ip_address ?? null,
       port: profile.port ?? null,
       profile_enabled: profile.enabled !== false
