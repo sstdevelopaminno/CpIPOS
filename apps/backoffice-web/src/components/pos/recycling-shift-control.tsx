@@ -29,6 +29,7 @@ export function RecyclingShiftPrintButton({shiftId,automatic=false}:{
  async function print(){
   if(busy)return;
   setBusy(true);setMessage("");
+  window.dispatchEvent(new Event("cpi-windows-fast-print-prime"));
   try{
    const response=await fetch("/api/pos/shifts/"+encodeURIComponent(shiftId)+"/print",{
     method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},
@@ -221,6 +222,7 @@ export function RecyclingShiftControl({branchName}: {branchName:string}) {
         setModalKind(null);setOpeningCash("");setCashCountConfirmed(false);setFundReference("");
         // Opening slip is an optional, idempotent Windows-only print AFTER
         // the persisted opening cash/shift commit. Never retry the shift POST.
+        window.dispatchEvent(new Event("cpi-windows-fast-print-prime"));
         void fetch("/api/pos/recycling/shifts/"+encodeURIComponent(body.data.shift.id)+"/open-print",{
           method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},
           body:"{}",keepalive:true
@@ -285,6 +287,7 @@ export function RecyclingShiftControl({branchName}: {branchName:string}) {
       setMessage("ปิดกะเงินทุนรับซื้อสำเร็จ · ระบบบันทึกยอดเงินสดคงเหลือที่ตรวจนับจริงแล้ว");
       router.refresh();
       try {
+        window.dispatchEvent(new Event("cpi-windows-fast-print-prime"));
         const print=await fetch("/api/pos/shifts/"+encodeURIComponent(body.data.shift_id)+"/print",{
           method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},
           body:JSON.stringify({print_mode:"auto_first"})
