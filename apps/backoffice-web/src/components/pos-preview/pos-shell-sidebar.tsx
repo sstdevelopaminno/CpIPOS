@@ -62,6 +62,7 @@ export function PosShellSidebar({ lang, settingsLabel, placement }: Props) {
   const [isCustom, setIsCustom] = useState(false);
   const [financeAllowed, setFinanceAllowed] = useState(false);
   const [opticalMenuAllowed,setOpticalMenuAllowed] = useState(false);
+  const [recyclingMenuAllowed,setRecyclingMenuAllowed] = useState(false);
   const [customBrand,setCustomBrand] = useState<{system_name:string;accent_color:string;sidebar_color:string;logo_url:string|null}|null>(null);
   const [policyReady, setPolicyReady] = useState(false);
   const [packageLockOpen, setPackageLockOpen] = useState(false);
@@ -126,17 +127,18 @@ export function PosShellSidebar({ lang, settingsLabel, placement }: Props) {
     async function loadFeatures() {
       try {
         const response = await fetch("/api/pos/features", { cache: "no-store" });
-        const body = (await response.json().catch(() => null)) as { data?: { features?: Record<string, boolean>; menu_policy?: Record<string, boolean>; is_custom?: boolean; is_internal_test_full?:boolean; finance_access?:boolean; sales_modes?:{optical_retail?:boolean} } | null } | null;
+        const body = (await response.json().catch(() => null)) as { data?: { features?: Record<string, boolean>; menu_policy?: Record<string, boolean>; is_custom?: boolean; is_internal_test_full?:boolean; finance_access?:boolean; sales_modes?:{optical_retail?:boolean;recycling?:boolean} } | null } | null;
         if (!cancelled && response.ok) {
           setEnabledFeatures(body?.data?.features ?? {});
           setMenuPolicy(body?.data?.menu_policy ?? {});
           setIsCustom(body?.data?.is_custom === true);
           setFinanceAllowed(body?.data?.finance_access === true);
           setOpticalMenuAllowed(Boolean((body?.data?.is_custom || body?.data?.is_internal_test_full) && body?.data?.sales_modes?.optical_retail === true));
+          setRecyclingMenuAllowed(Boolean((body?.data?.is_custom || body?.data?.is_internal_test_full) && body?.data?.sales_modes?.recycling === true));
           setPolicyReady(true);
         }
       } catch {
-        if (!cancelled){setEnabledFeatures({});setOpticalMenuAllowed(false);setFinanceAllowed(false);}
+        if (!cancelled){setEnabledFeatures({});setOpticalMenuAllowed(false);setRecyclingMenuAllowed(false);setFinanceAllowed(false);}
       }
     }
     // Refresh the IT menu policy when staff returns to this tab after an IT
@@ -286,6 +288,7 @@ export function PosShellSidebar({ lang, settingsLabel, placement }: Props) {
             menuPolicy={menuPolicy}
             isCustom={isCustom}
             opticalMenuAllowed={opticalMenuAllowed}
+            recyclingMenuAllowed={recyclingMenuAllowed}
             financeAllowed={financeAllowed}
             onLockedFeature={() => setPackageLockOpen(true)}
             onLockedMenu={setItLockedMenu}
