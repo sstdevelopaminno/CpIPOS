@@ -1174,14 +1174,6 @@ export function PosGeneralSaleTableController({ lang = "th" }: { lang?: Lang }) 
       applyRetailStartup(request);
     };
 
-    const onModeClick = (event: Event) => {
-      if (!(event.target instanceof Element)) return;
-      const modeCard = event.target.closest<HTMLElement>(`[${MODE_ATTRIBUTE}]`);
-      if (!modeCard) return;
-      const mode = modeCard.getAttribute(MODE_ATTRIBUTE);
-      if (mode && mode !== GENERAL_SALE_MODE_ID && mode !== OPTICAL_MODE_ID) deactivateGeneralSale();
-    };
-
     const onTableClick = (event: Event) => {
       if (!(event.target instanceof Element)) return;
       const button = event.target.closest<HTMLButtonElement>(`[${GENERAL_SALE_TABLE_ATTRIBUTE}="1"] button[data-sd-action][data-sd-index]`);
@@ -1318,7 +1310,6 @@ export function PosGeneralSaleTableController({ lang = "th" }: { lang?: Lang }) 
     // Refresh on modal opening, tab activation and focus rather than polling
     // Supabase every few seconds on tablets left open throughout the day.
 
-    document.addEventListener("click", onModeClick, true);
     document.addEventListener("click", onTableClick, true);
     window.addEventListener(POS_STARTUP_MODE_REQUEST_EVENT, onStartupMode as EventListener);
     window.addEventListener("cpipos:optical-handler-ready", scheduleReconcile);
@@ -1344,7 +1335,6 @@ export function PosGeneralSaleTableController({ lang = "th" }: { lang?: Lang }) 
       if (reconcileFrame !== null) window.cancelAnimationFrame(reconcileFrame);
       observer.disconnect();
       currencyObserver.disconnect();
-      document.removeEventListener("click", onModeClick, true);
       document.removeEventListener("click", onTableClick, true);
       window.removeEventListener(POS_STARTUP_MODE_REQUEST_EVENT, onStartupMode as EventListener);
       window.removeEventListener("cpipos:optical-handler-ready", scheduleReconcile);
