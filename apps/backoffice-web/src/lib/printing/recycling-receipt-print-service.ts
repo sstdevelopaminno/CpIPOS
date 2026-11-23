@@ -48,6 +48,7 @@ export function renderRecyclingSharedReceipt(args: {
   storePhone?: string | null;
   logoUrl?: string | null;
   taxNotice?: string;
+  centerOnPaper?: boolean;
 }) {
   const isBuy = args.direction === "buy";
   const isCredit = args.settlement === "credit";
@@ -68,6 +69,7 @@ export function renderRecyclingSharedReceipt(args: {
   return renderReceiptHtml({
     paperWidthMm:args.width,
     compactRecycling:true,
+    centerThermalContent:args.centerOnPaper===true,
     currencyCode:"THB",
     languageCode:"th",
     storeName:args.shop,
@@ -172,8 +174,14 @@ export async function queueRoutedRecyclingReceipt(args: {
   const jobs = [];
   for (const route of routes) {
     for (let copy=1;copy<=route.copies;copy+=1) {
+      const printerMetadata=route.printer.metadata && typeof route.printer.metadata==="object" &&
+        !Array.isArray(route.printer.metadata) ? route.printer.metadata as Record<string,unknown> : {};
+      const centerOnPaper=printerMetadata.target_runtime==="windows_native" &&
+        printerMetadata.windows_receipt_centered===true &&
+        printerMetadata.windows_device_code===args.runtimeDeviceCode;
       const html=renderRecyclingSharedReceipt({
         width:route.printer.paper_width_mm,shop,branch:branchName,
+        centerOnPaper,
         receiptNo:tx.data.receipt_no,direction:tx.data.direction,
         status:tx.data.status,voidReason:tx.data.void_reason,
         createdAt:tx.data.created_at,
