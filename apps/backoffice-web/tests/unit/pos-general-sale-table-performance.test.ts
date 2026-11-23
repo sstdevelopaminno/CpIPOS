@@ -44,7 +44,7 @@ describe("POS general-sale table-only performance contract", () => {
     expect(page).not.toContain("<PosGeneralSaleFrontCashPanel />");
     expect(runtime).toContain("if (!active) return null");
     expect(runtime).toContain("<PosGeneralSaleCartReconcileBridge />");
-    expect(runtime).toContain("<PosGeneralSaleFrontCashPanel />");
+    expect(runtime).not.toContain("<PosGeneralSaleFrontCashPanel />");
   });
 
   it("coalesces IT sales-mode policy DOM work and reduces visible-tab polling", () => {
