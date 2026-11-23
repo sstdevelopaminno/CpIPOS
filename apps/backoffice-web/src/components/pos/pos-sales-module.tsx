@@ -2267,7 +2267,6 @@ export function PosSalesModule({
   const [salesTopbarCollapsed, setSalesTopbarCollapsed] = useState(false);
   const [enabledFeatures, setEnabledFeatures] = useState<Record<string, boolean> | null>(null);
   const [packageLockOpen, setPackageLockOpen] = useState(false);
-  const [deliveryMaintenanceOpen, setDeliveryMaintenanceOpen] = useState(false);
   const [orderType, setOrderType] = useState<OrderType>("takeaway");
   const [submitting, setSubmitting] = useState(false);
   const [submitMessage, setSubmitMessage] = useState<string | null>(null);
@@ -6327,19 +6326,28 @@ export function PosSalesModule({
   // order type is takeaway, but IT may hide the ordinary takeaway card.
   useEffect(() => {
     const onOpticalActivate = () => {
-      // Reuse the existing takeaway transaction/stock/receipt pipeline without
-      // exposing the ordinary takeaway selling mode as the Optical UI.
-      // Startup may re-announce an authorized activation after hydration;
-      // never clear an already active Optical bill/cart on duplicate events.
-      if (opticalRetailActive && quickMode === "home") return;
-      applyQuickMode("home", true);
+      // Both SD and Optical reuse the same React takeaway checkout baseline.
+      // Switching between these authorized retail UIs must not discard an
+      // in-progress cart by calling applyQuickMode("home") unnecessarily.
+      if (quickMode !== "home") {
+        applyQuickMode("home", true);
+      } else {
+        setOpticalRetailActive(true);
+        setStartupRetailKind("optical_retail");
+        setModeSelectorOpen(false);
+      }
     };
     const onGeneralSaleActivate = () => {
-      // IT may grant SD without granting public takeaway. Switch the React
-      // checkout baseline directly instead of clicking the hidden Home card.
-      if (!opticalRetailActive && quickMode === "home") return;
-      applyQuickMode("home");
+      // The prior early-return when quickMode === "home" stopped General
+      // Sale from activating: its UI needs startupRetailKind === "general_sale"
+      // even though checkout internally remains in the "home" baseline.
+      // Preserve the current cart when switching from ordinary Home/Optical.
+      if (quickMode !== "home") {
+        applyQuickMode("home");
+      }
+      setOpticalRetailActive(false);
       setStartupRetailKind("general_sale");
+      setModeSelectorOpen(false);
     };
     const onOpticalDeactivate = () => setOpticalRetailActive(false);
     window.addEventListener(OPTICAL_ACTIVATE_BASE_MODE_EVENT, onOpticalActivate);
@@ -6426,20 +6434,26 @@ export function PosSalesModule({
   }
 
   function selectQuickMode(mode: QuickMode) {
-    if (mode === "delivery") {
-      setModeSelectorOpen(false);
-      setDeliveryMaintenanceOpen(true);
-      return;
-    }
-    if (mode === quickMode && !opticalRetailActive) {
-      setModeSelectorOpen(false);
-      return;
-    }
     if (isQuickModeLocked(mode)) {
       setModeSelectorOpen(false);
       setPackageLockOpen(true);
       return;
     }
+    // The retail modes share quickMode="home". A user selecting ordinary
+    // Takeaway from General Sale or Optical is still changing modes.
+    if (mode === "home" && quickMode === "home" &&
+        (opticalRetailActive || startupRetailKind === "general_sale")) {
+      setOpticalRetailActive(false);
+      setStartupRetailKind(null);
+      setModeSelectorOpen(false);
+      return;
+    }
+    if (mode === quickMode && !opticalRetailActive && startupRetailKind === null) {
+      setModeSelectorOpen(false);
+      return;
+    }
+    // Delivery has an implemented checkout flow. When IT grants the mode,
+    // enter it rather than always showing the legacy maintenance dialog.
     applyQuickMode(mode);
   }
 
@@ -8660,6 +8674,7 @@ export function PosSalesModule({
 
   function getQuickModeLabel() {
     if (opticalRetailActive) return "IMDC OPTICAL";
+    if (startupRetailKind === "general_sale" && quickMode === "home") return localSaleLabel("ขายทั่วไป (SD)", "General Sale (SD)");
     if (quickMode === "buffet_table") return localSaleLabel("โต๊ะบุฟเฟ่", "Buffet table");
     if (quickMode === "dine_in") return text.dineIn;
     if (quickMode === "delivery") return text.delivery;
@@ -10815,13 +10830,7 @@ export function PosSalesModule({
         </div>
       ) : null}
       <PackageLockDialog lang={lang} open={packageLockOpen} onClose={() => setPackageLockOpen(false)} />
-      <PosMemberMaintenanceModal
-        open={deliveryMaintenanceOpen}
-        lang={lang==="lo"?"th":lang}
-        title={text.deliveryMaintenanceTitle}
-        message={text.deliveryMaintenanceMessage}
-        onClose={() => setDeliveryMaintenanceOpen(false)}
-      />
+
     </section>
   );
 }
