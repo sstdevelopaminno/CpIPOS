@@ -75,7 +75,8 @@ describe("printer settings v3 regression coverage", () => {
     expect(route).toContain('bridge_url: "native-agent://windows-pos"');
     expect(route).toContain("assigned_agent_ids: [agent.id]");
     expect(route).toContain('if (matches.length !== 1) throw new Error("windows_print_agent_binding_required")');
-    expect(route).toContain("await resolvePrinterProfileMetadata(auth, body, mode, purposes, assignments)");
+    expect(route).toContain("await resolvePrinterProfileMetadata(auth, bodyWithFingerprint, mode, purposes, assignments)");
+    expect(route).toContain("await resolvePrinterProfileMetadata(auth, metadataInput, mode, purposes, assignments)");
   });
 
 });
