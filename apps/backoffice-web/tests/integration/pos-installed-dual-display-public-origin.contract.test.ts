@@ -10,6 +10,7 @@ const main = file("../windows-runtime-native/Cpipos.WindowsRuntime/MainForm.cs")
 const customerWindow = file("../windows-runtime-native/Cpipos.WindowsRuntime/CustomerDisplayWindow.cs");
 const androidWorkflow = file("../../.github/workflows/build-android-tablet-1027-dual-screen-qa.yml");
 const windowsWorkflow = file("../../.github/workflows/build-windows-webpos-022-dual-screen-qa.yml");
+const windowsFastQaWorkflow = file("../../.github/workflows/build-windows-webpos-026-fast-thermal-qa.yml");
 
 describe("release candidates use the public production POS origin and independent customer display", () => {
   it("uses the same public origin for Android main POS, MDM, print API and second display", () => {
@@ -27,7 +28,7 @@ describe("release candidates use the public production POS origin and independen
     expect(bridge).toContain('"https://pos.cuttingpointinnovation.com"');
     expect(bridge).toContain('X-CpIPOS-Bridge-Token');
     expect(bridge).not.toContain('"https://cp-ipos-web.vercel.app"');
-    expect(main).toContain('native_app_version = "0.2.5"');
+    expect(main).toContain('native_app_version = "0.2.6"');
   });
   it("keeps two-screen display read-only, optional and separate from cashier controls", () => {
     expect(main).toContain("Screen.AllScreens.FirstOrDefault(screen => !screen.Primary)");
@@ -38,7 +39,11 @@ describe("release candidates use the public production POS origin and independen
     expect(androidWorkflow).toContain('ANDROID_RUNTIME_VERSION_CODE: "36"');
     expect(androidWorkflow).toContain("android-runtime-modern-1.0.27-dual-screen-qa2");
     expect(androidWorkflow).toContain("-PcpiposDualScreen=true");
-    expect(windowsWorkflow).toContain("WINDOWS_RUNTIME_VERSION: 0.2.5");
-    expect(windowsWorkflow).toContain("windows-webpos-v0.2.5-width-qa1");
+    expect(windowsWorkflow).toContain("WINDOWS_RUNTIME_VERSION: 0.2.6");
+    expect(windowsWorkflow).toContain("workflow_dispatch:");
+    expect(windowsWorkflow).not.toContain("gh release create");
+    expect(windowsFastQaWorkflow).toContain("WINDOWS_RUNTIME_VERSION: 0.2.6");
+    expect(windowsFastQaWorkflow).toContain("CpIPOS-WindowsWebPOS-v0.2.6-FastThermal-QA");
+    expect(windowsFastQaWorkflow).not.toContain("gh release create");
   });
 });

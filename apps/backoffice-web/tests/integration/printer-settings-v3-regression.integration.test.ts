@@ -70,6 +70,19 @@ describe("printer settings v3 regression coverage", () => {
     expect(patch).toContain('windows_printer_transport_change_requires_new_profile');
   });
 
+  it("exposes a bounded Windows-only thermal X-axis calibration slider without leaking profile metadata",()=>{
+    const registry=source("src/lib/printing/printer-device-registry.ts");
+    const ui=source("src/components/backoffice/printer-connection-manager-v3.tsx");
+    const route=source("src/app/api/backoffice/printers/devices/route.ts");
+    expect(registry).toContain('windows_native_printer: profileMetadata.target_runtime === "windows_native"');
+    expect(registry).toContain('windows_receipt_offset_mm: Number.isFinite(offset)');
+    expect(ui).toContain('editId && windowsNativeBound && mode === "usb"');
+    expect(ui).toContain('id="windows-thermal-offset-mm" type="range" min="-6" max="6" step="0.5"');
+    expect(ui).toContain('metadata:{windows_receipt_offset_mm:thermalOffsetMm}');
+    expect(route).toContain('windows_printer_offset_invalid');
+    expect(route).toContain('!Number.isInteger(proposedOffset*2)');
+  });
+
   it("routes Windows USB printers to their exact Windows agent, not Android POS001", () => {
     const route = source("src/app/api/backoffice/printers/devices/route.ts");
     expect(route).toContain('metadata.runtime === "windows_native_print_agent_v1"');

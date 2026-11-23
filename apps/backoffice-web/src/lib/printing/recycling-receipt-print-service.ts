@@ -49,6 +49,7 @@ export function renderRecyclingSharedReceipt(args: {
   logoUrl?: string | null;
   taxNotice?: string;
   centerOnPaper?: boolean;
+  thermalOffsetMm?: number;
 }) {
   const isBuy = args.direction === "buy";
   const isCredit = args.settlement === "credit";
@@ -70,6 +71,7 @@ export function renderRecyclingSharedReceipt(args: {
     paperWidthMm:args.width,
     compactRecycling:true,
     centerThermalContent:args.centerOnPaper===true,
+    thermalOffsetMm:args.thermalOffsetMm,
     currencyCode:"THB",
     languageCode:"th",
     storeName:args.shop,
@@ -179,9 +181,12 @@ export async function queueRoutedRecyclingReceipt(args: {
       const centerOnPaper=printerMetadata.target_runtime==="windows_native" &&
         printerMetadata.windows_receipt_centered===true &&
         printerMetadata.windows_device_code===args.runtimeDeviceCode;
+      const rawOffset=Number(printerMetadata.windows_receipt_offset_mm);
+      const thermalOffsetMm=centerOnPaper && Number.isFinite(rawOffset) ?
+        Math.max(-6,Math.min(6,rawOffset)):0;
       const html=renderRecyclingSharedReceipt({
         width:route.printer.paper_width_mm,shop,branch:branchName,
-        centerOnPaper,
+        centerOnPaper,thermalOffsetMm,
         receiptNo:tx.data.receipt_no,direction:tx.data.direction,
         status:tx.data.status,voidReason:tx.data.void_reason,
         createdAt:tx.data.created_at,

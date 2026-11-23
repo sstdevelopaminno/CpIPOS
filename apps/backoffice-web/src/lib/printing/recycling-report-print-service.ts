@@ -7,7 +7,7 @@ import { resolvePrinterRoutes } from "@/lib/printing/printer-routing-service";
 import { enqueuePrintJob, processPrintJob } from "@/lib/printing/print-service";
 const minor=(amount:number)=>new Intl.NumberFormat("th-TH",{minimumFractionDigits:2,maximumFractionDigits:2}).format(amount/100);
 const escape=(value:string)=>value.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
-export function renderRecyclingSummaryReportHtml(report:RecyclingHistoryReport,paper:58|80,centerOnPaper=false):string{
+export function renderRecyclingSummaryReportHtml(report:RecyclingHistoryReport,paper:58|80,centerOnPaper=false,thermalOffsetMm=0):string{
  const rows:[string,string][]=[
   ["ขายออก",minor(report.totals.sellMinor)],["รับซื้อเข้าร้าน",minor(report.totals.buyMinor)],
   ["จำนวนบิลขายออก",String(report.totals.sellCount)],["จำนวนใบรับซื้อ",String(report.totals.buyCount)],
@@ -18,7 +18,8 @@ export function renderRecyclingSummaryReportHtml(report:RecyclingHistoryReport,p
  ];
  const body=rows.map(([k,v])=>'<div class="r"><span>'+escape(k)+'</span><strong>'+escape(v)+'</strong></div>').join("");
  const width=paper===80?56:42;
- const leftMargin=centerOnPaper?(paper-width)/2:(paper===80?2:1);
+ const calibration=Number.isFinite(thermalOffsetMm)?Math.max(-6,Math.min(6,thermalOffsetMm)):0;
+ const leftMargin=centerOnPaper?Math.max(0,(paper-width)/2+calibration):(paper===80?2:1);
  return '<!doctype html><html lang="th"><head><meta charset="utf-8"/>'
   +'<title>สรุปรับซื้อ–ขายออก Recycling</title><style>@page{size:'+paper+'mm auto;margin:0}'
   +'*{box-sizing:border-box}html,body{margin:0;padding:0;width:'+paper+'mm;color:#000;background:#fff;font:11px/1.35 Tahoma,"Noto Sans Thai",sans-serif}'
@@ -51,8 +52,10 @@ export async function queueRoutedRecyclingReport(args:{
    ?route.printer.metadata as Record<string,unknown>:{};
  const windowsLab=meta.target_runtime==="windows_native"&&meta.windows_device_code===args.deviceCode;
  const fastWake=windowsLab&&meta.windows_receipt_fast_wake===true;
+ const centerOnPaper=windowsLab&&meta.windows_receipt_centered===true;
+ const rawOffset=Number(meta.windows_receipt_offset_mm);
  const html=renderRecyclingSummaryReportHtml(args.report,paper,
-  windowsLab&&meta.windows_receipt_centered===true);
+  centerOnPaper,centerOnPaper&&Number.isFinite(rawOffset)?rawOffset:0);
  const key="recycling-summary:"+args.requestId+":"+route.printer.id;
  const db=getSupabaseServiceClient();
  const existing=await db.from("print_jobs").select("id,status,printer_id,printed_at,last_error")

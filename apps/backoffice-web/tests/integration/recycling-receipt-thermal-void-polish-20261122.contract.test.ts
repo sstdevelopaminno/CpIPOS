@@ -58,6 +58,16 @@ describe("CUSTOM Recycling 58/80mm thermal receipt legibility",()=>{
     expect(printer).toContain("printerMetadata.windows_receipt_centered===true");
     expect(printer).toContain("printerMetadata.windows_device_code===args.runtimeDeviceCode");
   });
+  it("applies bounded printer X calibration only for centered Recycling receipts",()=>{
+    const shifted=renderReceiptHtml({...common,paperWidthMm:80,centerThermalContent:true,thermalOffsetMm:-4});
+    const unshifted=renderReceiptHtml({...common,paperWidthMm:80,centerThermalContent:true});
+    const ordinary=renderReceiptHtml({...common,paperWidthMm:80,compactRecycling:false,centerThermalContent:true,thermalOffsetMm:-4});
+    expect(shifted).toContain("margin: 0 0 0 8mm");
+    expect(unshifted).toContain("margin: 0 0 0 12mm");
+    expect(ordinary).toContain("margin: 0 0 0 1mm");
+    expect(printer).toContain("printerMetadata.windows_receipt_offset_mm");
+    expect(printer).toContain("Math.max(-6,Math.min(6,rawOffset))");
+  });
   it("does not change CSS or item layout of ordinary POS receipts",()=>{
     const html=renderReceiptHtml({...common,compactRecycling:false,paperWidthMm:58});
     expect(html).toContain('class="receipt"');

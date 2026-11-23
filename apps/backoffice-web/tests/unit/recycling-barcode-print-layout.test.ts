@@ -29,6 +29,14 @@ describe("Recycling barcode thermal printing",()=>{
    expect(html).toContain('role="img"');
   }
  });
+ it("calibrates printed Code128 positioning but never prints outside thermal paper",()=>{
+  const shifted=renderRecyclingBarcodeLabel({sku:"0002555599",name:"เหล็กแท่ง",branchName:"สาขาหลัก",paper:80,size:"large",centerOnPaper:true,thermalOffsetMm:-4});
+  const neutral=renderRecyclingBarcodeLabel({sku:"0002555599",name:"เหล็กแท่ง",branchName:"สาขาหลัก",paper:80,size:"large",centerOnPaper:true});
+  expect(shifted).toContain("margin-left:4mm");
+  expect(neutral).toContain("margin-left:8mm");
+  const clipped=renderRecyclingBarcodeLabel({sku:"0002555599",name:"test",branchName:"X",paper:58,size:"full",centerOnPaper:true,thermalOffsetMm:-100});
+  expect(clipped).toContain("margin-left:1mm");
+ });
  it("escapes material names and prevents overly dense / invalid barcode output",()=>{
   const html=renderRecyclingBarcodeLabel({sku:"AB-123",name:'<img src=x>',branchName:"X&Y",paper:80});
   expect(html).toContain("&lt;img src=x&gt;");

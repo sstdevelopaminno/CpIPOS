@@ -34,6 +34,7 @@ internal sealed class LocalPrintBridge : IDisposable
     private readonly string _bridgeToken;
     private readonly CancellationTokenSource _stopping = new();
     private readonly SemaphoreSlim _printLock = new(1, 1);
+    private readonly WarmHtmlReceiptPrinter _warmHtmlPrinter = new();
     private readonly SemaphoreSlim _drawerLock = new(1, 1);
     private readonly SemaphoreSlim _requestSlots = new(16, 16);
     private const int MaxTextPrintPages = 100;
@@ -53,7 +54,7 @@ internal sealed class LocalPrintBridge : IDisposable
     [DllImport("winspool.drv", CharSet = CharSet.Auto, SetLastError = true)]
     private static extern bool SetDefaultPrinter(string name);
 
-    public string Version => "cpipos-windows-native-bridge-0.2.5";
+    public string Version => "cpipos-windows-native-bridge-0.2.6";
     public bool IsRunning { get; private set; }
 
     public LocalPrintBridge(int port, string defaultPrinter, string bridgeToken)
@@ -201,6 +202,7 @@ internal sealed class LocalPrintBridge : IDisposable
                     allowed_origins = AllowedOrigins.ToArray(),
                     supports_print_receipt = true,
                     supports_html_receipt_print = true,
+                    supports_warm_html_receipt_print = true,
                     supports_print_test = true,
                     supports_list_printers = true,
                     supports_serialized_print_queue = true,
@@ -220,6 +222,7 @@ internal sealed class LocalPrintBridge : IDisposable
                         "/printers/select",
                         "/print/status",
                         "/print/test",
+                        "/print/prewarm",
                         "/print",
                         "/print/html",
                         "/cash-drawer/open"
@@ -250,6 +253,21 @@ internal sealed class LocalPrintBridge : IDisposable
         {
             if (!IsAuthorizedBridgeRequest(request)) return Unauthorized(corsOrigin);
             return await HandleCashDrawerOpenAsync(request, corsOrigin, cancellationToken).ConfigureAwait(false);
+        }
+
+        if (string.Equals(request.Method, "POST", StringComparison.OrdinalIgnoreCase) && request.Path == "/print/prewarm")
+        {
+            if (!IsAuthorizedBridgeRequest(request)) return Unauthorized(corsOrigin);
+            try
+            {
+                await _warmHtmlPrinter.WarmAsync(cancellationToken).ConfigureAwait(false);
+                return HttpResponseData.Json(200, new { ok = true, data = new { warmed = true, bridge_version = Version } }, corsOrigin);
+            }
+            catch (Exception error)
+            {
+                return HttpResponseData.Json(503, new { ok = false,
+                    error = new { code = "warm_renderer_unavailable", message = error.Message } }, corsOrigin);
+            }
         }
 
         if (string.Equals(request.Method, "POST", StringComparison.OrdinalIgnoreCase) &&
@@ -524,7 +542,9 @@ internal sealed class LocalPrintBridge : IDisposable
 
             if (!string.IsNullOrWhiteSpace(html))
             {
-                var htmlResult = await PrintHtmlAsync(html, printerName, cancellationToken).ConfigureAwait(false);
+                var fastHtml = root.TryGetProperty("fast_html", out var fastSetting) &&
+                    fastSetting.ValueKind == JsonValueKind.True;
+                var htmlResult = await PrintHtmlAsync(html, printerName, fastHtml, cancellationToken).ConfigureAwait(false);
                 return HttpResponseData.Json(200, new
                 {
                     ok = true,
@@ -583,7 +603,7 @@ internal sealed class LocalPrintBridge : IDisposable
     // received no Windows spool job. Use Chromium/WebView2 PrintAsync with an
     // explicitly selected Windows printer. A successful result is still spool
     // acceptance, NEVER proof that paper physically left the printer.
-    private async Task<PrintResult> PrintHtmlAsync(string html, string requestedPrinterName, CancellationToken cancellationToken)
+    private async Task<PrintResult> PrintHtmlAsync(string html, string requestedPrinterName, bool fastHtml, CancellationToken cancellationToken)
     {
         if (!await _printLock.WaitAsync(TimeSpan.FromSeconds(20), cancellationToken).ConfigureAwait(false))
         {
@@ -601,6 +621,20 @@ internal sealed class LocalPrintBridge : IDisposable
 
             var htmlToPrint = NormalizeHtmlForReceiptPrint(html);
             var jobId = "CPIPOS-HTML-" + DateTimeOffset.Now.ToString("yyyyMMddHHmmssfff");
+            if (fastHtml)
+            {
+                // One verified printer's explicit opt-in: no new STA, Form,
+                // WebView2 environment or renderer for each successive job.
+                // Unknown outcomes are failed closed; never fall back to a
+                // second physical printing attempt.
+                await _warmHtmlPrinter.PrintAsync(htmlToPrint, resolvedPrinter, cancellationToken)
+                    .ConfigureAwait(false);
+                _printedJobs++;
+                _lastError = null;
+                _lastPrintAt = DateTimeOffset.Now;
+                _lastPrinter = resolvedPrinter;
+                return new PrintResult(jobId, resolvedPrinter);
+            }
             var resultSource = new TaskCompletionSource<PrintResult>(TaskCreationOptions.RunContinuationsAsynchronously);
             using var printTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             // The bridge HTTP request expires after 30 s. Return an explicit
@@ -1344,6 +1378,7 @@ img { max-width: 100%; }
         IsRunning = false;
         try { _stopping.Cancel(); } catch { }
         try { _listener?.Stop(); } catch { }
+        _warmHtmlPrinter.Dispose();
         _printLock.Dispose();
         _drawerLock.Dispose();
         _requestSlots.Dispose();

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
-import { hasLocalWindowsPrintBridge, openWindowsCashDrawerJob, printWindowsReceiptHtml } from "@/lib/printing/windows-local-printer-test";
+import { hasLocalWindowsPrintBridge, openWindowsCashDrawerJob, prewarmWindowsHtmlRenderer, printWindowsReceiptHtml } from "@/lib/printing/windows-local-printer-test";
 
 type Job = {
   id: string;
@@ -10,12 +10,13 @@ type Job = {
   reprint?: boolean;
   kind: "html" | "cash_drawer";
   render_mode?: "html" | "native_text";
+  fast_html?: boolean;
   sale_receipt?: boolean;
   html: string | null;
   text?: string | null;
   drawer?: { kickPin: 0 | 1; pulseOnMs: number; pulseOffMs: number } | null;
 };
-type Reply = { data?: { jobs?: Job[] }; error?: { code?: string; message?: string } };
+type Reply = { data?: { jobs?: Job[]; prewarm_fast_html?: boolean }; error?: { code?: string; message?: string } };
 const PRINTED_ATTEMPTS_LEDGER = "cpi_windows_native_agent_attempted_v1";
 const AGENT_ENDPOINT = "/api/pos/windows-print/agent";
 
@@ -63,6 +64,7 @@ export function WindowsNativePrintAgent() {
     let idlePolls = 0;
     let priorityPollUntil = 0;
     let urgentWakePending = false;
+    let warmRequested = false;
     const abort = new AbortController();
 
     async function poll() {
@@ -74,7 +76,14 @@ export function WindowsNativePrintAgent() {
       let nextMs = Date.now() < priorityPollUntil ? 1_000 : (idlePolls > 7 ? 30_000 : 12_000);
       try {
         const data = await command({ action: "claim" }, abort.signal);
-        const jobs = (data as { jobs?: Job[] }).jobs ?? [];
+        const response = data as { jobs?: Job[]; prewarm_fast_html?: boolean };
+        // Only prewarm when the authenticated claim identifies a printer
+        // enrolled in fast HTML mode for this exact Windows POS session.
+        if (response.prewarm_fast_html === true && !warmRequested) {
+          warmRequested = true;
+          void prewarmWindowsHtmlRenderer();
+        }
+        const jobs = response.jobs ?? [];
         const job = jobs[0];
         idlePolls = job ? 0 : idlePolls + 1;
         if (job && !stopped) {
@@ -106,7 +115,8 @@ export function WindowsNativePrintAgent() {
                       orderNo: job.sale_receipt === true ? job.order_no : null,
                       reprint: job.reprint === true,
                       plainText: job.text ?? null,
-                      renderMode: job.render_mode === "native_text" ? "native_text" : "html"
+                      renderMode: job.render_mode === "native_text" ? "native_text" : "html",
+                      fastHtml: job.fast_html === true
                     })
                   : (() => { throw new Error("windows_job_payload_invalid"); })();
               await command({
