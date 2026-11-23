@@ -37,6 +37,7 @@ export type GeneralSaleLookupProduct = {
 export type GeneralSaleAddProductRequest = {
   requestId: string;
   product: GeneralSaleLookupProduct;
+  quantity?: number;
 };
 
 export type GeneralSaleAddProductResult = {

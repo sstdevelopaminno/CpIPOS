@@ -6,6 +6,7 @@ import { buildPaginationMeta, parsePagination, sanitizeSearchTerm } from "@/lib/
 import { mergeCategoryCountItems } from "@/lib/pos/category-normalization";
 import { getProductSpecialPrice, isProductRecommended, withProductManagementMetadata } from "@/lib/pos/product-metadata";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
+import { isValidProductSku, normalizeProductSku, selectedProductSku, type ProductSkuMode } from "@/lib/product-sku";
 
 type UpsertProductPayload = {
   action: "upsert_product";
@@ -68,6 +69,7 @@ type DeleteRecipeLinePayload = {
 type CreateProductWithStockSetupPayload = {
   action: "create_product_with_stock_setup";
   sku?: string;
+  sku_mode?: ProductSkuMode;
   name: string;
   category: string;
   stock_quantity: number;
@@ -91,6 +93,7 @@ type CreateProductWithStockSetupPayload = {
 type UpdateProductWithStockSetupPayload = {
   action: "update_product_with_stock_setup";
   product_id: string;
+  sku?: string;
   name: string;
   category: string;
   stock_quantity: number;
@@ -306,14 +309,31 @@ function isMissingProductTrashColumnsError(error: PostgrestLikeError | null | un
 }
 
 function normalizeSku(raw: string | undefined) {
-  const digits = String(raw ?? "").replace(/\D+/g, "");
-  if (digits) return digits.slice(0, 40);
-
+  const sku = normalizeProductSku(raw);
+  if (sku) return sku;
   const timestamp = Date.now().toString();
-  const randomSuffix = Math.floor(Math.random() * 1000000)
-    .toString()
-    .padStart(6, "0");
+  const randomSuffix = Math.floor(Math.random() * 1000000).toString().padStart(6, "0");
   return `${timestamp}${randomSuffix}`.slice(0, 40);
+}
+
+async function isDuplicateProductSku(input: {
+  supabase: ReturnType<typeof getSupabaseServiceClient>;
+  tenantId: string;
+  branchId: string;
+  sku: string;
+  excludeProductId?: string;
+}): Promise<boolean> {
+  const { data, error } = await input.supabase.from("products")
+    .select("id,sku")
+    .eq("tenant_id", input.tenantId)
+    .eq("branch_id", input.branchId)
+    .ilike("sku", input.sku)
+    .limit(50);
+  if (error) throw new Error(`product_sku_query_failed:${error.message}`);
+  return (data ?? []).some((row) =>
+    String(row.id) !== String(input.excludeProductId ?? "") &&
+    normalizeProductSku(row.sku) === input.sku
+  );
 }
 
 async function softDeleteProducts(input: {
@@ -1236,7 +1256,10 @@ export async function POST(req: Request) {
     if (body.action === "create_product_with_stock_setup") {
       const name = body.name?.trim();
       const category = body.category?.trim();
-      const sku = normalizeSku(body.sku);
+      const skuMode: ProductSkuMode = body.sku_mode === "auto" || body.sku_mode === "manual" || body.sku_mode === "both"
+        ? body.sku_mode : body.sku ? "both" : "auto";
+      const sku = selectedProductSku({ mode: skuMode, sku: body.sku }, () => normalizeSku(undefined));
+      if (!sku) return fail("invalid_product_sku", "SKU must have 1-40 ASCII letters, digits, hyphen, underscore or period.", 422);
       const stockQuantity = Number(body.stock_quantity ?? 0);
       const storePrice = Number(body.store_price);
       const deliveryPrice = Number(body.delivery_price);
@@ -1308,6 +1331,14 @@ export async function POST(req: Request) {
       }
 
       const existingProductByName = existingProductRows?.[0] as { id: string; sku?: string | null; metadata?: Record<string, unknown> | null } | undefined;
+      if (existingProductByName && skuMode !== "auto" && normalizeProductSku(existingProductByName.sku) !== sku) {
+        return fail("product_name_sku_conflict", "This product name already exists with a different SKU. Edit the existing product.", 409);
+      }
+      if (!existingProductByName && await isDuplicateProductSku({
+        supabase, tenantId: auth.tenantId!, branchId: scopedBranchId, sku
+      })) {
+        return fail("duplicate_product_sku", "This SKU/barcode is already used by another product in this branch.", 409);
+      }
       const createProductMetadata = withProductManagementMetadata(existingProductByName?.metadata ?? null, {
         isRecommended,
         specialPrice
@@ -1351,7 +1382,9 @@ export async function POST(req: Request) {
         }
 
         if (createdProductError) {
-          return fail("product_insert_failed", createdProductError.message ?? "Failed to insert product.", 500);
+          return createdProductError.code === "23505"
+            ? fail("duplicate_product_sku", "This SKU/barcode already exists in this branch.", 409)
+            : fail("product_insert_failed", createdProductError.message ?? "Failed to insert product.", 500);
         }
       }
       if (!createdProductId) {
@@ -1649,6 +1682,10 @@ export async function POST(req: Request) {
 
     if (body.action === "update_product_with_stock_setup") {
       const productId = String(body.product_id ?? "").trim();
+      const requestedSku = body.sku === undefined ? null : normalizeProductSku(body.sku);
+      if (requestedSku !== null && !isValidProductSku(requestedSku)) {
+        return fail("invalid_product_sku", "SKU must have 1-40 ASCII letters, digits, hyphen, underscore or period.", 422);
+      }
       const name = body.name?.trim();
       const category = body.category?.trim();
       const stockQuantity = Number(body.stock_quantity ?? 0);
@@ -1745,6 +1782,14 @@ export async function POST(req: Request) {
         return fail("missing_recipe_lines", "Please select at least one ingredient line.", 422);
       }
 
+      if (requestedSku && requestedSku !== normalizeProductSku(existingProduct?.sku)) {
+        if (await isDuplicateProductSku({
+          supabase, tenantId: auth.tenantId!, branchId: productBranchId, sku: requestedSku,
+          excludeProductId: productId
+        })) {
+          return fail("duplicate_product_sku", "This SKU/barcode already belongs to another product in this branch.", 409);
+        }
+      }
       const updatePayloadCandidates = [
         {
           name,
@@ -1778,6 +1823,7 @@ export async function POST(req: Request) {
 
       const updatePayloadCandidatesWithCustomerSelection = updatePayloadCandidates.map((candidate) => ({
         ...candidate,
+        ...(requestedSku !== null ? { sku: requestedSku } : {}),
         customer_ingredient_selection_enabled: customerIngredientSelectionEnabled,
         metadata: withProductManagementMetadata(existingProduct?.metadata, {
           isRecommended,
@@ -1801,7 +1847,9 @@ export async function POST(req: Request) {
         if (!canRetry) break;
       }
       if (updateProductError) {
-        return fail("product_update_failed", updateProductError.message ?? "Failed to update product.", 500);
+        return updateProductError.code === "23505"
+          ? fail("duplicate_product_sku", "This SKU/barcode already belongs to another product.", 409)
+          : fail("product_update_failed", updateProductError.message ?? "Failed to update product.", 500);
       }
 
       const priceRows = DELIVERY_CHANNELS.map((channel) => ({
@@ -2217,8 +2265,14 @@ export async function POST(req: Request) {
         specialPrice
       });
 
-      if (!sku || !name || !category) {
-        return fail("invalid_product_fields", "sku, name and category are required.", 422);
+      if (!isValidProductSku(sku) || !name || !category) {
+        return fail("invalid_product_fields", "SKU (ASCII 1-40 chars), name and category are required.", 422);
+      }
+      if (await isDuplicateProductSku({
+        supabase, tenantId: auth.tenantId!, branchId: scopedBranchId, sku,
+        excludeProductId: body.id
+      })) {
+        return fail("duplicate_product_sku", "This SKU/barcode already belongs to another product in this branch.", 409);
       }
       if (!Number.isFinite(price) || price < 0) {
         return fail("invalid_product_price", "price must be greater than or equal to 0.", 422);

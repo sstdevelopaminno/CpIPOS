@@ -31,7 +31,7 @@ type Props = {
   stockRemainingLabel?: string;
   outOfStockLabel?: string;
   getProductPrice: (product: ProductCatalogItem) => number;
-  onAddProduct: (product: ProductCatalogItem) => boolean | void;
+  onAddProduct: (product: ProductCatalogItem, quantity?: number) => boolean | void;
 };
 
 type MediaResponse = {
@@ -59,6 +59,11 @@ function PosProductCatalogInner({ products, isDeliveryMode, storefrontPriceLabel
         if (requestId) emitGeneralSaleResult({ requestId, status: "invalid" });
         return;
       }
+      const quantity = Number(detail?.quantity ?? 1);
+      if (!Number.isSafeInteger(quantity) || quantity < 1 || quantity > 9999) {
+        emitGeneralSaleResult({ requestId, status: "invalid" });
+        return;
+      }
       if (product.is_active === false || product.is_out_of_stock === true) {
         emitGeneralSaleResult({ requestId, status: "unavailable" });
         return;
@@ -68,7 +73,7 @@ function PosProductCatalogInner({ products, isDeliveryMode, storefrontPriceLabel
       // remains a separate intentional path for ordinary modes. Do not report
       // success when a stock cap blocked the React cart mutation.
       try {
-        const accepted = onAddProduct(product);
+        const accepted = onAddProduct(product, quantity);
         emitGeneralSaleResult({ requestId, status: accepted === false ? "unavailable" : "added" });
       } catch {
         emitGeneralSaleResult({ requestId, status: "invalid" });

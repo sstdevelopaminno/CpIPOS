@@ -21,15 +21,16 @@ describe("CUSTOM Optical scanner and single-unit stock path", () => {
   });
 
   it("adds each Optical SKU to React cart directly without the restaurant ingredient modal", () => {
-    expect(sales).toContain("if (opticalRetailActive) return addCartLine(product)");
+    expect(sales).toContain('if (opticalRetailActive || (startupRetailKind === "general_sale" && quickMode === "home"))');
+    expect(sales).toContain("return addCartLine(product, { quantity });");
     expect(sales).toContain("const hasSpecialPrice = getSelectableSpecialPrice(product) !== null");
     expect(sales).toContain('if ((orderType === "dine_in" || product.has_recipe_deduction || hasSpecialPrice)');
     expect(sales).toContain("shouldOpenPosItemDetailPopup(product, itemDetailPopupEnabled)");
-    expect(sales.indexOf("if (opticalRetailActive) return addCartLine(product)")).toBeLessThan(
+    expect(sales.indexOf('if (opticalRetailActive || (startupRetailKind === "general_sale" && quickMode === "home"))')).toBeLessThan(
       sales.indexOf('if ((orderType === "dine_in" || product.has_recipe_deduction || hasSpecialPrice)')
     );
     expect(sales).toContain("setModifierDraft({");
-    expect(sales).toContain("return addCartLine(product)");
+    expect(sales).toContain("return addCartLine(product, { quantity });");
     expect(sales).toContain("stockUnits");
     expect(sales).toContain("cartQty + quantity > Number(stockUnits)");
     expect(sales).toContain("return false");
@@ -49,8 +50,8 @@ describe("CUSTOM Optical scanner and single-unit stock path", () => {
     expect(lookup).toContain("const [exactResult, inventoryResult] = await Promise.all([");
     expect(lookup).toContain("const { data: inventorySettings, error: inventoryError } = inventoryResult;");
     expect(controller).toContain("void submitScan(raw, status, input, submit)");
-    expect(controller).toContain("opticalActive ? originalSku : scanCode");
-    expect(controller).toContain("scanQueue.push(opticalActive ? originalSku : scanCode)");
+    expect(controller).toContain("encodeURIComponent(originalSku)");
+    expect(controller).toContain("scanQueue.push({ code: opticalActive ? originalSku : originalSku, quantity })");
     // The legacy decoder retains digit-only canonicalization for old barcodes,
     // but the endpoint must try the original alphanumeric SKU first.
     expect(normalizeGeneralSaleScanCode("QA-LAK-FRAME-001")).toBe("001");

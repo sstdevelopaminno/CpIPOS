@@ -34,6 +34,7 @@ type Props = {
   onHoldBill?: () => void;
   onOpenHeldBills?: () => void;
   opticalRetail?: boolean;
+  groceryRetail?: boolean;
   opticalCurrencyCode?: "THB" | "LAK" | "USD";
   opticalLanguage?: "th" | "en" | "lo";
   onOpticalCustomer?: () => void;
@@ -267,6 +268,7 @@ export function PosPaymentPanel({
   onHoldBill,
   onOpenHeldBills,
   opticalRetail = false,
+  groceryRetail = false,
   opticalCurrencyCode = "THB",
   opticalLanguage = "th",
   onOpticalCustomer,
@@ -581,6 +583,23 @@ export function PosPaymentPanel({
         </p>
       </div>
 
+      {groceryRetail ? (
+        <div className="grid grid-cols-2 gap-2" data-testid="pos-grocery-bill-actions">
+          {([
+            ["▣", "พักบิล", "Hold bill", onHoldBill, !showHoldBill || !onHoldBill || actionsDisabled],
+            ["☷", "บิลพัก", "Held bills", onOpenHeldBills, !onOpenHeldBills || actionsDisabled],
+            ["♙", "สมาชิก", "Member", onMember, !onMember || actionsDisabled],
+            ["%", "ส่วนลด", "Discount", onPromotion, !onPromotion || actionsDisabled],
+            ["▤", "เปิดลิ้นชัก", "Open drawer", handleOpenCashDrawerClick, !onOpenCashDrawer || openCashDrawerDisabled || cashDrawerBusy || submitting]
+          ] as const).map(([icon, th, en, action, disabled], index) => (
+            <button key={th} type="button" onClick={action} disabled={disabled}
+              className={`flex min-h-14 min-w-0 flex-col items-center justify-center gap-1 rounded-xl border border-slate-200 bg-white px-2 py-1.5 text-center text-xs font-bold text-slate-800 shadow-sm enabled:hover:border-blue-300 enabled:hover:bg-blue-50 disabled:opacity-50 ${index === 4 ? "col-span-2" : ""}`}>
+              <span aria-hidden="true" className="text-lg leading-none">{icon}</span>
+              <span>{opticalLanguage === "en" ? en : th}</span>
+            </button>
+          ))}
+        </div>
+      ) : (
       <div
         className={`posui-bill-actions posui-bill-actions--${secondaryActions.length}`}
         style={{ display: "grid", gridTemplateColumns: `repeat(${secondaryActions.length}, minmax(0, 1fr))`, gap: 8 }}
@@ -591,9 +610,10 @@ export function PosPaymentPanel({
           </button>
         ))}
       </div>
+      )}
 
       <div className="posui-payment-actions posui-payment-actions--single" style={{ display: "grid", gridTemplateColumns: "1fr", gap: 8 }}>
-        {onOpenCashDrawer ? (
+        {onOpenCashDrawer && !groceryRetail ? (
           <button
             type="button"
             onClick={handleOpenCashDrawerClick}

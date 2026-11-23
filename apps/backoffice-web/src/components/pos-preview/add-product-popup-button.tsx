@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { isValidProductSku, normalizeProductSku, type ProductSkuMode } from "@/lib/product-sku";
 import { mergeCategoryCountItems, mergeCategoryNames, normalizeCategoryKey, normalizeCategoryName } from "@/lib/pos/category-normalization";
 
 type CategoryItem = {
@@ -158,6 +159,8 @@ export function AddProductPopupButton({
   const [categoryCustomName, setCategoryCustomName] = useState("");
   const [categoryCreating, setCategoryCreating] = useState(false);
   const [productName, setProductName] = useState("");
+  const [skuMode, setSkuMode] = useState<ProductSkuMode>("auto");
+  const [skuInput, setSkuInput] = useState("");
   const [isRecommended, setIsRecommended] = useState(false);
   const [stockQuantity, setStockQuantity] = useState("0");
   const [storePrice, setStorePrice] = useState("0");
@@ -265,6 +268,8 @@ export function AddProductPopupButton({
   }, []);
 
   function resetProductFormAfterSuccess() {
+    setSkuMode("auto");
+    setSkuInput("");
     setProductName("");
     setStockQuantity("0");
     setStorePrice("0");
@@ -386,6 +391,15 @@ export function AddProductPopupButton({
     setErrorText("");
     const resolvedCategory = categoryCustomMode ? categoryCustomName.trim() : categoryName.trim();
     const resolvedName = productName.trim();
+    const normalizedSku = normalizeProductSku(skuInput);
+    if (skuMode === "manual" && !normalizedSku) {
+      setErrorText(th ? "กรุณากรอกรหัส SKU" : "Enter a manual SKU.");
+      return;
+    }
+    if (skuMode !== "auto" && normalizedSku && !isValidProductSku(normalizedSku)) {
+      setErrorText(th ? "SKU ต้องมี 1–40 ตัว ใช้อักษรอังกฤษ ตัวเลข - _ . เท่านั้น" : "SKU must be 1–40 ASCII letters, digits, - _ . only.");
+      return;
+    }
     const resolvedStock = Number(stockQuantity);
     const resolvedStorePrice = Number(storePrice);
     const resolvedSpecialPrice = specialPrice.trim() === "" ? null : Number(specialPrice);
@@ -447,6 +461,8 @@ export function AddProductPopupButton({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           action: "create_product_with_stock_setup",
+          sku_mode: skuMode,
+          sku: skuMode === "auto" ? undefined : normalizedSku || undefined,
           name: resolvedName,
           category: resolvedCategory,
           stock_quantity: resolvedStock,
@@ -818,6 +834,19 @@ export function AddProductPopupButton({
                     />
                   </label>
 
+                  <fieldset className="grid gap-2 rounded-xl border border-blue-200 bg-blue-50/60 p-3">
+                    <legend className="px-1 text-xs font-extrabold text-blue-900">{th ? "SKU / บาร์โค้ดสินค้า" : "Product SKU / Barcode"}</legend>
+                    <div className="flex flex-wrap gap-3">
+                      {(["auto", "manual", "both"] as const).map((mode) => (
+                        <label key={mode} className="inline-flex items-center gap-1.5 text-sm font-semibold text-slate-800">
+                          <input type="radio" checked={skuMode === mode} onChange={() => setSkuMode(mode)} name="create-product-sku-mode" />
+                          {mode === "auto" ? th ? "รันอัตโนมัติ" : "Automatic" : mode === "manual" ? th ? "ใส่เอง" : "Manual" : th ? "ทั้ง 2 แบบ" : "Auto or manual"}
+                        </label>
+                      ))}
+                    </div>
+                    {skuMode !== "auto" ? <input value={skuInput} onChange={(event) => setSkuInput(event.target.value)} maxLength={40} lang="en" autoCapitalize="characters" placeholder={th ? "เช่น 001234 หรือ MILK-001 (เว้นว่างได้เมื่อเลือกทั้ง 2 แบบ)" : "e.g. 001234 or MILK-001 (optional in both mode)"} className={PRODUCT_FORM_CONTROL_CLASS} /> : null}
+                    <small className="text-xs text-slate-600">{th ? "รหัสจะใช้สแกนและพิมพ์ Code128 โดยไม่ตัดเลขศูนย์นำหน้า" : "Code is used for scanning and Code128 printing. Leading zeroes are retained."}</small>
+                  </fieldset>
                   <label className="grid gap-1 text-xs font-semibold text-slate-700">
                     <span>{th ? "3. จำนวนสินค้า" : "3. Stock Quantity"}</span>
                     <input
