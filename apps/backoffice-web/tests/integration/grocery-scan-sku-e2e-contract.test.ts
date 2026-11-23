@@ -23,7 +23,8 @@ describe("Grocery checkout fast barcode + SKU phase 1 and 2", () => {
     expect(scanner).toContain("form.append(input, submit)");
     expect(scanner).toContain("validatedGroceryScanQuantity");
     expect(scanner).toContain("bridgeStatus !== \"added\"");
-    expect(scanner).toContain('if (!opticalActive && amountInput) amountInput.value = "1"');
+    expect(scanner).toContain('if (amountInput) amountInput.value = "1"');
+    expect(scanner).toContain('if (!opticalActive) {');
     expect(scanner).toContain("scanQueue.push({");
     expect(scanner).toContain("nextCode.quantity");
   });
@@ -54,7 +55,8 @@ describe("Grocery checkout fast barcode + SKU phase 1 and 2", () => {
       expect(pay).toContain(handler);
     }
     expect(pay).toContain("onClick={onCheckout}");
-    expect(sales).toContain('groceryRetail={!opticalRetailActive && startupRetailKind === "general_sale" && quickMode === "home"}');
+    expect(sales).toContain('const groceryRetail = !opticalRetailActive && startupRetailKind === "general_sale" && quickMode === "home"');
+    expect(sales).toContain("groceryRetail={groceryRetail}");
   });
 
   it("creates or edits user-defined SKU while preserving existing branch identity and unique index", () => {
