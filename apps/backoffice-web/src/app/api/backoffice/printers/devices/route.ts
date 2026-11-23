@@ -467,6 +467,14 @@ export async function PATCH(req: Request) {
       return fail("windows_printer_offset_invalid",
         "ระยะปรับตำแหน่งพิมพ์ Windows ต้องอยู่ระหว่าง -6 ถึง +6 มม. ทีละ 0.5 มม.",422);
     }
+    const proposedWidth=body.metadata?.windows_receipt_printable_mm;
+    if(proposedWidth!==undefined &&
+       (!previouslyWindowsBound || paper!==80 ||
+        typeof proposedWidth!=="number" || !Number.isInteger(proposedWidth) ||
+        proposedWidth<56 || proposedWidth>70)) {
+      return fail("windows_printer_printable_width_invalid",
+        "พื้นที่พิมพ์บนกระดาษ 80 มม. ต้องอยู่ระหว่าง 56 ถึง 70 มม.",422);
+    }
     if (previouslyWindowsBound && mode !== "usb") {
       return fail("windows_printer_transport_change_requires_new_profile", "โปรไฟล์ Windows ผูกกับเครื่อง POS แล้ว กรุณาเพิ่มโปรไฟล์ใหม่หากต้องการเปลี่ยนเป็น Bluetooth/LAN", 409);
     }
