@@ -46,6 +46,18 @@ describe("CUSTOM Recycling 58/80mm thermal receipt legibility",()=>{
       expect(html).not.toContain("ส่วนลด");
     });
   }
+  it("centers only explicitly calibrated Recycling receipts; other receipt alignment remains unchanged",()=>{
+    const centered80=renderReceiptHtml({...common,paperWidthMm:80,centerThermalContent:true});
+    const centered58=renderReceiptHtml({...common,paperWidthMm:58,centerThermalContent:true});
+    const unchanged=renderReceiptHtml({...common,paperWidthMm:80});
+    const ordinary=renderReceiptHtml({...common,paperWidthMm:80,compactRecycling:false,centerThermalContent:true});
+    expect(centered80).toContain("margin: 0 0 0 12mm");
+    expect(centered58).toContain("margin: 0 0 0 6.5mm");
+    expect(unchanged).toContain("margin: 0 0 0 1mm");
+    expect(ordinary).toContain("margin: 0 0 0 1mm");
+    expect(printer).toContain("printerMetadata.windows_receipt_centered===true");
+    expect(printer).toContain("printerMetadata.windows_device_code===args.runtimeDeviceCode");
+  });
   it("does not change CSS or item layout of ordinary POS receipts",()=>{
     const html=renderReceiptHtml({...common,compactRecycling:false,paperWidthMm:58});
     expect(html).toContain('class="receipt"');
