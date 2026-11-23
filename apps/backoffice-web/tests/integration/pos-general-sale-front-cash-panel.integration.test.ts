@@ -60,6 +60,7 @@ describe("SD front cash panel", () => {
     expect(previewPage).toContain('<PosGeneralSaleRuntime />');
     expect(previewPage).not.toContain('<PosGeneralSaleFrontCashPanel />');
     expect(generalSaleRuntime).toContain('if (!active) return null');
-    expect(generalSaleRuntime).toContain('<PosGeneralSaleFrontCashPanel />');
+    expect(generalSaleRuntime).not.toContain('<PosGeneralSaleFrontCashPanel />');
+    expect(generalSaleRuntime).toContain('<PosGeneralSaleCartReconcileBridge />');
   });
 });
