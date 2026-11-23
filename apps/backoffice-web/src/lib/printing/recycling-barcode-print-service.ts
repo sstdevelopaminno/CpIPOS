@@ -24,10 +24,13 @@ export async function queueRoutedRecyclingBarcode(args:{
    meta.windows_device_code===args.runtimeDeviceCode;
  const fastWake=windowsLabPrinter && meta.windows_receipt_fast_wake===true;
  const centerOnPaper=windowsLabPrinter && meta.windows_receipt_centered===true;
+ const rawOffset=Number(meta.windows_receipt_offset_mm);
+ const thermalOffsetMm=centerOnPaper && Number.isFinite(rawOffset)?
+   Math.max(-6,Math.min(6,rawOffset)):0;
  if(width!==58 && width!==80)throw new Error("recycling_barcode_paper_unsupported");
  const html=renderRecyclingBarcodeLabel({
   sku:args.sku,name:args.name,branchName:args.branchName,paper:width,
-  size:args.size,centerOnPaper
+  size:args.size,centerOnPaper,thermalOffsetMm
  });
  const key="recycling-barcode:"+args.requestId+":"+args.productId+":"+route.printer.id;
  const db=getSupabaseServiceClient();
