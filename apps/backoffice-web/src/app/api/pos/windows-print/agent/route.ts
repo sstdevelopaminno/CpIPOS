@@ -91,6 +91,8 @@ export async function POST(req: Request) {
         String(metadata.windows_device_code ?? "").trim().toUpperCase() === session.device_code!.toUpperCase();
     });
     if (profiles.length === 0) return storeNoCache(fail("windows_printer_not_assigned", "Owner must assign a Windows-native printer profile first.", 409));
+    const prewarmFastHtml = profiles.some(profile =>
+      asRecord(profile.metadata).windows_html_fast_renderer === true);
 
     const agentName = `Windows Native POS · ${session.device_code}`;
     const lookup = db.from("print_agents").select(AGENT_COLUMNS)
@@ -149,7 +151,7 @@ export async function POST(req: Request) {
         app_version: "windows-native-webpos-0.2.0"
       });
       const job = jobs[0] ?? null;
-      if (!job) return storeNoCache(ok({ jobs: [] }));
+      if (!job) return storeNoCache(ok({ jobs: [], prewarm_fast_html: prewarmFastHtml }));
       // Never reprint a sale completed while this Windows station was offline.
       // The leased stale job is explicitly parked as failed, not replayed.
       if (!Number.isFinite(Date.parse(job.created_at)) ||
@@ -184,6 +186,7 @@ export async function POST(req: Request) {
         ? String(asRecord(job.payload_json).order_no)
         : typeof metadata.order_no === "string" ? metadata.order_no : null;
       return storeNoCache(ok({
+        prewarm_fast_html: prewarmFastHtml,
         jobs: [{
           id: job.id,
           agent_attempt_id: job.agent_attempt_id,
@@ -198,6 +201,8 @@ export async function POST(req: Request) {
           render_mode: resolved.kind === "html" &&
             asRecord(assignedProfile?.metadata).windows_print_render_mode === "native_text"
               ? "native_text" : "html",
+          fast_html: resolved.kind === "html" &&
+            asRecord(assignedProfile?.metadata).windows_html_fast_renderer === true,
           text: resolved.kind === "html" && typeof job.payload_text === "string" ? job.payload_text.slice(0, 14_000) : null,
           drawer: resolved.kind === "cash_drawer" ? resolved.drawer : null,
           printer_name: connectedPrinter.selected_printer
