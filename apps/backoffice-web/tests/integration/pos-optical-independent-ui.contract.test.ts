@@ -97,6 +97,9 @@ describe("Optical POS sale identity is separate from internal takeaway order typ
     expect(controller).toContain('new Event(OPTICAL_DEACTIVATE_BASE_MODE_EVENT)');
     expect(controller).toContain('document.documentElement.removeAttribute(OPTICAL_ACTIVE_ROOT_ATTRIBUTE)');
     expect(pos).toContain('window.addEventListener(OPTICAL_DEACTIVATE_BASE_MODE_EVENT, onOpticalDeactivate)');
-    expect(pos).toContain('if (mode === quickMode && !opticalRetailActive)');
+    expect(pos).toContain('mode === "home" && quickMode === "home"');
+    expect(pos).toContain('startupRetailKind === "general_sale"');
+    expect(pos).toContain('setStartupRetailKind(null)');
+    expect(pos).toContain('if (mode === quickMode && !opticalRetailActive && startupRetailKind === null)');
   });
 });
