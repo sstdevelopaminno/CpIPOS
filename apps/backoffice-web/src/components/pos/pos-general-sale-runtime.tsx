@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import { GENERAL_SALE_MODE_ID, GENERAL_SALE_ROOT_ATTRIBUTE } from "@/lib/pos-general-sale-mode";
 import { PosGeneralSaleCartReconcileBridge } from "./pos-general-sale-cart-reconcile-bridge";
-import { PosGeneralSaleFrontCashPanel } from "./pos-general-sale-front-cash-panel";
 
 function readActive() {
   return document.documentElement.getAttribute(GENERAL_SALE_ROOT_ATTRIBUTE) === GENERAL_SALE_MODE_ID;
@@ -45,7 +44,6 @@ export function PosGeneralSaleRuntime() {
   return (
     <>
       <PosGeneralSaleCartReconcileBridge />
-      <PosGeneralSaleFrontCashPanel />
     </>
   );
 }
