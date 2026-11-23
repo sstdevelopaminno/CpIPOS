@@ -48,6 +48,21 @@ describe("Windows print agent device and receipt safety", () => {
     expect(host).toContain("<WindowsNativePrintAgent />");
   });
 
+  it("uses tenant-scoped Windows printer profile to choose native text rendering", () => {
+    const route = source("src/app/api/pos/windows-print/agent/route.ts");
+    const worker = source("src/components/printing/windows-native-print-agent.tsx");
+    expect(route).toContain("const assignedProfile = profiles.find(profile => profile.id === job.printer_id)");
+    expect(route).toContain('asRecord(assignedProfile?.metadata).windows_print_render_mode === "native_text"');
+    expect(route).toContain('render_mode: resolved.kind === "html"');
+    expect(worker).toContain('renderMode: job.render_mode === "native_text" ? "native_text" : "html"');
+  });
+
+  it("never queues recycling reports with a role mismatched to the selected printer", () => {
+    const report = source("src/lib/printing/recycling-report-print-service.ts");
+    expect(report).toContain("printerRole:route.printer.printer_role");
+    expect(report).not.toContain('printerRole:"report"');
+  });
+
   it("Android bootstrap does not select and rotate the Windows agent key", () => {
     const android = source("src/app/api/android-pos/print-agent/bootstrap/route.ts");
     expect(android).toContain('meta.runtime !== "windows_native_print_agent_v1"');
