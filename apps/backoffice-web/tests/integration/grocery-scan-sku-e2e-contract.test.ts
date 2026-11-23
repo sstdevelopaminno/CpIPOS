@@ -61,7 +61,7 @@ describe("Grocery checkout fast barcode + SKU phase 1 and 2", () => {
     expect(create).toContain('name="create-product-sku-mode"');
     expect(create).toContain('sku_mode: skuMode');
     expect(create).toContain('sku: skuMode === "auto"');
-    expect(edit).toContain("sku: normalizedSku");
+    expect(edit).toContain("...(skuChanged ? { sku: normalizedSku } : {})");
     expect(api).toContain("selectedProductSku({ mode: skuMode");
     expect(api).toContain(".eq(\"tenant_id\", input.tenantId)");
     expect(api).toContain(".eq(\"branch_id\", input.branchId)");
