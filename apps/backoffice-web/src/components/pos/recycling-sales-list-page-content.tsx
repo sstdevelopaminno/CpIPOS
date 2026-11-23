@@ -248,7 +248,7 @@ export async function RecyclingSalesListPageContent({scope,search={}}:{
                 </td>
                 <td className="px-3 py-3">{t.branch_id===scope.session.branch_id?
                   <RecyclingSalesListRowActions
-                    receiptId={t.id} receiptNo={t.receipt_no}
+                    receiptId={t.id} receiptNo={t.receipt_no} createdAt={t.created_at}
                     direction={t.direction} settlement={t.settlement} status={t.status}
                     amountMinor={Number(t.total_minor)}
                     canManage={["owner","manager","accountant"].includes(scope.session.role)}
