@@ -35,15 +35,17 @@ export function recyclingBarcodePrintDimensions(
 /** Prints a non-transactional label, independently of any stock changes. */
 export function renderRecyclingBarcodeLabel(input: {
   sku: string; name: string; branchName: string; paper: 58 | 80;
-  size?: RecyclingBarcodeLabelSize; centerOnPaper?: boolean;
+  size?: RecyclingBarcodeLabelSize; centerOnPaper?: boolean; thermalOffsetMm?: number;
 }): string {
   const { svg, widthMm } = recyclingBarcodePrintDimensions(
     input.sku, input.paper, input.size ?? "small"
   );
   const availableMm = input.paper === 58 ? 44 : 64;
   const contentWidthMm = input.centerOnPaper ? availableMm : input.paper;
+  const calibrationMm=Number.isFinite(input.thermalOffsetMm)
+    ? Math.max(-6,Math.min(6,Number(input.thermalOffsetMm))):0;
   const leftMargin = input.centerOnPaper
-    ? (input.paper - availableMm) / 2 : 0;
+    ? Math.max(0,(input.paper-availableMm)/2+calibrationMm) : 0;
   return '<!doctype html><html lang="th"><head><meta charset="utf-8"/><title>ฉลากบาร์โค้ดวัสดุ</title>'
     + '<style>@page{size:' + input.paper + 'mm auto;margin:0}'
     + 'html,body{margin:0;padding:0;width:' + input.paper + 'mm;background:white;color:black}'
