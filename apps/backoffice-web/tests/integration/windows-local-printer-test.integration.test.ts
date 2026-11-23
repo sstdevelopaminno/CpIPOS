@@ -122,6 +122,38 @@ describe("manual Windows sales and historical receipt printing", () => {
     expect(payload).not.toHaveProperty("printer_name");
   });
 
+  it("uses physically verified native .NET text renderer only on explicit tenant/device opt-in", async () => {
+    stubWindowsRuntime();
+    const calls: Array<{ url: string; init: RequestInit | undefined }> = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      calls.push({ url: String(url), init });
+      return { ok: true, json: async () => ({ ok: true, data: {
+        printed: true, provider: "native_dotnet_print_document", printer_name: "Xprinter XP-80", job_id: "CPIPOS-TEXT-001"
+      } }) } as Response;
+    }));
+    await expect(printWindowsReceiptHtml(html, {
+      orderNo: "LAB-RECYCLING-1", reprint: true,
+      plainText: "รับซื้อสินค้า\\nเหล็ก 2 กก. 20.00\\nรวม 20.00 บาท",
+      renderMode: "native_text"
+    })).resolves.toEqual({ printer: "Xprinter XP-80", spoolJobId: "CPIPOS-TEXT-001" });
+    const spool = calls.filter(call => call.url === "http://127.0.0.1:3210/print");
+    expect(spool).toHaveLength(1);
+    const payload = JSON.parse(String(spool[0].init?.body));
+    expect(payload).not.toHaveProperty("html");
+    expect(payload.text).toContain("รวม 20.00 บาท");
+    expect(payload.order_no).toBe("LAB-RECYCLING-1");
+  });
+
+  it("does not silently accept a .NET text acknowledgement for a non-opted-in HTML receipt", async () => {
+    stubWindowsRuntime();
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => String(url).startsWith("/api/pos/windows-print/")
+      ? { ok: true } as Response
+      : { ok: true, json: async () => ({ ok: true, data: {
+          printed: true, provider: "native_dotnet_print_document", printer_name: "XP-80C"
+        } }) } as Response));
+    await expect(printWindowsReceiptHtml(html, { renderMode: "html" })).rejects.toThrow("HTML receipt renderer");
+  });
+
   it("lets the installed Windows bridge reject a missing printer and audits the failure", async () => {
     stubWindowsRuntime();
     const calls: Array<{ url: string; init: RequestInit | undefined }> = [];
