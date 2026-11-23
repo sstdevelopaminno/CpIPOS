@@ -129,6 +129,11 @@ describe("Windows local POS printing: sale, reprint, kitchen, shift, notices and
     expect(worker).toContain('authenticatedFastIdlePollMs = null;');
     expect(worker).toContain('idlePolls > 7 ? 30_000 : 12_000');
     expect(worker).toContain('document.visibilityState === "visible"');
+    expect(worker).toContain('Date.now() < fastPollingActiveUntil');
+    expect(worker).toContain('fastPollingActiveUntil = Date.now() + 120_000');
+    expect(worker).toContain('window.addEventListener("pointerdown", onCashierActivity, { passive: true })');
+    expect(worker).toContain('window.addEventListener("keydown", onCashierActivity)');
+    expect(worker).toContain('window.removeEventListener("pointerdown", onCashierActivity)');
     expect(worker).toContain('nextMs = Math.min(nextMs, authenticatedFastIdlePollMs)');
     expect(worker).toContain('const waitMs = urgentWakePending ? 0 : nextMs;');
     expect(worker).toContain('if (stopped || inFlight) return;');
