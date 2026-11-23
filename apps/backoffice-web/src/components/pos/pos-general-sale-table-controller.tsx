@@ -15,6 +15,8 @@ import {
 import {
   GENERAL_SALE_ADD_PRODUCT_EVENT,
   GENERAL_SALE_ADD_PRODUCT_RESULT_EVENT,
+  GENERAL_SALE_LAST_SCANNED_EVENT,
+  type GeneralSaleLastScannedProduct,
   GENERAL_SALE_CHECKOUT_BASE_MODE,
   GENERAL_SALE_ACTIVATE_BASE_MODE_EVENT,
   OPTICAL_ACTIVATE_BASE_MODE_EVENT,
@@ -769,7 +771,15 @@ export function PosGeneralSaleTableController({ lang = "th" }: { lang?: Lang }) 
         }
         status.textContent = lang === "lo" ? `ເພີ່ມ ${product.name} (${scanCode}) ໃນຕາຕະລາງແລ້ວ` : lang === "th" ? `เพิ่ม ${product.name} (${scanCode}) ลงตารางแล้ว` : `Added ${product.name} (${scanCode}) to the table.`;
         status.dataset.tone = "success";
-        if (!opticalActive && amountInput) amountInput.value = "1";
+        if (!opticalActive) {
+          // Tell the cashier preview which product *actually* entered the cart.
+          // Failed lookups and rejected stock additions never change its image.
+          window.dispatchEvent(new CustomEvent<GeneralSaleLastScannedProduct>(
+            GENERAL_SALE_LAST_SCANNED_EVENT,
+            { detail: { id: product.id, sku: product.sku, name: product.name } }
+          ));
+          if (amountInput) amountInput.value = "1";
+        }
         status.dataset.scanElapsedMs = String(Math.round(window.performance.now() - lookupStartedAt));
         scheduleTableRender(0);
       } catch {
