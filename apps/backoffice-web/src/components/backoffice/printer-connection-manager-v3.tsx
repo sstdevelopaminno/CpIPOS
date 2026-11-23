@@ -33,6 +33,7 @@ type Device = {
   profile_enabled: boolean;
   windows_native_printer?: boolean;
   windows_receipt_offset_mm?: number;
+  windows_receipt_printable_mm?: number;
 };
 type History = {
   id: string;
@@ -266,6 +267,7 @@ export function PrinterConnectionManagerV3({lang="th"}:{lang?:"th"|"en"|"lo"}) {
   const [paper, setPaper] = useState<58 | 80>(58);
   const [windowsNativeBound,setWindowsNativeBound] = useState(false);
   const [thermalOffsetMm,setThermalOffsetMm] = useState(0);
+  const [thermalPrintableMm,setThermalPrintableMm] = useState(56);
   const [selectedPurposes, setSelectedPurposes] = useState<Purpose[]>(["receipt"]);
   const [zoneSelections, setZoneSelections] = useState<Record<ZonedPurpose, string[]>>(emptyZoneSelections());
   const [ip, setIp] = useState("");
@@ -318,6 +320,7 @@ export function PrinterConnectionManagerV3({lang="th"}:{lang?:"th"|"en"|"lo"}) {
     setPaper(58);
     setWindowsNativeBound(false);
     setThermalOffsetMm(0);
+    setThermalPrintableMm(56);
     setSelectedPurposes(["receipt"]);
     setZoneSelections(emptyZoneSelections());
     setIp("");
@@ -355,6 +358,8 @@ export function PrinterConnectionManagerV3({lang="th"}:{lang?:"th"|"en"|"lo"}) {
     setWindowsNativeBound(device.windows_native_printer === true);
     setThermalOffsetMm(Number.isFinite(device.windows_receipt_offset_mm)
       ? Math.max(-6,Math.min(6,Number(device.windows_receipt_offset_mm))):0);
+    setThermalPrintableMm(Number.isFinite(device.windows_receipt_printable_mm)
+      ? Math.max(56,Math.min(70,Number(device.windows_receipt_printable_mm))):56);
     const enabledAssignments = device.printer_device_assignments.filter((assignment) => assignment.is_enabled);
     setSelectedPurposes(Array.from(new Set(enabledAssignments.map((assignment) => assignment.purpose))).filter(p=>opticalMode?!["kitchen","drink","bar"].includes(p):p!=="work_order"));
     const nextZones = emptyZoneSelections();
@@ -442,7 +447,8 @@ export function PrinterConnectionManagerV3({lang="th"}:{lang?:"th"|"en"|"lo"}) {
         runtime_device_code: runtimeCode.trim() || null,
         device_fingerprint: physicalFingerprint,
         ...(editId && windowsNativeBound
-          ? {metadata:{windows_receipt_offset_mm:thermalOffsetMm}} : {}),
+          ? {metadata:{windows_receipt_offset_mm:thermalOffsetMm,
+              ...(paper===80?{windows_receipt_printable_mm:thermalPrintableMm}:{})}} : {}),
         enabled: true
       };
       await api("/api/backoffice/printers/devices", { method: editId ? "PATCH" : "POST", body: JSON.stringify(payload) });
@@ -666,6 +672,16 @@ export function PrinterConnectionManagerV3({lang="th"}:{lang?:"th"|"en"|"lo"}) {
             className="w-full accent-blue-700" />
           <div className={styles.meta}>เลื่อนซ้าย − / เลื่อนขวา + : {thermalOffsetMm.toFixed(1)} มม.
             · มีผลกับใบเสร็จ ฉลากบาร์โค้ด และรายงานที่เปิดโหมดจัดกลางในโปรไฟล์นี้เท่านั้น</div>
+          {paper===80 ? <>
+            <label className={styles.label} htmlFor="windows-thermal-printable-mm">ความกว้างเนื้อหาบนกระดาษ 80 มม. — เฉพาะเครื่องนี้</label>
+            <input id="windows-thermal-printable-mm" type="range" min="56" max="70" step="1"
+              value={thermalPrintableMm} disabled={busy==="save"}
+              onChange={event=>setThermalPrintableMm(Number(event.target.value))}
+              aria-label="ความกว้างเนื้อหาใบเสร็จ มิลลิเมตร"
+              className="w-full accent-blue-700" />
+            <div className={styles.meta}>เนื้อหา {thermalPrintableMm} มม. / กระดาษ 80 มม. (ไม่ขยายเกินพื้นที่พิมพ์ 70 มม.)
+              · ปรับเฉพาะใบเสร็จและรายงาน Recycling ที่เปิดโหมดจัดกลาง</div>
+          </> : null}
         </div> : null}
       </details>
       <div className={styles.formActions}>
