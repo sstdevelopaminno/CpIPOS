@@ -58,6 +58,17 @@ describe("printer settings v3 regression coverage", () => {
     expect(selectionSource).toContain("} else if (!assignments.some((assignment) => assignment.is_default)) {");
     expect(routingSource.replace(/\r\n/g, "\n")).toContain("purpose,\n      runtimeDeviceCode: args.runtimeDeviceCode");
   });
+  it("preserves the existing Windows-native assignment when a user edits or renames a printer", () => {
+    const route = source("src/app/api/backoffice/printers/devices/route.ts");
+    const patch = route.slice(route.indexOf("export async function PATCH"));
+    expect(patch).toContain('.eq("tenant_id", auth.tenantId!)');
+    expect(patch).toContain('.eq("branch_id", auth.branchId!)');
+    expect(patch).toContain('existingMetadata.target_runtime === "windows_native"');
+    expect(patch).toContain('metadata: { ...existingMetadata, ...asRecord(body.metadata), target_runtime: "windows_native" }');
+    expect(patch).toContain("resolvePrinterProfileMetadata(auth, metadataInput, mode, purposes, assignments)");
+    expect(patch).toContain('windows_printer_transport_change_requires_new_profile');
+  });
+
   it("routes Windows USB printers to their exact Windows agent, not Android POS001", () => {
     const route = source("src/app/api/backoffice/printers/devices/route.ts");
     expect(route).toContain('metadata.runtime === "windows_native_print_agent_v1"');
