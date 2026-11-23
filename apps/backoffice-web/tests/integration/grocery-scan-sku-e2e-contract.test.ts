@@ -17,7 +17,7 @@ describe("Grocery checkout fast barcode + SKU phase 1 and 2", () => {
   const barcode = read("src/components/pos-preview/stock-sku-reveal.tsx");
 
   it("mounts quantity before scan and resets only on confirmed cart success", () => {
-    expect(scanner).toContain('data.posGroceryScanQuantity = "1"');
+    expect(scanner).toContain('qtyInput.dataset.posGroceryScanQuantity = "1"');
     expect(scanner).toContain('qtyInput.value = "1"');
     expect(scanner).toContain("form.appendChild(quantityLabel)");
     expect(scanner).toContain("form.append(input, submit)");
