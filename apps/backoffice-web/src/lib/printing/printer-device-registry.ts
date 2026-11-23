@@ -144,7 +144,7 @@ export async function getPrinterSettingsRegistry(auth: AuthContext) {
       .limit(100),
     supabase
       .from("printer_profiles")
-      .select("id,ip_address,port,enabled")
+      .select("id,ip_address,port,enabled,metadata")
       .eq("tenant_id", auth.tenantId!)
       .eq("branch_id", auth.branchId!),
     supabase
@@ -167,8 +167,13 @@ export async function getPrinterSettingsRegistry(auth: AuthContext) {
     if (!profileId) return [];
     const profile = profileMap.get(profileId);
     if (!profile) return [];
+    const profileMetadata = profile.metadata && typeof profile.metadata === "object" &&
+      !Array.isArray(profile.metadata) ? profile.metadata as Record<string,unknown> : {};
+    const offset = Number(profileMetadata.windows_receipt_offset_mm);
     return [{
       ...device,
+      windows_native_printer: profileMetadata.target_runtime === "windows_native",
+      windows_receipt_offset_mm: Number.isFinite(offset) ? Math.max(-6,Math.min(6,offset)) : 0,
       ip_address: profile.ip_address ?? null,
       port: profile.port ?? null,
       profile_enabled: profile.enabled !== false
