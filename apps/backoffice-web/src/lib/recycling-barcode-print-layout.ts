@@ -11,8 +11,8 @@ function esc(value: string) {
 
 /**
  * Code128 quiet zones are INCLUDED in viewBox width. Never shrink
- * a printed bar module below 0.20mm or extend beyond the thermal
- * driver's 58/80mm printable area.
+ * a printed bar module below 0.20mm or extend beyond the conservative thermal
+ * driver's 58/80mm printable area (44/64mm respectively).
  */
 export function recyclingBarcodePrintDimensions(
   sku: string, paper: 58 | 80, size: RecyclingBarcodeLabelSize = "small"
@@ -20,7 +20,7 @@ export function recyclingBarcodePrintDimensions(
   const svg = opticalCode128Svg(sku);
   const match = svg.match(/viewBox="0 0 (\d+) 65"/);
   const modules = Number(match?.[1] ?? 0);
-  const availableMm = paper === 58 ? 48 : 70;
+  const availableMm = paper === 58 ? 44 : 64;
   if (!modules || modules * 0.20 > availableMm) {
     throw new Error("recycling_barcode_too_wide_for_paper");
   }
@@ -40,7 +40,7 @@ export function renderRecyclingBarcodeLabel(input: {
   const { svg, widthMm } = recyclingBarcodePrintDimensions(
     input.sku, input.paper, input.size ?? "small"
   );
-  const availableMm = input.paper === 58 ? 48 : 70;
+  const availableMm = input.paper === 58 ? 44 : 64;
   const contentWidthMm = input.centerOnPaper ? availableMm : input.paper;
   const leftMargin = input.centerOnPaper
     ? (input.paper - availableMm) / 2 : 0;
