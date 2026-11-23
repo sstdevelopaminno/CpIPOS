@@ -57,7 +57,9 @@ export async function queueRoutedRecyclingReport(args:{
  let job;
  try{
   job=await enqueuePrintJob({
-   auth:args.auth,printer:route.printer,orderId:null,printerRole:"report",idempotencyKey:key,
+   // Jobs must carry the destination profile's role: claim_print_jobs_v2
+   // intentionally refuses mismatches (report jobs on receipt printers).
+   auth:args.auth,printer:route.printer,orderId:null,printerRole:route.printer.printer_role,idempotencyKey:key,
    payloadText:"สรุปรับซื้อ–ขายออก "+args.report.from+" ถึง "+args.report.to,
    payloadJson:{document_type:"recycling_sales_summary",period_from:args.report.from,period_to:args.report.to,
     buy_minor:args.report.totals.buyMinor,sell_minor:args.report.totals.sellMinor},
