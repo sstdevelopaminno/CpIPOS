@@ -440,7 +440,28 @@ export async function PATCH(req: Request) {
     const { name, mode, paper, purposes, assignments } = validate(body);
     await validatePrinterPurposes(auth.tenantId!, assignments);
     await validateKitchenZones(auth.tenantId!, auth.branchId!, assignments);
-    const metadata = await resolvePrinterProfileMetadata(auth, body, mode, purposes, assignments);
+    // Editing an already bound Windows printer must not erase its native
+    // runtime identity. PrinterConnectionManagerV3 does not send metadata on
+    // PATCH; rebuilding it from the form alone silently routed Windows USB
+    // printers back to Android and stranded all subsequent receipt jobs.
+    const { data: existingProfile, error: existingProfileError } = await getSupabaseServiceClient()
+      .from("printer_profiles")
+      .select("id,metadata")
+      .eq("id", printerId)
+      .eq("tenant_id", auth.tenantId!)
+      .eq("branch_id", auth.branchId!)
+      .maybeSingle<{ id: string; metadata: Record<string, unknown> | null }>();
+    if (existingProfileError) throw new Error(existingProfileError.message);
+    if (!existingProfile) return fail("printer_not_found", "ไม่พบเครื่องพิมพ์นี้", 404);
+    const existingMetadata = asRecord(existingProfile.metadata);
+    const previouslyWindowsBound = existingMetadata.target_runtime === "windows_native";
+    if (previouslyWindowsBound && mode !== "usb") {
+      return fail("windows_printer_transport_change_requires_new_profile", "โปรไฟล์ Windows ผูกกับเครื่อง POS แล้ว กรุณาเพิ่มโปรไฟล์ใหม่หากต้องการเปลี่ยนเป็น Bluetooth/LAN", 409);
+    }
+    const metadataInput: Payload = previouslyWindowsBound
+      ? { ...body, metadata: { ...existingMetadata, ...asRecord(body.metadata), target_runtime: "windows_native" } }
+      : body;
+    const metadata = await resolvePrinterProfileMetadata(auth, metadataInput, mode, purposes, assignments);
     const profile = await updatePrinterProfile(auth, printerId, { printer_name: name, printer_role: roleFor(purposes), connection_type: connectionTypeFor(mode), ip_address: mode === "lan" ? clean(body.ip_address) : null, port: mode === "lan" ? Number(body.port || 9100) : null, paper_width_mm: paper, enabled: body.enabled ?? true, metadata });
     const device = await syncPrinterDevice(auth, { printerProfileId: profile.id, displayName: name, brand: clean(body.brand), model: clean(body.model), connectionMode: mode, paperWidthMm: paper, purposes, assignments, deviceFingerprint: buildFingerprint(body, mode), runtimeDeviceCode: clean(body.runtime_device_code), capabilities: (metadata.capabilities ?? {}) as Record<string, unknown>, metadata: { source: "printer_settings_v3" }, eventType: "updated" });
     return ok({ profile, device });
