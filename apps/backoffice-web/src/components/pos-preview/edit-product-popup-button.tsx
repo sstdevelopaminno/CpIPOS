@@ -346,7 +346,10 @@ export function EditProductPopupButton({
     const resolvedCategory = categoryCustomMode ? categoryCustomName.trim() : categoryName.trim();
     const resolvedName = productName.trim();
     const normalizedSku = normalizeProductSku(skuInput);
-    if (!isValidProductSku(normalizedSku)) {
+    const skuChanged = normalizedSku !== normalizeProductSku(product.sku);
+    // Legacy product identifiers (including Thai names) must remain editable
+    // without forcing an unrelated SKU migration during a price/stock update.
+    if (skuChanged && !isValidProductSku(normalizedSku)) {
       setErrorText(th ? "SKU ต้องมี 1–40 ตัว ใช้อักษรอังกฤษ ตัวเลข - _ . เท่านั้น" : "SKU must be 1–40 ASCII letters, digits, - _ . only.");
       return;
     }
@@ -417,7 +420,7 @@ export function EditProductPopupButton({
           action: "update_product_with_stock_setup",
           branch_id: branchId,
           product_id: product.id,
-          sku: normalizedSku,
+          ...(skuChanged ? { sku: normalizedSku } : {}),
           name: resolvedName,
           category: resolvedCategory,
           stock_quantity: useIngredientRecipe ? 0 : resolvedStock,
