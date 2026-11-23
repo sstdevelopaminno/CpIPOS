@@ -96,7 +96,7 @@ function entryClass(args: { active: boolean; locked: boolean; horizontal: boolea
   return `group relative inline-flex min-h-[42px] items-center text-[13px] font-semibold leading-tight transition ${layout} ${state}`;
 }
 
-export function PosStaffMenu({ lang, collapsed, orientation = "vertical", sessionRole, enabledFeatures, menuPolicy, isCustom = false, opticalMenuAllowed = false, financeAllowed = false, onLockedFeature, onLockedMenu }: {
+export function PosStaffMenu({ lang, collapsed, orientation = "vertical", sessionRole, enabledFeatures, menuPolicy, isCustom = false, opticalMenuAllowed = false, recyclingMenuAllowed = false, financeAllowed = false, onLockedFeature, onLockedMenu }: {
   lang: Language;
   collapsed: boolean;
   orientation?: "vertical" | "horizontal";
@@ -105,6 +105,7 @@ export function PosStaffMenu({ lang, collapsed, orientation = "vertical", sessio
   menuPolicy: Record<string, boolean>;
   isCustom?: boolean;
   opticalMenuAllowed?:boolean;
+  recyclingMenuAllowed?:boolean;
   financeAllowed?:boolean;
   onLockedFeature: () => void;
   onLockedMenu: (menuLabel: string) => void;
@@ -112,12 +113,16 @@ export function PosStaffMenu({ lang, collapsed, orientation = "vertical", sessio
   const pathname = usePathname();
   const effectiveRole = resolveMenuRole(sessionRole);
   const menuItems = useMemo(
-     () => MENU_DEFS.map((item) => ({ ...item, label: labelFor(item, lang) })).filter((item) =>
+     () => MENU_DEFS.map((item) => ({ ...item, label:
+       item.key === "pos_menu_sales_list" && recyclingMenuAllowed
+         ? (lang === "th" ? "รายการซื้อ–ขาย" : lang === "lo" ? "ລາຍການຊື້–ຂາຍ" : "Purchases & Sales")
+         : labelFor(item, lang)
+     })).filter((item) =>
       item.roles.includes(effectiveRole) &&
       (item.href !== "/preview/pos/finance" || (sessionRole === "owner" && financeAllowed)) &&
       (!item.href.startsWith("/preview/pos/optical/") || opticalMenuAllowed) &&
       (!isCustom || isCustomPosMenuVisible(posMenuKeyForRoute(item.href) ?? "", menuPolicy, true))),
-    [effectiveRole, sessionRole, lang, isCustom, menuPolicy, opticalMenuAllowed, financeAllowed]
+    [effectiveRole, sessionRole, lang, isCustom, menuPolicy, opticalMenuAllowed, recyclingMenuAllowed, financeAllowed]
   );
   const isHorizontal = orientation === "horizontal";
   const moreVisible = effectiveRole === "owner" || effectiveRole === "manager";
