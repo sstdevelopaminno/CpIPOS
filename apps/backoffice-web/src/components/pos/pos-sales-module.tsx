@@ -5696,24 +5696,28 @@ export function PosSalesModule({
     return true;
   }
 
-  function addToCart(product: ProductRow): boolean {
-    // Optical is an IT-authorized CUSTOM business workflow, not a restaurant.
-    if (opticalRetailActive) return addCartLine(product);
+  function addToCart(product: ProductRow, quantity = 1): boolean {
+    if (!Number.isSafeInteger(quantity) || quantity < 1 || quantity > 9999) return false;
+    // Scanner requests must enter a single cart line immediately, even when
+    // grocery stock uses the recipe-backed per-piece stock bridge.
+    if (opticalRetailActive || (startupRetailKind === "general_sale" && quickMode === "home")) {
+      return addCartLine(product, { quantity });
+    }
     const hasSpecialPrice = getSelectableSpecialPrice(product) !== null;
     if ((orderType === "dine_in" || product.has_recipe_deduction || hasSpecialPrice)
       && shouldOpenPosItemDetailPopup(product, itemDetailPopupEnabled)) {
       setModifierDraft({
         product,
-        quantity: 1,
+        quantity,
         notes: "",
         detailNote: "",
         extraPrice: 0,
         useSpecialPrice: false,
-        linkedIngredientQuantity: 1
+        linkedIngredientQuantity: quantity
       });
       return true;
     }
-    return addCartLine(product);
+    return addCartLine(product, { quantity });
   }
 
   function removeFromCart(cartLineId: string) {
