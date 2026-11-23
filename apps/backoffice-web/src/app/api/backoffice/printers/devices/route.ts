@@ -196,6 +196,10 @@ async function resolvePrinterProfileMetadata(
   const agent = matches[0];
   return {
     ...metadata,
+    // Explicit opt-in survives a printer-settings edit. Android, LAN and
+    // unconfigured Windows profiles retain their existing print renderer.
+    ...(body.metadata?.windows_print_render_mode === "native_text"
+      ? { windows_print_render_mode: "native_text" as const } : {}),
     target_runtime: "windows_native",
     bridge_url: "native-agent://windows-pos",
     assigned_agent_ids: [agent.id],
