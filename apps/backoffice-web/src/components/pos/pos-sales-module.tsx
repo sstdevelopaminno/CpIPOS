@@ -16,6 +16,7 @@ import { composePosItemNotes, formatPosItemNotesForDisplay, parsePosItemNotes } 
 import { shouldOpenPosItemDetailPopup } from "@/lib/pos-item-detail-popup-policy";
 import { PosPaymentModals } from "@/components/pos/pos-payment-modals";
 import { PosProductCatalog } from "@/components/pos/pos-product-catalog";
+import { PosGroceryLastScannedPreview } from "@/components/pos/pos-grocery-last-scanned-preview";
 import { PosSalesMetaDetails } from "@/components/pos/pos-sales-meta-details";
 import { TableQrOrderModal } from "@/components/pos/table-qr-order-modal";
 import { buildCheckoutSubmitPayload, buildReviewOrder, getCheckoutBlockingReason, shouldSkipDineInSubmit } from "@/components/pos/features/checkout-flow";
@@ -41,6 +42,8 @@ import { POS_MODE_FEATURES } from "@/lib/pos-feature-map";
 import type { PosStartupSalesMode } from "@/lib/pos-sales-mode-preferences";
 import {
   GENERAL_SALE_ACTIVATE_BASE_MODE_EVENT,
+  GENERAL_SALE_LAST_SCANNED_EVENT,
+  type GeneralSaleLastScannedProduct,
   OPTICAL_ACTIVATE_BASE_MODE_EVENT,
   OPTICAL_DEACTIVATE_BASE_MODE_EVENT
 } from "@/lib/pos-general-sale-mode";
@@ -2222,6 +2225,25 @@ export function PosSalesModule({
   const [isHydrated, setIsHydrated] = useState(false);
   const [activeCategory, setActiveCategory] = useState<string>("");
   const [cart, setCart] = useState<CartItem[]>([]);
+  const [lastGroceryScannedProduct, setLastGroceryScannedProduct] = useState<GeneralSaleLastScannedProduct | null>(null);
+  const previouslyHadCartItemsRef = useRef(false);
+  // Only scanner-confirmed cart additions change the thumbnail. Manual edits,
+  // invalid barcodes and failed stock checks do not replace the last photo.
+  useEffect(() => {
+    const onSuccessfulGroceryScan = (event: Event) => {
+      const product = (event as CustomEvent<GeneralSaleLastScannedProduct>).detail;
+      if (!product || typeof product.id !== "string" || !product.id.trim()) return;
+      setLastGroceryScannedProduct({ id: product.id, name: product.name, sku: product.sku });
+    };
+    window.addEventListener(GENERAL_SALE_LAST_SCANNED_EVENT, onSuccessfulGroceryScan);
+    return () => window.removeEventListener(GENERAL_SALE_LAST_SCANNED_EVENT, onSuccessfulGroceryScan);
+  }, []);
+  useEffect(() => {
+    if (previouslyHadCartItemsRef.current && cart.length === 0) {
+      setLastGroceryScannedProduct(null);
+    }
+    previouslyHadCartItemsRef.current = cart.length > 0;
+  }, [cart.length]);
   const [modifierDraft, setModifierDraft] = useState<ModifierDraft | null>(null);
   const [modifierIngredients, setModifierIngredients] = useState<RecipeIngredientChoice[]>([]);
   const [modifierIngredientsLoading, setModifierIngredientsLoading] = useState(false);
@@ -2243,6 +2265,11 @@ export function PosSalesModule({
   const lastAppliedStartupModeRef = useRef<PosStartupSalesMode | null>(null);
   const [startupRetailKind, setStartupRetailKind] = useState<"optical_retail" | "general_sale" | null>(null);
   const [opticalRetailActive, setOpticalRetailActive] = useState(false);
+  useEffect(() => {
+    if (startupRetailKind !== "general_sale" || opticalRetailActive || quickMode !== "home") {
+      setLastGroceryScannedProduct(null);
+    }
+  }, [startupRetailKind, opticalRetailActive, quickMode]);
   const [opticalCustomerOpen, setOpticalCustomerOpen] = useState(false);
   // Stable keys ensure network retries cannot create an extra Optical bill/payment.
   const opticalDepositAttemptsRef = useRef(new Map<string,{orderId:string;paymentId:string}>());
@@ -9278,9 +9305,17 @@ export function PosSalesModule({
   }
 
   function renderCartContent() {
+    const groceryRetail = !opticalRetailActive && startupRetailKind === "general_sale" && quickMode === "home";
     return (
       <>
-        {renderCartList()}
+        {groceryRetail ? (
+          <div className="relative flex min-h-0 min-w-0 flex-1 flex-col" data-testid="pos-grocery-cart-preview-region">
+            {/* Keep the original cart controls mounted: the SD table forwards
+                quantity +/- and delete through their React onClick handlers. */}
+            <div className="hidden" aria-hidden="true">{renderCartList()}</div>
+            <PosGroceryLastScannedPreview product={cart.length > 0 ? lastGroceryScannedProduct : null} language={lang} />
+          </div>
+        ) : renderCartList()}
         <PosPaymentPanel
           subtotal={summaryDiscount}
           total={total}
@@ -9292,7 +9327,7 @@ export function PosSalesModule({
           onHoldBill={holdBill}
           onOpenHeldBills={openHeldBillsPanel}
           opticalRetail={opticalRetailActive}
-          groceryRetail={!opticalRetailActive && startupRetailKind === "general_sale" && quickMode === "home"}
+          groceryRetail={groceryRetail}
           opticalCurrencyCode={posCurrencyCode}
           opticalLanguage={lang}
           onOpticalCustomer={() => setOpticalCustomerOpen(true)}

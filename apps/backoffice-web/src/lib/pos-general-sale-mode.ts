@@ -17,6 +17,9 @@ export const GENERAL_SALE_LAYOUT_STORAGE_KEY = "cpipos_general_sale_layout_v1";
 export const GENERAL_SALE_PRODUCT_SKU_ATTRIBUTE = "data-pos-product-sku";
 export const GENERAL_SALE_ADD_PRODUCT_EVENT = "cpipos:general-sale-add-product";
 export const GENERAL_SALE_ADD_PRODUCT_RESULT_EVENT = "cpipos:general-sale-add-product-result";
+/** Emitted only after a successful grocery scanner -> React cart mutation. */
+export const GENERAL_SALE_LAST_SCANNED_EVENT = "cpipos:general-sale-last-scanned";
+export type GeneralSaleLastScannedProduct = { id: string; sku: string; name: string };
 
 export type GeneralSaleCartLayout = "grid" | "table";
 
