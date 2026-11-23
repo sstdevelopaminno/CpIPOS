@@ -11,6 +11,9 @@ export function asciiKeyFromScannerCode(code: string, key: string, shift: boolea
   // a valid 1234 barcode becomes 1/-4 without a visible error.
   if (/^Digit[0-9]$/.test(code) && !shift) return code.slice(5);
   if (/^Numpad[0-9]$/.test(code)) return code.slice(6);
+  // Hardware Code128 may use Shift+Minus to transmit an underscore in SKU.
+  if (code === "Minus") return shift ? "_" : "-";
+  if (code === "NumpadSubtract") return "-";
   if (/^[\x20-\x7e]$/.test(key)) return null;
   if (/^Key[A-Z]$/.test(code)) {
     const c = code.slice(3);
