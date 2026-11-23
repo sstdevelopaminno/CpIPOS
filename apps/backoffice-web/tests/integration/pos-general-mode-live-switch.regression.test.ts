@@ -60,6 +60,16 @@ describe("POS enabled General Sale/other mode switching", () => {
     expect(sales).not.toContain("setDeliveryMaintenanceOpen(true)");
   });
 
+  it("refreshes React mode entitlements when IT enables another mode while the POS tab stays open", () => {
+    expect(sales).toContain('window.addEventListener("cpipos:pos-feature-policy-updated", onFreshPolicy)');
+    expect(sales).toContain('window.removeEventListener("cpipos:pos-feature-policy-updated", onFreshPolicy)');
+    expect(sales).toContain("receivedFreshPolicy = true");
+    expect(sales).toContain("setEnabledFeatures(snapshot.features)");
+    expect(sales).toContain("!receivedFreshPolicy && response.ok");
+    expect(retail).toContain('fetch("/api/pos/features?refresh=1"');
+    expect(retail).toContain('window.dispatchEvent(new CustomEvent("cpipos:pos-feature-policy-updated"');
+  });
+
   it("keeps server-backed IT grants and does not deactivate SD before a denied mode click", () => {
     expect(policy).toContain('document.addEventListener("click", onClickCapture, true)');
     expect(policy).toContain("event.stopImmediatePropagation()");
