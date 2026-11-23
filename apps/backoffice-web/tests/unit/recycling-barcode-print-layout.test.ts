@@ -1,5 +1,5 @@
 import {describe,expect,it} from "vitest";
-import {renderRecyclingBarcodeLabel} from "@/lib/recycling-barcode-print-layout";
+import {renderRecyclingBarcodeLabel,recyclingBarcodePrintDimensions} from "@/lib/recycling-barcode-print-layout";
 describe("Recycling barcode thermal printing",()=>{
  it("renders Code128 with quiet zones in 58/80 mm without creating a receipt",()=>{
   for(const paper of [58,80] as const){
@@ -9,6 +9,24 @@ describe("Recycling barcode thermal printing",()=>{
    expect(html).toContain("155858");
    expect(html).toContain("กระดาษ");
    expect(html).toContain("ไม่ใช่ใบเสร็จ");
+  }
+ });
+ it("offers four real-width label sizes with Code128 quiet zones and safe 58/80mm limits",()=>{
+  const sku="0002555599";
+  for(const paper of [58,80] as const){
+   const small=recyclingBarcodePrintDimensions(sku,paper,"small");
+   const medium=recyclingBarcodePrintDimensions(sku,paper,"medium");
+   const large=recyclingBarcodePrintDimensions(sku,paper,"large");
+   const full=recyclingBarcodePrintDimensions(sku,paper,"full");
+   expect(small.widthMm).toBeLessThan(medium.widthMm);
+   expect(medium.widthMm).toBeLessThanOrEqual(large.widthMm);
+   expect(large.widthMm).toBeLessThanOrEqual(full.widthMm);
+   expect(full.widthMm).toBeLessThanOrEqual(paper===80?70:48);
+   expect(full.widthMm/full.modules).toBeGreaterThanOrEqual(0.20);
+   const html=renderRecyclingBarcodeLabel({sku,name:"เหล็กแท่ง",branchName:"สาขาหลัก",paper,size:"large",centerOnPaper:true});
+   expect(html).toContain('width:'+large.widthMm.toFixed(2)+'mm;max-width');
+   expect(html).toContain('margin-left:'+(paper===80?5:5)+'mm');
+   expect(html).toContain('role="img"');
   }
  });
  it("escapes material names and prevents overly dense / invalid barcode output",()=>{
