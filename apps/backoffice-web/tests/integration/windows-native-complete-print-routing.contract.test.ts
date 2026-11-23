@@ -120,12 +120,16 @@ describe("Windows local POS printing: sale, reprint, kitchen, shift, notices and
     expect(route).toContain('metadata.target_runtime === "windows_native"');
     expect(route).toContain('metadata.windows_device_code');
     expect(route).toContain('windows_html_fast_renderer === true');
+    expect(route).toContain('windows_fast_idle_poll_ms === 5000');
     expect(route).toContain('prewarm_fast_html: prewarmFastHtml');
+    expect(route).toContain('fast_idle_poll_ms: fastIdlePollMs');
     expect(worker).toContain('enrolledFastPrinter = response.prewarm_fast_html === true');
     expect(worker).toContain('enrolledFastPrinter = false;');
+    expect(worker).toContain('authenticatedFastIdlePollMs = response.fast_idle_poll_ms === 5000 ? 5000 : null');
+    expect(worker).toContain('authenticatedFastIdlePollMs = null;');
     expect(worker).toContain('idlePolls > 7 ? 30_000 : 12_000');
     expect(worker).toContain('document.visibilityState === "visible"');
-    expect(worker).toContain('nextMs = Math.min(nextMs, 5_000)');
+    expect(worker).toContain('nextMs = Math.min(nextMs, authenticatedFastIdlePollMs)');
     expect(worker).toContain('const waitMs = urgentWakePending ? 0 : nextMs;');
     expect(worker).toContain('if (stopped || inFlight) return;');
   });
