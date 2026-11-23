@@ -25,7 +25,7 @@ export function PosGroceryLastScannedPreview({ product, language }: Props) {
 
   useEffect(() => {
     let disposed = false;
-    let releaseMedia = () => undefined;
+    let releaseMedia: () => void = () => undefined;
     const controller = new AbortController();
     setResolved(null);
     setImageFailed(false);
