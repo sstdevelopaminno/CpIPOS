@@ -50,7 +50,7 @@ describe("routed shift report print stability", () => {
     expect(src("apps/backoffice-web/src/lib/printing/windows-print-job-policy.ts")).toContain('["receipt", "report", "kitchen"]');
     expect(windowsAgent).toContain('metadata.target_runtime === "windows_native"');
     expect(windowsAgent).toContain("windows_device_code");
-    expect(windowsAgent).toContain("profiles.some(profile => profile.id === job.printer_id)");
+    expect(windowsAgent).toContain("const assignedProfile = profiles.find(profile => profile.id === job.printer_id)");
     expect(windowsAgent).toContain("payload_html");
   });
 });
