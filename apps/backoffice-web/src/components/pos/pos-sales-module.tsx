@@ -2553,9 +2553,22 @@ export function PosSalesModule({
         if (!cancelled) setEnabledFeatures({});
       }
     }
+    // The IT operator can enable an additional mode while POS is already
+    // open. The mode-selector adapter fetches fresh server entitlements each
+    // time it opens, so keep the React lock/activation decisions in sync.
+    // Otherwise a stale "disabled" flag keeps blocking newly enabled modes.
+    const onFreshPolicy = (event: Event) => {
+      const snapshot = (event as CustomEvent<{
+        features?: Record<string, boolean>;
+      }>).detail;
+      if (!snapshot?.features || typeof snapshot.features !== "object") return;
+      setEnabledFeatures(snapshot.features);
+    };
+    window.addEventListener("cpipos:pos-feature-policy-updated", onFreshPolicy);
     void loadFeatures();
     return () => {
       cancelled = true;
+      window.removeEventListener("cpipos:pos-feature-policy-updated", onFreshPolicy);
     };
   }, []);
 
