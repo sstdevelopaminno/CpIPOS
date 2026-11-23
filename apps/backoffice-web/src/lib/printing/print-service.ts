@@ -13,7 +13,6 @@ import { appendAuditLog } from "@/lib/audit-log";
 import { readEnv } from "@/lib/env";
 import { renderReceiptHtml } from "@/lib/printing/receipt-html-template";
 import { formatPosItemNotesForDisplay } from "@/lib/pos-item-notes";
-import { isRestaurantQrScope } from "@/lib/restaurant-qr-profile";
 import { loadReceiptStoreProfile, type ReceiptStoreProfile } from "@/lib/services/store-profile-service";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 import { BluetoothBridgeAdapter } from "@/lib/printing/adapters/bluetooth-bridge-adapter";
@@ -651,6 +650,16 @@ async function loadExistingPrintJobByIdempotencyKey(input: EnqueuePrintJobInput)
   return (data as PrintJobRow | null) ?? null;
 }
 export async function enqueuePrintJob(input: EnqueuePrintJobInput): Promise<PrintJobRow> {
+  // A service client bypasses RLS. Never let a caller enqueue against a printer
+  // belonging to another owner or branch, even if a route forgets to scope lookup.
+  if (
+    !input.auth.tenantId ||
+    !input.auth.branchId ||
+    input.printer.tenant_id !== input.auth.tenantId ||
+    input.printer.branch_id !== input.auth.branchId
+  ) {
+    throw new Error("printer_scope_mismatch");
+  }
   const supabase = getSupabaseServiceClient();
   const retryLimit = Number.isFinite(input.maxRetryCount) ? Math.max(0, Number(input.maxRetryCount)) : DEFAULT_MAX_RETRY_COUNT;
 
@@ -681,11 +690,22 @@ export async function enqueuePrintJob(input: EnqueuePrintJobInput): Promise<Prin
   if (error) {
     if (
       input.idempotencyKey &&
-      isRestaurantQrScope({ tenantId: input.auth.tenantId, branchId: input.auth.branchId }) &&
       isUniqueConstraintError(error)
     ) {
+      // DB uniqueness is (tenant_id, branch_id, idempotency_key). A duplicate
+      // request may reuse its own job, never another printer's or another bill's.
       const existing = await loadExistingPrintJobByIdempotencyKey(input);
-      if (existing) return existing;
+      if (existing) {
+        if (
+          existing.printer_id !== input.printer.id ||
+          existing.printer_role !== input.printerRole ||
+          existing.order_id !== input.orderId ||
+          (existing.kitchen_ticket_id ?? null) !== (input.kitchenTicketId ?? null)
+        ) {
+          throw new Error("print_idempotency_key_conflict");
+        }
+        return existing;
+      }
     }
     throw new Error(error.message);
   }
@@ -747,8 +767,13 @@ export async function processPrintJob(jobId: string): Promise<PrintJobRow | null
   if (!job) {
     return null;
   }
+  // Repeated requests and print agents must not reprint an already claimed job.
+  if (job.status !== "pending" && job.status !== "retrying") return job;
 
   const printer = job.printer_profiles;
+  if (printer && (printer.tenant_id !== job.tenant_id || printer.branch_id !== job.branch_id)) {
+    throw new Error("printer_scope_mismatch");
+  }
   if (!printer || !printer.enabled) {
     return updatePrintJobStatus(jobId, {
       status: "failed",
@@ -772,12 +797,30 @@ export async function processPrintJob(jobId: string): Promise<PrintJobRow | null
 
   while (retries < maxRetryCount) {
     retries += 1;
-    await updatePrintJobStatus(jobId, {
-      status: "printing",
-      retry_count: retries,
-      last_error: null,
-      failed_at: null
-    });
+    if (retries === job.retry_count + 1) {
+      // Single-winner compare-and-set. Concurrent requests across serverless
+      // instances cannot both send the same pending job to a physical printer.
+      const supabase = getSupabaseServiceClient();
+      const { data: claimed, error: claimError } = await supabase
+        .from("print_jobs")
+        .update({ status: "printing", retry_count: retries, last_error: null, failed_at: null, updated_at: nowIso() })
+        .eq("id", jobId)
+        .eq("tenant_id", job.tenant_id)
+        .eq("branch_id", job.branch_id)
+        .eq("retry_count", job.retry_count)
+        .in("status", ["pending", "retrying"])
+        .select("id")
+        .maybeSingle();
+      if (claimError) throw new Error(claimError.message);
+      if (!claimed) return job;
+    } else {
+      await updatePrintJobStatus(jobId, {
+        status: "printing",
+        retry_count: retries,
+        last_error: null,
+        failed_at: null
+      });
+    }
 
     try {
       const mergedMetadata = {
@@ -811,8 +854,10 @@ export async function processPrintJob(jobId: string): Promise<PrintJobRow | null
     } catch (error) {
       lastError = error instanceof Error ? error.message : "print_failed";
       if (retries < maxRetryCount) {
+        // Keep the exclusive printing state while this worker retries. If we
+        // publish "retrying" mid-flight, another worker could claim the job.
         await updatePrintJobStatus(jobId, {
-          status: "retrying",
+          status: "printing",
           retry_count: retries,
           last_error: lastError
         });
