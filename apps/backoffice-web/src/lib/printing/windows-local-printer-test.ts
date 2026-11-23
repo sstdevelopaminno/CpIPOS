@@ -144,7 +144,7 @@ function reserveUniqueWindowsSaleReceipt(orderNo: string) {
 // The caller owns the user action; unknown outcomes must not be auto-retried.
 export async function printWindowsReceiptHtml(
   receiptHtml: string,
-  options: { orderNo?: string | null; reprint?: boolean; plainText?: string | null } = {}
+  options: { orderNo?: string | null; reprint?: boolean; plainText?: string | null; renderMode?: "html" | "native_text" } = {}
 ): Promise<{ printer: string; spoolJobId: string | null }> {
   const runtime = windowsRuntime();
   if (!runtime?.bridge_token || !runtime.bridge_health_url) {
@@ -187,6 +187,9 @@ export async function printWindowsReceiptHtml(
     : "";
   const textToPrint = (options.plainText?.trim() || windowsReceiptHtmlToText(printableHtml)).slice(0, 14_000);
   if (!textToPrint.trim()) throw new Error("Windows receipt text is empty after rendering");
+  // Lab/tenant-scoped opt-in only: the .NET PrintDocument text renderer is
+  // physically verified on the test XP-80. Other Windows stores retain HTML.
+  const nativeText = options.renderMode === "native_text";
   // Only sale receipts are guarded here. Historical reprints are separately
   // PIN-authorized and may intentionally print a second copy.
   // This also prevents the manual button racing with the Windows cloud worker
@@ -205,7 +208,7 @@ export async function printWindowsReceiptHtml(
       signal: controller.signal,
       body: JSON.stringify({
         ...(nativePrinterName ? { printer_name: nativePrinterName } : {}),
-        html: printableHtml,
+        ...(nativeText ? {} : { html: printableHtml }),
         text: textToPrint,
         order_no: options.orderNo ?? null,
         metadata: {
@@ -223,9 +226,13 @@ export async function printWindowsReceiptHtml(
       job_id?: string;
     }> | null;
     if (!response.ok || payload?.ok !== true || payload.data?.printed !== true ||
-        !["native_webview2_html_receipt", "native_winforms_html_receipt"].includes(payload.data?.provider ?? "") ||
+        !(nativeText
+          ? payload.data?.provider === "native_dotnet_print_document"
+          : ["native_webview2_html_receipt", "native_winforms_html_receipt"].includes(payload.data?.provider ?? "")) ||
         (nativePrinterName && payload.data.printer_name !== nativePrinterName)) {
-      throw new Error(payload?.error?.message ?? "Windows HTML receipt renderer ไม่ยืนยันการรับงานพิมพ์");
+      throw new Error(payload?.error?.message ?? (nativeText
+        ? "Windows PrintDocument ไม่ยืนยันการรับงานพิมพ์ข้อความ"
+        : "Windows HTML receipt renderer ไม่ยืนยันการรับงานพิมพ์"));
     }
     return { printer: payload.data.printer_name ?? nativePrinterName, spoolJobId: payload.data.job_id ?? null };
   } catch (error) {
