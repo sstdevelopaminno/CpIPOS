@@ -2542,15 +2542,16 @@ export function PosSalesModule({
 
   useEffect(() => {
     let cancelled = false;
+    let receivedFreshPolicy = false;
     async function loadFeatures() {
       try {
         const response = await fetch("/api/pos/features", { cache: "no-store" });
         const body = (await response.json().catch(() => null)) as { data?: { features?: Record<string, boolean> } | null } | null;
-        if (!cancelled && response.ok) {
+        if (!cancelled && !receivedFreshPolicy && response.ok) {
           setEnabledFeatures(body?.data?.features ?? {});
         }
       } catch {
-        if (!cancelled) setEnabledFeatures({});
+        if (!cancelled && !receivedFreshPolicy) setEnabledFeatures({});
       }
     }
     // The IT operator can enable an additional mode while POS is already
@@ -2562,6 +2563,7 @@ export function PosSalesModule({
         features?: Record<string, boolean>;
       }>).detail;
       if (!snapshot?.features || typeof snapshot.features !== "object") return;
+      receivedFreshPolicy = true;
       setEnabledFeatures(snapshot.features);
     };
     window.addEventListener("cpipos:pos-feature-policy-updated", onFreshPolicy);
