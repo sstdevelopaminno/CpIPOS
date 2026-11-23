@@ -31,6 +31,8 @@ type Device = {
   ip_address: string | null;
   port: number | null;
   profile_enabled: boolean;
+  windows_native_printer?: boolean;
+  windows_receipt_offset_mm?: number;
 };
 type History = {
   id: string;
@@ -262,6 +264,8 @@ export function PrinterConnectionManagerV3({lang="th"}:{lang?:"th"|"en"|"lo"}) {
   const [brand, setBrand] = useState("");
   const [model, setModel] = useState("");
   const [paper, setPaper] = useState<58 | 80>(58);
+  const [windowsNativeBound,setWindowsNativeBound] = useState(false);
+  const [thermalOffsetMm,setThermalOffsetMm] = useState(0);
   const [selectedPurposes, setSelectedPurposes] = useState<Purpose[]>(["receipt"]);
   const [zoneSelections, setZoneSelections] = useState<Record<ZonedPurpose, string[]>>(emptyZoneSelections());
   const [ip, setIp] = useState("");
@@ -312,6 +316,8 @@ export function PrinterConnectionManagerV3({lang="th"}:{lang?:"th"|"en"|"lo"}) {
     setBrand("");
     setModel("");
     setPaper(58);
+    setWindowsNativeBound(false);
+    setThermalOffsetMm(0);
     setSelectedPurposes(["receipt"]);
     setZoneSelections(emptyZoneSelections());
     setIp("");
@@ -326,6 +332,8 @@ export function PrinterConnectionManagerV3({lang="th"}:{lang?:"th"|"en"|"lo"}) {
     setName(item.name);
     setModel(item.name);
     setPaper(item.paper_width_mm);
+    setWindowsNativeBound(false);
+    setThermalOffsetMm(0);
     setRuntimeCode(item.runtime_device_code ?? "");
     setIp("");
     setPort("9100");
@@ -344,6 +352,9 @@ export function PrinterConnectionManagerV3({lang="th"}:{lang?:"th"|"en"|"lo"}) {
     setBrand(device.brand ?? "");
     setModel(device.model ?? "");
     setPaper(device.paper_width_mm);
+    setWindowsNativeBound(device.windows_native_printer === true);
+    setThermalOffsetMm(Number.isFinite(device.windows_receipt_offset_mm)
+      ? Math.max(-6,Math.min(6,Number(device.windows_receipt_offset_mm))):0);
     const enabledAssignments = device.printer_device_assignments.filter((assignment) => assignment.is_enabled);
     setSelectedPurposes(Array.from(new Set(enabledAssignments.map((assignment) => assignment.purpose))).filter(p=>opticalMode?!["kitchen","drink","bar"].includes(p):p!=="work_order"));
     const nextZones = emptyZoneSelections();
@@ -430,6 +441,8 @@ export function PrinterConnectionManagerV3({lang="th"}:{lang?:"th"|"en"|"lo"}) {
         port: Number(port || 9100),
         runtime_device_code: runtimeCode.trim() || null,
         device_fingerprint: physicalFingerprint,
+        ...(editId && windowsNativeBound
+          ? {metadata:{windows_receipt_offset_mm:thermalOffsetMm}} : {}),
         enabled: true
       };
       await api("/api/backoffice/printers/devices", { method: editId ? "PATCH" : "POST", body: JSON.stringify(payload) });
@@ -644,6 +657,16 @@ export function PrinterConnectionManagerV3({lang="th"}:{lang?:"th"|"en"|"lo"}) {
             <div className={styles.meta}>{tr("เครื่องที่ตรวจพบอัตโนมัติจะล็อกกับ Runtime ที่รายงาน physical fingerprint นั้น; เครื่องที่เพิ่มเองสามารถเว้นว่างเพื่อเป็นเครื่องประจำสาขา")}</div>
           </div>}
         </div>
+        {editId && windowsNativeBound && mode === "usb" ? <div className={styles.advanced}>
+          <label className={styles.label} htmlFor="windows-thermal-offset-mm">ปรับตำแหน่งพิมพ์แนวนอน — Windows เครื่องนี้เท่านั้น</label>
+          <input id="windows-thermal-offset-mm" type="range" min="-6" max="6" step="0.5"
+            value={thermalOffsetMm} disabled={busy === "save"}
+            onChange={event=>setThermalOffsetMm(Number(event.target.value))}
+            aria-label="ชดเชยตำแหน่งพิมพ์ซ้ายขวา มิลลิเมตร"
+            className="w-full accent-blue-700" />
+          <div className={styles.meta}>เลื่อนซ้าย − / เลื่อนขวา + : {thermalOffsetMm.toFixed(1)} มม.
+            · มีผลกับใบเสร็จ ฉลากบาร์โค้ด และรายงานที่เปิดโหมดจัดกลางในโปรไฟล์นี้เท่านั้น</div>
+        </div> : null}
       </details>
       <div className={styles.formActions}>
         <button className={styles.ghost} onClick={() => resetForm(mode)}>{tr("ล้างค่า")}</button>
