@@ -53,7 +53,7 @@ describe("Grocery checkout fast barcode + SKU phase 1 and 2", () => {
     for (const handler of ["onHoldBill", "onOpenHeldBills", "onMember", "onPromotion", "handleOpenCashDrawerClick"]) {
       expect(pay).toContain(handler);
     }
-    expect(pay).toContain("onCheckout={");
+    expect(pay).toContain("onClick={onCheckout}");
     expect(sales).toContain('groceryRetail={!opticalRetailActive && startupRetailKind === "general_sale" && quickMode === "home"}');
   });
 
