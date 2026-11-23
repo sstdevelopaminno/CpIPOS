@@ -242,9 +242,7 @@ export function PosGeneralSaleFrontCashPanel() {
     };
 
     const renderPanel = () => {
-      // Native POS grocery quick actions now replace the old oversized cash keypad.
-      // Keep cash-entry functionality in the existing checkout modal.
-      if (disposed || isGeneralSaleActive() || isOpticalRetailActive()) {
+      if (disposed || !isGeneralSaleActive() || isOpticalRetailActive()) {
         removePanel();
         return;
       }
