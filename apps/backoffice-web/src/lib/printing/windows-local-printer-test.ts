@@ -144,7 +144,7 @@ function reserveUniqueWindowsSaleReceipt(orderNo: string) {
 // The caller owns the user action; unknown outcomes must not be auto-retried.
 export async function printWindowsReceiptHtml(
   receiptHtml: string,
-  options: { orderNo?: string | null; reprint?: boolean; plainText?: string | null; renderMode?: "html" | "native_text" } = {}
+  options: { orderNo?: string | null; reprint?: boolean; plainText?: string | null; renderMode?: "html" | "native_text"; fastHtml?: boolean } = {}
 ): Promise<{ printer: string; spoolJobId: string | null }> {
   const runtime = windowsRuntime();
   if (!runtime?.bridge_token || !runtime.bridge_health_url) {
@@ -209,6 +209,7 @@ export async function printWindowsReceiptHtml(
       body: JSON.stringify({
         ...(nativePrinterName ? { printer_name: nativePrinterName } : {}),
         ...(nativeText ? {} : { html: printableHtml }),
+        ...(nativeText ? {} : { fast_html: options.fastHtml === true }),
         text: textToPrint,
         order_no: options.orderNo ?? null,
         metadata: {
@@ -261,6 +262,35 @@ export async function printWindowsReceiptHtml(
       throw new Error("ไม่ทราบว่างานพิมพ์ถูกส่งแล้วหรือไม่ ให้ตรวจกระดาษและคิว XP-80C ก่อน ห้ามกดพิมพ์ซ้ำทันที");
     }
     throw error;
+  } finally {
+    window.clearTimeout(timer);
+  }
+}
+
+/**
+ * Non-printing warmup on the local Windows bridge. A claim response must
+ * opt-in the exact tenant/device profile before the caller invokes this.
+ * Never throws on an older installed bridge: cold HTML printing remains safe.
+ */
+export async function prewarmWindowsHtmlRenderer(): Promise<void> {
+  const runtime = windowsRuntime();
+  if (!runtime?.bridge_token || !runtime.bridge_health_url) return;
+  let url: URL;
+  try { url = new URL(runtime.bridge_health_url); } catch { return; }
+  if (url.protocol !== "http:" || url.hostname !== "127.0.0.1" ||
+      url.port !== "3210" || url.pathname !== "/health" ||
+      url.username || url.password || url.search || url.hash) return;
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), 22_000);
+  try {
+    await fetch("http://127.0.0.1:3210/print/prewarm", {
+      method: "POST", cache: "no-store", signal: controller.signal,
+      headers: { "X-CpIPOS-Bridge-Token": runtime.bridge_token,
+        "Content-Type": "application/json" },
+      body: "{}"
+    });
+  } catch {
+    // A warmup failure does not queue or retry a physical print.
   } finally {
     window.clearTimeout(timer);
   }
