@@ -9292,6 +9292,7 @@ export function PosSalesModule({
           onHoldBill={holdBill}
           onOpenHeldBills={openHeldBillsPanel}
           opticalRetail={opticalRetailActive}
+          groceryRetail={!opticalRetailActive && startupRetailKind === "general_sale" && quickMode === "home"}
           opticalCurrencyCode={posCurrencyCode}
           opticalLanguage={lang}
           onOpticalCustomer={() => setOpticalCustomerOpen(true)}
