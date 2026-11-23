@@ -64,6 +64,7 @@ describe("printer settings v3 regression coverage", () => {
     expect(patch).toContain('.eq("tenant_id", auth.tenantId!)');
     expect(patch).toContain('.eq("branch_id", auth.branchId!)');
     expect(patch).toContain('existingMetadata.target_runtime === "windows_native"');
+    expect(route).toContain('body.metadata?.windows_print_render_mode === "native_text"');
     expect(patch).toContain('metadata: { ...existingMetadata, ...asRecord(body.metadata), target_runtime: "windows_native" }');
     expect(patch).toContain("resolvePrinterProfileMetadata(auth, metadataInput, mode, purposes, assignments)");
     expect(patch).toContain('windows_printer_transport_change_requires_new_profile');
