@@ -793,8 +793,20 @@ export async function queueRoutedShiftReport(args: {
   const jobs = [];
   // Auto-first must print ONE physical copy on ONE assigned report printer.
   for (const route of (args.autoFirst ? routes.slice(0, 1) : routes)) {
+    // Print Agent's claim RPC requires print_jobs.printer_role to match the
+    // assigned profile role. An 80mm receipt printer may print a shift report.
+    if(route.printer.printer_role!=="receipt" && route.printer.printer_role!=="report") continue;
     const singleRoute = args.autoFirst ? { ...route, copies: 1 } : route;
     const paper:58|80=route.printer.paper_width_mm===80?80:58;
+    const printerMeta=asRecord(route.printer.metadata);
+    const windowsBound=printerMeta.target_runtime==="windows_native" &&
+      printerMeta.windows_device_code===args.runtimeDeviceCode;
+    const requestedWidth=Number(printerMeta.windows_receipt_printable_mm);
+    const printableWidthMm=windowsBound && paper===80 && printerMeta.windows_receipt_centered===true &&
+      Number.isFinite(requestedWidth) && requestedWidth>=56 && requestedWidth<=70
+        ? requestedWidth : undefined;
+    const offsetMm=windowsBound && Number.isFinite(Number(printerMeta.windows_receipt_offset_mm))
+      ? Number(printerMeta.windows_receipt_offset_mm) : 0;
     const recycled= isRecyclingDaily ? {
       id:shift.id,branchName,openedAt:shift.opened_at,closedAt:shift.closed_at,
       openingCash:shift.opening_cash,expectedCash:shift.expected_cash,actualCash:shift.actual_cash,
@@ -816,13 +828,16 @@ export async function queueRoutedShiftReport(args: {
       });
     // Thermal slip is always rendered from the authoritative closed shift,
     // never untrusted client HTML or the normal POS sales total.
-    const safeReportHtml = recycled ? renderRecyclingDailyShiftCloseHtml(recycled,paper) : reportHtml;
+    const safeReportHtml = recycled
+      ? renderRecyclingDailyShiftCloseHtml(recycled,paper,
+          printableWidthMm === undefined ? undefined : {printableWidthMm,offsetMm})
+      : reportHtml;
     jobs.push(...await queueOnRoute({
       auth: args.auth,
       route: singleRoute,
       orderId: null,
       idempotencyKey: args.idempotencyKey ?? null,
-      printerRole: "report",
+      printerRole: route.printer.printer_role,
       payloadText: payload,
       payloadJson: {
         shift_id: args.shiftId,
