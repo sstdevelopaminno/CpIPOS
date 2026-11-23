@@ -77,7 +77,10 @@ describe("CUSTOM IMDC Optical as the only permitted POS sales mode", () => {
   expect(bridge).not.toContain("homeButton.click()");
   expect(sales).toContain("window.addEventListener(GENERAL_SALE_ACTIVATE_BASE_MODE_EVENT, onGeneralSaleActivate)");
   expect(sales).toContain('applyQuickMode("home")');
-  expect(sales).toContain('if (opticalRetailActive && quickMode === "home") return');
+  expect(sales).toContain('if (quickMode !== "home")');
+  expect(sales).toContain('setOpticalRetailActive(true)');
+  expect(sales).toContain('setStartupRetailKind("optical_retail")');
+  expect(sales).not.toContain('if (opticalRetailActive && quickMode === "home") return');
  });
  it("never opens a disabled sales mode when the backend rejects Optical",()=>{
   const bridge=read("src/components/pos/pos-general-sale-table-controller.tsx");
