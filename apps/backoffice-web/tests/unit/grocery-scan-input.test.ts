@@ -11,6 +11,7 @@ describe("Grocery hardware scanner with Thai keyboard layout", () => {
     expect(asciiKeyFromScannerCode("Digit2", "@", true)).toBeNull();
     expect(asciiKeyFromScannerCode("Numpad5", "๕", false)).toBe("5");
     expect(asciiKeyFromScannerCode("Minus", "ข", false)).toBe("-");
+    expect(asciiKeyFromScannerCode("Minus", "%", true)).toBe("_");
     expect(asciiKeyFromScannerCode("KeyA", "a", false)).toBeNull();
     expect(asciiKeyFromScannerCode("KeyA", "Enter", false)).toBeNull();
   });
