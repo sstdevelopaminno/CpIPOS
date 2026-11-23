@@ -62,6 +62,7 @@ export function WindowsNativePrintAgent() {
     let inFlight = false;
     let idlePolls = 0;
     let priorityPollUntil = 0;
+    let urgentWakePending = false;
     const abort = new AbortController();
 
     async function poll() {
@@ -143,18 +144,28 @@ export function WindowsNativePrintAgent() {
         inFlight = false;
         if (!stopped) {
           if (Date.now() < priorityPollUntil) nextMs = Math.min(nextMs, 1_000);
-          timer = setTimeout(() => { void poll(); }, nextMs);
+          // A receipt can be enqueued while an earlier empty claim request
+          // is still in flight. Honor the wake after that claim completes;
+          // never claim concurrently or replay a prior job.
+          const waitMs = urgentWakePending ? 0 : nextMs;
+          urgentWakePending = false;
+          if (timer) clearTimeout(timer);
+          timer = setTimeout(() => { void poll(); }, waitMs);
         }
       }
     }
 
-    function wake() {
+    function wake(event?: Event) {
       if (stopped) return;
       priorityPollUntil = Date.now() + 16_000;
       idlePolls = 0;
-      if (inFlight) return;
+      const urgent = event?.type === "cpi-windows-print-agent-wake";
+      if (inFlight) {
+        if (urgent) urgentWakePending = true;
+        return;
+      }
       if (timer) clearTimeout(timer);
-      timer = setTimeout(() => { void poll(); }, 150);
+      timer = setTimeout(() => { void poll(); }, urgent ? 0 : 150);
     }
     function onVisibilityChange() {
       if (document.visibilityState === "visible") wake();
