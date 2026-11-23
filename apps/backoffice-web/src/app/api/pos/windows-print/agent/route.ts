@@ -164,9 +164,10 @@ export async function POST(req: Request) {
       }
       const metadata = asRecord(job.metadata);
       const html = typeof metadata.payload_html === "string" ? metadata.payload_html : "";
+      const assignedProfile = profiles.find(profile => profile.id === job.printer_id);
       const resolved = resolveWindowsAgentJob({
         printerRole: job.printer_role,
-        printerAssigned: profiles.some(profile => profile.id === job.printer_id),
+        printerAssigned: Boolean(assignedProfile),
         metadata,
         html
       });
@@ -192,6 +193,11 @@ export async function POST(req: Request) {
           order_no: orderNo,
           reprint: metadata.reprint === true,
           html: resolved.kind === "html" ? html : null,
+          // Only an explicitly configured Windows-native printer profile may
+          // use the .NET PrintDocument path; all other tenants stay on HTML.
+          render_mode: resolved.kind === "html" &&
+            asRecord(assignedProfile?.metadata).windows_print_render_mode === "native_text"
+              ? "native_text" : "html",
           text: resolved.kind === "html" && typeof job.payload_text === "string" ? job.payload_text.slice(0, 14_000) : null,
           drawer: resolved.kind === "cash_drawer" ? resolved.drawer : null,
           printer_name: connectedPrinter.selected_printer
