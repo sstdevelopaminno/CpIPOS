@@ -9309,7 +9309,12 @@ export function PosSalesModule({
     return (
       <>
         {groceryRetail ? (
-          <PosGroceryLastScannedPreview product={cart.length > 0 ? lastGroceryScannedProduct : null} language={lang} />
+          <div className="relative flex min-h-0 min-w-0 flex-1 flex-col" data-testid="pos-grocery-cart-preview-region">
+            {/* Keep the original cart controls mounted: the SD table forwards
+                quantity +/- and delete through their React onClick handlers. */}
+            <div className="hidden" aria-hidden="true">{renderCartList()}</div>
+            <PosGroceryLastScannedPreview product={cart.length > 0 ? lastGroceryScannedProduct : null} language={lang} />
+          </div>
         ) : renderCartList()}
         <PosPaymentPanel
           subtotal={summaryDiscount}
