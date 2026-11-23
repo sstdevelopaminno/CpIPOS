@@ -4,11 +4,11 @@ import { resolvePrinterRoutes } from "@/lib/printing/printer-routing-service";
 import { enqueuePrintJob, processPrintJob } from "@/lib/printing/print-service";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 import { readEnv } from "@/lib/env";
-import { renderRecyclingBarcodeLabel } from "@/lib/recycling-barcode-print-layout";
+import { renderRecyclingBarcodeLabel, type RecyclingBarcodeLabelSize } from "@/lib/recycling-barcode-print-layout";
 
 export async function queueRoutedRecyclingBarcode(args:{
  auth:AuthContext;runtimeDeviceCode:string|null;requestId:string;productId:string;
- sku:string;name:string;branchName:string;
+ sku:string;name:string;branchName:string;size:RecyclingBarcodeLabelSize;
 }){
  if(!args.auth.tenantId||!args.auth.branchId||!args.runtimeDeviceCode)
   throw new Error("recycling_barcode_device_scope_required");
@@ -18,9 +18,16 @@ export async function queueRoutedRecyclingBarcode(args:{
  });
  if(!routes.length)throw new Error("recycling_barcode_printer_not_configured");
  const route=routes[0],width=Number(route.printer.paper_width_mm);
+ const meta=route.printer.metadata&&typeof route.printer.metadata==="object"&&!Array.isArray(route.printer.metadata)
+  ?route.printer.metadata as Record<string,unknown>:{};
+ const windowsLabPrinter=meta.target_runtime==="windows_native" &&
+   meta.windows_device_code===args.runtimeDeviceCode;
+ const fastWake=windowsLabPrinter && meta.windows_receipt_fast_wake===true;
+ const centerOnPaper=windowsLabPrinter && meta.windows_receipt_centered===true;
  if(width!==58 && width!==80)throw new Error("recycling_barcode_paper_unsupported");
  const html=renderRecyclingBarcodeLabel({
-  sku:args.sku,name:args.name,branchName:args.branchName,paper:width
+  sku:args.sku,name:args.name,branchName:args.branchName,paper:width,
+  size:args.size,centerOnPaper
  });
  const key="recycling-barcode:"+args.requestId+":"+args.productId+":"+route.printer.id;
  const db=getSupabaseServiceClient();
@@ -29,28 +36,26 @@ export async function queueRoutedRecyclingBarcode(args:{
   .eq("idempotency_key",key).maybeSingle();
  const old=await lookup();
  if(old.error)throw new Error("recycling_barcode_print_lookup_failed");
- if(old.data)return [old.data];
+ if(old.data)return [{...old.data,fast_wake:fastWake}];
  let job;
  try{
   job=await enqueuePrintJob({
    auth:args.auth,printer:route.printer,orderId:null,printerRole:"receipt",
    idempotencyKey:key,payloadText:"บาร์โค้ดวัสดุ "+args.sku,
-   payloadJson:{document_type:"recycling_barcode_label",material_id:args.productId,sku:args.sku},
+   payloadJson:{document_type:"recycling_barcode_label",material_id:args.productId,sku:args.sku,label_size:args.size},
    metadata:{request_source:"recycling_barcode_manual",routing_source:route.source,
     routing_purpose:route.purpose,routing_printer_device_id:route.printerDeviceId,
-    copy_number:1,copy_count:1,paper_width_mm:width,
+    copy_number:1,copy_count:1,paper_width_mm:width,label_size:args.size,
     payload_format:"receipt_html_v1",payload_html:html}
   });
  }catch(error){
   const retry=await lookup();
-  if(retry.data)return [retry.data];
+  if(retry.data)return [{...retry.data,fast_wake:fastWake}];
   throw error;
  }
- const meta=route.printer.metadata&&typeof route.printer.metadata==="object"&&!Array.isArray(route.printer.metadata)
-  ?route.printer.metadata as Record<string,unknown>:{};
  const queued=readEnv("VERCEL")==="1"||Boolean(readEnv("VERCEL_ENV"))||
   meta.print_mode==="agent"||meta.queue_only===true;
  const result=queued?job:(await processPrintJob(job.id))??job;
  return [{id:result.id,status:result.status,printer_id:result.printer_id,
-  printed_at:result.printed_at,last_error:result.last_error}];
+  printed_at:result.printed_at,last_error:result.last_error,fast_wake:fastWake}];
 }

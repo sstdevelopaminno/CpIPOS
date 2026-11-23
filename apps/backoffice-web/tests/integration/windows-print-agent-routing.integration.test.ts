@@ -99,6 +99,29 @@ describe("Windows print agent device and receipt safety", () => {
     expect(native).toContain("native_dotnet_print_document");
   });
 
+  it("scopes fast-print wake for adjustable barcode labels and reports to the same Windows device", () => {
+    const barcodeApi = source("src/app/api/pos/recycling/barcodes/print/route.ts");
+    const barcodeJob = source("src/lib/printing/recycling-barcode-print-service.ts");
+    const barcodeUi = source("src/components/pos/recycling-barcode-dialog.tsx");
+    const reportJob = source("src/lib/printing/recycling-report-print-service.ts");
+    const reportUi = source("src/components/pos/recycling-summary-print-button.tsx");
+    expect(barcodeApi).toContain("RECYCLING_BARCODE_LABEL_SIZES.includes");
+    expect(barcodeApi).toContain("branch_id!==branchId");
+    expect(barcodeJob).toContain('meta.windows_device_code===args.runtimeDeviceCode');
+    expect(barcodeJob).toContain("fast_wake:fastWake");
+    expect(barcodeJob).toContain("size:args.size,centerOnPaper");
+    expect(barcodeUi).toContain('size:labelSize');
+    expect(barcodeUi).toContain('<option value="large">');
+    expect(barcodeUi).toContain('jobs.some(job=>job.fast_wake===true');
+    expect(reportJob).toContain("meta.windows_device_code===args.deviceCode");
+    expect(reportJob).toContain("fast_wake:fastWake");
+    expect(reportUi).toContain('jobs.some(j=>j.fast_wake===true');
+    // All these wake the already-authenticated local Windows agent;
+    // no Android agent key or cross-tenant print queue is exposed.
+    expect(barcodeUi).toContain('new Event("cpi-windows-print-agent-wake")');
+    expect(reportUi).toContain('new Event("cpi-windows-print-agent-wake")');
+  });
+
   it("Android bootstrap does not select and rotate the Windows agent key", () => {
     const android = source("src/app/api/android-pos/print-agent/bootstrap/route.ts");
     expect(android).toContain('meta.runtime !== "windows_native_print_agent_v1"');

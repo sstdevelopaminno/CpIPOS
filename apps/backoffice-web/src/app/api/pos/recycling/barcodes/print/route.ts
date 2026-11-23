@@ -6,6 +6,7 @@ import { assertPosMenuPageAllowed } from "@/lib/server/pos-menu-policy-service";
 import { isAuthorizedRecyclingTenant } from "@/lib/server/recycling-pos-service";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 import { queueRoutedRecyclingBarcode } from "@/lib/printing/recycling-barcode-print-service";
+import { RECYCLING_BARCODE_LABEL_SIZES, type RecyclingBarcodeLabelSize } from "@/lib/recycling-barcode-print-layout";
 import type { AuthContext } from "@/lib/auth-context";
 
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -22,11 +23,14 @@ export async function POST(request:Request){
    return fail("recycling_not_authorized","CUSTOM Recycling entitlement required.",403);
   await requirePosApiFeature({tenantId,branchId},"stock_management");
   const body=await request.json().catch(()=>null) as {
-   request_id?:unknown;product_id?:unknown;branch_id?:unknown
+   request_id?:unknown;product_id?:unknown;branch_id?:unknown;size?:unknown
   }|null;
   const productId=typeof body?.product_id==="string"?body.product_id:"";
   if(!UUID.test(String(body?.request_id??""))||!UUID.test(productId))
    return fail("invalid_recycling_barcode_request","Valid product and request UUIDs required.",422);
+  const requestedSize = body?.size ?? "small";
+  if(typeof requestedSize!=="string"||!RECYCLING_BARCODE_LABEL_SIZES.includes(requestedSize as RecyclingBarcodeLabelSize))
+   return fail("recycling_barcode_label_size_invalid","กรุณาเลือกขนาดฉลากบาร์โค้ดที่รองรับ",422);
   // A workstation may only print in its AUTHENTICATED branch.
   if(body?.branch_id!==branchId)return fail("recycling_barcode_branch_denied","กรุณาเข้าสู่เครื่อง POS ของสาขานี้ก่อนพิมพ์",403);
   const db=getSupabaseServiceClient();
@@ -51,7 +55,8 @@ export async function POST(request:Request){
   const jobs=await queueRoutedRecyclingBarcode({
    auth,runtimeDeviceCode:scope.session.device_code,
    requestId:String(body!.request_id),productId,
-   sku,name:String(product.data.name??"วัสดุ"),branchName:String(branch.data.name??"สาขาหลัก")
+   sku,name:String(product.data.name??"วัสดุ"),branchName:String(branch.data.name??"สาขาหลัก"),
+   size:requestedSize as RecyclingBarcodeLabelSize
   });
   return ok({queued:true,jobs});
  }catch(error){

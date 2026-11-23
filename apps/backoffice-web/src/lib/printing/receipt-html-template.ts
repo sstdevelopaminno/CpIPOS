@@ -44,6 +44,8 @@ export type ReceiptHtmlInput = {
   hideCashTenderBreakdown?: boolean;
   /** Scoped thermal layout: only CUSTOM Recycling uses the compact 58/80mm typography. */
   compactRecycling?: boolean;
+  /** Printer-specific calibration: center narrow Recycling thermal content on 58/80mm media. */
+  centerThermalContent?: boolean;
 };
 
 const DEFAULT_RECEIPT_LOGO_URL = "/brand/cpipos-logo.png";
@@ -117,7 +119,8 @@ export function renderReceiptHtml(input: ReceiptHtmlInput) {
   const layout = input.compactRecycling ? recyclingLayout : regularLayout;
   // XP-80T 80mm roll prints only approximately 72mm; leave additional room for Windows driver offset.
   // Keep font sizes and all monetary values unchanged; wrap long lines instead of clipping.
-  const printableLeftMm = 1;
+  const printableLeftMm = input.compactRecycling && input.centerThermalContent
+    ? (paper - layout.printableMm) / 2 : 1;
   const logoUrl = clean(input.logoUrl) ?? DEFAULT_RECEIPT_LOGO_URL;
   const storeName = clean(input.storeName) ?? clean(input.branchName) ?? "CpIPOS";
   const branchName = clean(input.branchName);

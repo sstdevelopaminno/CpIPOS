@@ -13,7 +13,10 @@ describe("Windows local POS printing: sale, reprint, kitchen, shift, notices and
     const history = read("src/components/pos-preview/pos-receipts-workspace.tsx");
 
     expect(canonical).toContain("printableMm: 56");
-    expect(canonical).toContain("const printableLeftMm = 1;");
+    expect(canonical).toContain("const printableLeftMm = input.compactRecycling && input.centerThermalContent");
+    expect(canonical).toContain("? (paper - layout.printableMm) / 2 : 1;");
+    // The ordinary POS and historical receipt driver offset remains 1mm.
+    // Only explicitly configured Recycling Windows printers can center content.
     expect(canonical).toContain("printableMm: 45");
     for (const source of [sale, history]) {
       expect(source).toContain("paperWidthMm === 80 ? 56 : 45");

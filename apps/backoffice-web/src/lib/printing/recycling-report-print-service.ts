@@ -7,7 +7,7 @@ import { resolvePrinterRoutes } from "@/lib/printing/printer-routing-service";
 import { enqueuePrintJob, processPrintJob } from "@/lib/printing/print-service";
 const minor=(amount:number)=>new Intl.NumberFormat("th-TH",{minimumFractionDigits:2,maximumFractionDigits:2}).format(amount/100);
 const escape=(value:string)=>value.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
-export function renderRecyclingSummaryReportHtml(report:RecyclingHistoryReport,paper:58|80):string{
+export function renderRecyclingSummaryReportHtml(report:RecyclingHistoryReport,paper:58|80,centerOnPaper=false):string{
  const rows:[string,string][]=[
   ["ขายออก",minor(report.totals.sellMinor)],["รับซื้อเข้าร้าน",minor(report.totals.buyMinor)],
   ["จำนวนบิลขายออก",String(report.totals.sellCount)],["จำนวนใบรับซื้อ",String(report.totals.buyCount)],
@@ -18,10 +18,11 @@ export function renderRecyclingSummaryReportHtml(report:RecyclingHistoryReport,p
  ];
  const body=rows.map(([k,v])=>'<div class="r"><span>'+escape(k)+'</span><strong>'+escape(v)+'</strong></div>').join("");
  const width=paper===80?56:42;
+ const leftMargin=centerOnPaper?(paper-width)/2:(paper===80?2:1);
  return '<!doctype html><html lang="th"><head><meta charset="utf-8"/>'
   +'<title>สรุปรับซื้อ–ขายออก Recycling</title><style>@page{size:'+paper+'mm auto;margin:0}'
   +'*{box-sizing:border-box}html,body{margin:0;padding:0;width:'+paper+'mm;color:#000;background:#fff;font:11px/1.35 Tahoma,"Noto Sans Thai",sans-serif}'
-  +'main{width:'+width+'mm;margin-left:'+(paper===80?2:1)+'mm;padding:2mm 0}.r{display:flex;justify-content:space-between;gap:4px;margin:3px 0}'
+  +'main{width:'+width+'mm;margin-left:'+leftMargin+'mm;padding:2mm 0}.r{display:flex;justify-content:space-between;gap:4px;margin:3px 0}'
   +'.r span{flex:1;min-width:0;overflow-wrap:anywhere}.r strong{text-align:right;white-space:nowrap}'
   +'h1{font-size:14px;text-align:center;margin:3px 0 6px}hr{border:0;border-top:1px dashed #000;margin:8px 0}'
   +'p{margin:5px 0;font-size:10px;overflow-wrap:anywhere}</style></head><body><main>'
@@ -46,14 +47,19 @@ export async function queueRoutedRecyclingReport(args:{
  // Only a single destination/copy per explicit click; the printer agent owns physical output.
  const route={...routes[0],copies:1};
  const paper=route.printer.paper_width_mm===80?80:58;
- const html=renderRecyclingSummaryReportHtml(args.report,paper);
+ const meta=route.printer.metadata&&typeof route.printer.metadata==="object"&&!Array.isArray(route.printer.metadata)
+   ?route.printer.metadata as Record<string,unknown>:{};
+ const windowsLab=meta.target_runtime==="windows_native"&&meta.windows_device_code===args.deviceCode;
+ const fastWake=windowsLab&&meta.windows_receipt_fast_wake===true;
+ const html=renderRecyclingSummaryReportHtml(args.report,paper,
+  windowsLab&&meta.windows_receipt_centered===true);
  const key="recycling-summary:"+args.requestId+":"+route.printer.id;
  const db=getSupabaseServiceClient();
  const existing=await db.from("print_jobs").select("id,status,printer_id,printed_at,last_error")
    .eq("tenant_id",args.auth.tenantId).eq("branch_id",args.auth.branchId)
    .eq("idempotency_key",key).maybeSingle();
  if(existing.error)throw new Error("recycling_report_print_dedup_failed");
- if(existing.data)return [existing.data];
+ if(existing.data)return [{...existing.data,fast_wake:fastWake}];
  let job;
  try{
   job=await enqueuePrintJob({
@@ -72,7 +78,7 @@ export async function queueRoutedRecyclingReport(args:{
   const check=await db.from("print_jobs").select("id,status,printer_id,printed_at,last_error")
    .eq("tenant_id",args.auth.tenantId).eq("branch_id",args.auth.branchId)
    .eq("idempotency_key",key).maybeSingle();
-  if(check.data) return [check.data];
+  if(check.data) return [{...check.data,fast_wake:fastWake}];
   throw error;
  }
  const direct=(route.printer.metadata&&typeof route.printer.metadata==="object"&&!Array.isArray(route.printer.metadata))
@@ -81,5 +87,5 @@ export async function queueRoutedRecyclingReport(args:{
   direct.print_mode==="agent"||direct.queue_only===true;
  const result=queued?job:(await processPrintJob(job.id))??job;
  return [{id:result.id,status:result.status,printer_id:result.printer_id,
-  printed_at:result.printed_at,last_error:result.last_error}];
+  printed_at:result.printed_at,last_error:result.last_error,fast_wake:fastWake}];
 }

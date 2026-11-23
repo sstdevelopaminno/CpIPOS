@@ -29,7 +29,7 @@ export function RecyclingSummaryPrintButton({filters}:{filters:RecyclingReportQu
     body:JSON.stringify({request_id:crypto.randomUUID(),filters})
    });
    const data=await response.json().catch(()=>null) as {
-    data?:{queued?:boolean;jobs?:Array<{id:string;status:string}>};
+    data?:{queued?:boolean;jobs?:Array<{id:string;status:string;fast_wake?:boolean}>};
     error?:{message?:string};
    }|null;
    if(!response.ok||!data?.data?.queued){
@@ -37,6 +37,9 @@ export function RecyclingSummaryPrintButton({filters}:{filters:RecyclingReportQu
     return;
    }
    const jobs=data.data.jobs??[];
+   if(jobs.some(j=>j.fast_wake===true&&j.status==="pending")) {
+    window.dispatchEvent(new Event("cpi-windows-print-agent-wake"));
+   }
    if(jobs.some(j=>j.status==="failed")){
     setError("งานพิมพ์ไม่สำเร็จ กรุณาตรวจเครื่องและคิว Print Agent");
     return;
