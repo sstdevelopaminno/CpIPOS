@@ -134,6 +134,11 @@ describe("Windows local POS printing: sale, reprint, kitchen, shift, notices and
     expect(worker).toContain('window.addEventListener("pointerdown", onCashierActivity, { passive: true })');
     expect(worker).toContain('window.addEventListener("keydown", onCashierActivity)');
     expect(worker).toContain('window.removeEventListener("pointerdown", onCashierActivity)');
+    expect(worker).toContain('window.addEventListener("online", onConnectivityRestored)');
+    expect(worker).toContain('window.addEventListener("pageshow", onConnectivityRestored)');
+    expect(worker).toContain('window.removeEventListener("online", onConnectivityRestored)');
+    expect(worker).toContain('window.removeEventListener("pageshow", onConnectivityRestored)');
+    expect(worker).toContain('wake(new Event("cpi-windows-print-agent-wake"))');
     expect(worker).toContain('nextMs = Math.min(nextMs, authenticatedFastIdlePollMs)');
     expect(worker).toContain('const waitMs = urgentWakePending ? 0 : nextMs;');
     expect(worker).toContain('if (stopped || inFlight) return;');
