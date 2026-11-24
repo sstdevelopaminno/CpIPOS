@@ -206,6 +206,13 @@ export function WindowsNativePrintAgent() {
     function onVisibilityChange() {
       if (document.visibilityState === "visible") wake();
     }
+    // WebView2 may throttle background fetch/timers or stay offline after the
+    // Windows network adapter wakes. Recover on browser connectivity/page
+    // lifecycle events without changing the idle polling schedule or replaying
+    // an already-attempted Windows spool job.
+    function onConnectivityRestored() {
+      wake(new Event("cpi-windows-print-agent-wake"));
+    }
     function onCashierActivity() {
       fastPollingActiveUntil = Date.now() + 120_000;
     }
@@ -214,6 +221,8 @@ export function WindowsNativePrintAgent() {
     window.addEventListener("cpi-windows-print-agent-wake", wake);
     window.addEventListener("cpi-windows-fast-print-prime", primeFastPrint);
     window.addEventListener("focus", wake);
+    window.addEventListener("online", onConnectivityRestored);
+    window.addEventListener("pageshow", onConnectivityRestored);
     document.addEventListener("visibilitychange", onVisibilityChange);
     void poll();
     return () => {
@@ -223,6 +232,8 @@ export function WindowsNativePrintAgent() {
       window.removeEventListener("cpi-windows-fast-print-prime", primeFastPrint);
       window.removeEventListener("cpi-windows-print-agent-wake", wake);
       window.removeEventListener("focus", wake);
+      window.removeEventListener("online", onConnectivityRestored);
+      window.removeEventListener("pageshow", onConnectivityRestored);
       document.removeEventListener("visibilitychange", onVisibilityChange);
       abort.abort();
       if (timer) clearTimeout(timer);
