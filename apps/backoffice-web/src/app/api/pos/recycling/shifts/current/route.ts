@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import { PosGuardError, requirePermission, requirePosSession, withPosSessionCookie } from "@/lib/pos-session-guard";
 import { isAuthorizedRecyclingTenant } from "@/lib/server/recycling-pos-service";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
-import { recyclingShiftIsToday } from "@/lib/recycling-business-day";
+import { recyclingBusinessDayKey, recyclingShiftIsToday } from "@/lib/recycling-business-day";
+import { startOfOpticalLocalDateUtc } from "@/lib/pos-optical-daily-shift";
 
 // Read-only, branch + terminal scoped check. Never start or join a shift on a GET.
 export async function GET() {
@@ -53,6 +54,41 @@ export async function GET() {
     if (row && !recyclingShiftIsToday(row.opened_at)) {
       return NextResponse.json({ data: null, error: { code: "recycling_previous_day_shift_pending_close", message: "กะเมื่อวานกำลังรอปิดและตรวจสอบยอด กรุณาติดต่อผู้จัดการ" } }, { status: 409 });
     }
+    // A closed Recycling shift today blocks opening another shift on this
+    // terminal. Return that state to the UI instead of showing a misleading
+    // "not opened" form that POST /shifts/open will always reject.
+    let closedToday: { id: string; opened_at: string; closed_at: string | null } | null = null;
+    if (!row) {
+      const today = recyclingBusinessDayKey(new Date());
+      const tomorrow = new Date(Date.parse(today + "T00:00:00Z") + 86400000)
+        .toISOString().slice(0, 10);
+      const from = startOfOpticalLocalDateUtc(today, "Asia/Bangkok");
+      const to = startOfOpticalLocalDateUtc(tomorrow, "Asia/Bangkok");
+      if (!from || !to) {
+        return NextResponse.json({data:null,error:{
+          code:"recycling_business_day_unavailable",
+          message:"ไม่สามารถตรวจสอบวันทำการของกะได้ กรุณาลองอีกครั้ง"
+        }},{status:503});
+      }
+      let closedQuery = db.from("shifts").select("id,opened_at,closed_at")
+        .eq("tenant_id",scope.session.tenant_id)
+        .eq("branch_id",scope.session.branch_id)
+        .eq("status","closed")
+        .gte("opened_at",from.toISOString()).lt("opened_at",to.toISOString())
+        .contains("metadata",{business_shift_mode:"recycling_daily"})
+        .order("opened_at",{ascending:false}).limit(1);
+      closedQuery = scope.session.device_code
+        ? closedQuery.eq("device_code",scope.session.device_code)
+        : closedQuery.is("device_code",null);
+      const closedResult = await closedQuery;
+      if (closedResult.error) {
+        return NextResponse.json({data:null,error:{
+          code:"recycling_shift_daily_review_failed",
+          message:"ตรวจสอบประวัติกะที่ปิดวันนี้ไม่สำเร็จ กรุณาลองอีกครั้ง"
+        }},{status:503});
+      }
+      closedToday = closedResult.data?.[0] ?? null;
+    }
     const isJoined = row !== null && scope.session.shift_id === row.id;
     const response = NextResponse.json({
       data: {
@@ -64,8 +100,10 @@ export async function GET() {
             ? String((row.metadata as Record<string,unknown>).recycling_fund_reference):null
         }:null,
         session_shift_id: scope.session.shift_id,
+        closed_today: closedToday,
         needs_join: Boolean(row && !isJoined),
         message: row ? (isJoined ? "กะ Recycling เปิดแล้ว" : "กะเปิดแล้ว แต่ผู้ใช้งานนี้ยังไม่ได้เข้าร่วมกะ")
+          : closedToday ? "กะ Recycling วันนี้ปิดแล้ว ไม่สามารถเปิดกะซ้ำได้ กรุณาตรวจสอบประวัติกะ"
           : "ยังไม่ได้เปิดกะวันนี้ กรุณาไปที่เมนูเปิด/ปิดกะ"
       },
       error: null
