@@ -56,7 +56,7 @@ export async function GET() {
     }
     // A closed Recycling shift today blocks opening another shift on this
     // terminal. Return that state to the UI instead of showing a misleading
-    // "not opened" form that POST /shifts/open will always reject.
+    // "not opened" form that the shift-opening endpoint will always reject.
     let closedToday: { id: string; opened_at: string; closed_at: string | null } | null = null;
     if (!row) {
       const today = recyclingBusinessDayKey(new Date());
