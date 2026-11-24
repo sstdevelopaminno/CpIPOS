@@ -7,6 +7,7 @@ type ShiftInfo={
   id:string;status:string;opened_at:string;opening_cash:number|null;
   fund_source?:string|null;fund_reference?:string|null;
 };
+type ClosedShiftInfo={id:string;opened_at:string;closed_at:string|null;};
 type FundingSummary={
   finance_status:"restricted"|"unposted"|"ready"|"unavailable";
   accounts:Array<{code:string;label:string;balance_minor:number|null;entries:number}>;
@@ -54,6 +55,7 @@ export function RecyclingShiftPrintButton({shiftId,automatic=false}:{
 export function RecyclingShiftControl({branchName}: {branchName:string}) {
   const router = useRouter();
   const [shift,setShift] = useState<ShiftInfo|null>(null);
+  const [closedToday,setClosedToday] = useState<ClosedShiftInfo|null>(null);
   const [needsJoin,setNeedsJoin] = useState(false);
   const [loading,setLoading] = useState(true);
   const [lookupFailed,setLookupFailed] = useState(false);
@@ -82,22 +84,25 @@ export function RecyclingShiftControl({branchName}: {branchName:string}) {
         credentials:"same-origin", cache:"no-store"
       });
       const body = await response.json().catch(()=>null) as Result<{
-        shift?:ShiftInfo|null; needs_join?:boolean; message?:string; recovery_allowed?:boolean
+        shift?:ShiftInfo|null; closed_today?:ClosedShiftInfo|null;
+        needs_join?:boolean; message?:string; recovery_allowed?:boolean
       }>|null;
       if (!response.ok) {
-        setShift(null);setNeedsJoin(false);setLookupFailed(true);
+        setShift(null);setClosedToday(null);setNeedsJoin(false);setLookupFailed(true);
         setLookupErrorCode(body?.error?.code??"recycling_shift_lookup_failed");
         setRecoveryAllowed(Boolean(body?.data?.recovery_allowed));
         setMessage(body?.error?.message??"ตรวจสอบสถานะกะไม่สำเร็จ");
       } else {
         const current=body?.data?.shift;
-        setShift(current && recyclingShiftIsToday(current.opened_at) ? current : null);
-        setNeedsJoin(Boolean(current && body?.data?.needs_join));
+        const activeToday=current && recyclingShiftIsToday(current.opened_at) ? current : null;
+        setShift(activeToday);
+        setClosedToday(activeToday ? null : body?.data?.closed_today ?? null);
+        setNeedsJoin(Boolean(activeToday && body?.data?.needs_join));
         setLookupFailed(false);setLookupErrorCode(null);setRecoveryAllowed(false);
         setMessage(body?.data?.message??"");
       }
     } catch {
-      setShift(null);setNeedsJoin(false);setLookupFailed(true);
+      setShift(null);setClosedToday(null);setNeedsJoin(false);setLookupFailed(true);
       setLookupErrorCode("recycling_network_unavailable");setRecoveryAllowed(false);
       setMessage("ไม่สามารถเชื่อมต่อระบบตรวจสอบกะได้ กรุณารีเฟรชสถานะ");
     } finally {setLoading(false);}
@@ -111,7 +116,7 @@ export function RecyclingShiftControl({branchName}: {branchName:string}) {
       const today=recyclingBusinessDayKey(new Date());
       if(today!==day.value){
         day.value=today;
-        setShift(null);setNeedsJoin(false);setModalKind(null);void loadShift();
+        setShift(null);setClosedToday(null);setNeedsJoin(false);setModalKind(null);void loadShift();
       }
     },5000);
     document.addEventListener("visibilitychange",onVisibility);
@@ -155,7 +160,7 @@ export function RecyclingShiftControl({branchName}: {branchName:string}) {
   },[modalKind,shift?.id]);
 
   function showModal(kind:"open"|"close"|"active"|"recover"){
-    if(loading || busy)return;
+    if(loading || busy || (kind==="open" && (closedToday || shift || lookupFailed)))return;
     if(kind==="open")setCashCountConfirmed(false);
     // Allow the cashier to inspect the reason for a blocked shift. Never
     // enable a financial mutation while a conflicting POS shift is open.
@@ -196,7 +201,7 @@ export function RecyclingShiftControl({branchName}: {branchName:string}) {
   }
 
   async function openShift() {
-    if(busy||loading||lookupFailed||shift)return;
+    if(busy||loading||lookupFailed||shift||closedToday)return;
     if(!/^\d{1,8}(\.\d{1,2})?$/.test(openingCash.trim())||!cashCountConfirmed){
       setActionError("กรุณาระบุเงินทุนรับซื้อที่ตรวจนับได้จริง (ระบุ 0.00 ได้) และทำเครื่องหมายยืนยันยอด");
       return;
@@ -217,7 +222,7 @@ export function RecyclingShiftControl({branchName}: {branchName:string}) {
       const body=await response.json().catch(()=>null) as Result<{shift?:ShiftInfo}>|null;
       if(response.ok&&body?.data?.shift?.status==="open"&&
          recyclingShiftIsToday(body.data.shift.opened_at)){
-        setShift(body.data.shift);setNeedsJoin(false);
+        setShift(body.data.shift);setClosedToday(null);setNeedsJoin(false);
         setMessage("เปิดกะพร้อมเงินทุนรับซื้อที่ตรวจนับจริงแล้ว (ยังไม่ใช่การโอนเงินจากบัญชี)");
         setModalKind(null);setOpeningCash("");setCashCountConfirmed(false);setFundReference("");
         // Opening slip is an optional, idempotent Windows-only print AFTER
@@ -235,6 +240,9 @@ export function RecyclingShiftControl({branchName}: {branchName:string}) {
           else if(!printed.ok)console.warn("[recycling-shift-open] confirmed shift; optional printer queue unavailable");
         }).catch(()=>console.warn("[recycling-shift-open] optional print request unavailable"));
         router.refresh();
+      } else if(response.status===409 && body?.error?.code==="recycling_shift_already_closed_today"){
+        setModalKind(null);
+        await loadShift();
       } else {
         setActionError(body?.error?.message??"เปิดกะไม่สำเร็จ กรุณาตรวจสอบสิทธิ์และกะที่เปิดค้าง");
       }
@@ -282,7 +290,8 @@ export function RecyclingShiftControl({branchName}: {branchName:string}) {
         return;
       }
       setLastClosed(body.data.shift_id);
-      setShift(null);setNeedsJoin(false);setClosingCash("");
+      setShift(null);setClosedToday({id:shift.id,opened_at:shift.opened_at,closed_at:null});
+      setNeedsJoin(false);setClosingCash("");
       setModalKind(null);
       setMessage("ปิดกะเงินทุนรับซื้อสำเร็จ · ระบบบันทึกยอดเงินสดคงเหลือที่ตรวจนับจริงแล้ว");
       router.refresh();
@@ -321,8 +330,8 @@ export function RecyclingShiftControl({branchName}: {branchName:string}) {
         <div className="flex flex-wrap items-center gap-2">
           <h2 className="text-base font-extrabold text-slate-900">เงินทุนหมุนเวียนรับซื้อ · {branchName}</h2>
           <span className={"rounded-full px-3 py-1 text-xs font-bold "+(
-            hasShift?"bg-emerald-100 text-emerald-800":"bg-slate-100 text-slate-700")}>
-            {loading?"กำลังตรวจสอบ":lookupFailed?lookupErrorCode==="recycling_existing_legacy_shift_requires_review"?"มีกะต่างประเภทเปิดอยู่":"ตรวจสอบไม่สำเร็จ":hasShift?"เปิดอยู่":"ยังไม่เปิดกะ"}
+            hasShift?"bg-emerald-100 text-emerald-800":closedToday?"bg-amber-100 text-amber-800":"bg-slate-100 text-slate-700")}>
+            {loading?"กำลังตรวจสอบ":lookupFailed?lookupErrorCode==="recycling_existing_legacy_shift_requires_review"?"มีกะต่างประเภทเปิดอยู่":"ตรวจสอบไม่สำเร็จ":hasShift?"เปิดอยู่":closedToday?"ปิดกะแล้ววันนี้":"ยังไม่เปิดกะ"}
           </span>
         </div>
         <p className="mt-1 text-xs leading-5 text-slate-500">
@@ -336,9 +345,9 @@ export function RecyclingShiftControl({branchName}: {branchName:string}) {
           ดูเงินทุนกะนี้
         </button>
         <button type="button" onClick={()=>showModal("open")}
-          disabled={loading||busy||hasShift||lookupFailed}
+          disabled={loading||busy||hasShift||closedToday!==null||lookupFailed}
           className="min-h-10 rounded-xl bg-blue-600 px-4 py-2 text-sm font-bold text-white disabled:opacity-50">
-          เปิดกะรับซื้อ
+          {closedToday?"ปิดกะวันนี้แล้ว":"เปิดกะรับซื้อ"}
         </button>
         {recoveryAllowed && lookupErrorCode==="recycling_existing_legacy_shift_requires_review" &&
           <button type="button" data-testid="recycling-recover-legacy-button"
@@ -357,7 +366,8 @@ export function RecyclingShiftControl({branchName}: {branchName:string}) {
       className={"mt-2 text-xs "+(lookupFailed?"font-semibold text-amber-800":"text-slate-600")}>{message}</p>}
     <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
       {lastClosed?<RecyclingShiftPrintButton shiftId={lastClosed}/>:<span className="text-xs text-slate-500">
-        {shift?"กะเริ่ม "+new Date(shift.opened_at).toLocaleString("th-TH",{timeZone:"Asia/Bangkok"}):"ยังไม่มีกะที่เปิดในเครื่องนี้"}
+        {shift?"กะเริ่ม "+new Date(shift.opened_at).toLocaleString("th-TH",{timeZone:"Asia/Bangkok"}):
+          closedToday?"ปิดกะวันนี้แล้ว · ดูรายการย้อนหลังได้จากเมนูประวัติกะ":"ยังไม่มีกะที่เปิดในเครื่องนี้"}
       </span>}
       <button type="button" disabled={busy||loading} onClick={()=>void loadShift()}
         className="text-xs font-semibold text-blue-700 hover:underline disabled:opacity-50">
@@ -398,7 +408,7 @@ export function RecyclingShiftControl({branchName}: {branchName:string}) {
           </div>
           <div className="flex justify-between gap-3">
             <span className="text-slate-500">สถานะ</span><strong className="text-right text-slate-900">
-              {shift?needsJoin?"เปิดแล้ว · ยังไม่เข้าร่วม":"เปิดกะอยู่":"ยังไม่เปิดกะ"}
+              {shift?needsJoin?"เปิดแล้ว · ยังไม่เข้าร่วม":"เปิดกะอยู่":closedToday?"ปิดกะแล้ววันนี้":"ยังไม่เปิดกะ"}
             </strong>
           </div>
           {shift&&<>
@@ -456,7 +466,7 @@ export function RecyclingShiftControl({branchName}: {branchName:string}) {
             <p className="mt-2 text-xs text-slate-500">รับซื้อ {funding.shift_flow.buy_count} บิล · ขายออก {funding.shift_flow.sell_count} บิล · ไม่รวมเงินโอนที่ยังไม่ผ่านการตรวจสอบ</p>
           </>:<p className="text-xs text-amber-800">ยังตรวจสอบยอดเงินสดจากทะเบียนธุรกรรมไม่ได้ กรุณาตรวจสอบก่อนปิดกะ</p>}
         </section>}
-        {modalKind==="open"&&!lookupFailed&&<form id="recycling-open-shift-form" className="mt-4 space-y-3"
+        {modalKind==="open"&&!lookupFailed&&!closedToday&&<form id="recycling-open-shift-form" className="mt-4 space-y-3"
           onSubmit={event=>{event.preventDefault();void openShift();}}>
           <div>
             <label htmlFor="recycling-fund-source" className="block text-sm font-bold text-slate-800">ที่มาของทุนรับซื้อ</label>
@@ -548,7 +558,7 @@ export function RecyclingShiftControl({branchName}: {branchName:string}) {
             className="min-h-10 rounded-xl bg-amber-700 px-4 py-2 text-sm font-bold text-white disabled:opacity-50">
             {busy?"กำลังกู้คืนกะ...":"ยืนยันกู้คืนกะ"}
           </button>}
-          {modalKind==="open"&&<button type="submit" form="recycling-open-shift-form" disabled={busy||loading||lookupFailed||hasShift}
+          {modalKind==="open"&&<button type="submit" form="recycling-open-shift-form" disabled={busy||loading||lookupFailed||hasShift||closedToday!==null}
             className="min-h-10 rounded-xl bg-blue-600 px-4 py-2 text-sm font-bold text-white disabled:opacity-50">
             {busy?"กำลังเปิดกะ...":"ยืนยันทุนเงินสดและเปิดกะ"}
           </button>}
