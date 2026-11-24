@@ -122,9 +122,11 @@ export function RecyclingBarcodeDialog({item,branchId,branchName,onClose}:{
    }
    setPendingJobId(tracking.id);
    setNotice("รับคำสั่งแล้ว กำลังตรวจสอบ Print Agent ห้ามกดพิมพ์ซ้ำ");
-   // Explicit physical-print intent wakes the local native agent regardless of
-   // polling enrollment; a normal browser without a bridge ignores the event.
-   window.dispatchEvent(new Event("cpi-windows-print-agent-wake"));
+   // Only the authenticated, device-bound fast-wake printer opts into
+   // urgent claim polling. Other tenants keep their existing cost controls.
+   if(jobs.some(job=>job.fast_wake===true && job.status==="pending")){
+    window.dispatchEvent(new Event("cpi-windows-print-agent-wake"));
+   }
   }catch{
    setError("ไม่ทราบว่าเซิร์ฟเวอร์รับงานหรือไม่ ตรวจคิวก่อนกดอีกครั้ง (ใช้รหัสคำขอเดิม ไม่สร้างงานซ้ำ)");
   }finally{
