@@ -76,3 +76,58 @@ export async function POST(request:Request){
   return fail("recycling_barcode_print_failed","พิมพ์ฉลากบาร์โค้ดไม่สำเร็จ",500);
  }
 }
+
+
+/**
+ * Read-only status for a single previously queued Recycling barcode label.
+ * Scoped to the authenticated tenant/branch and deliberately returns no
+ * printer payload, receipt content, customer data, or native bridge secrets.
+ */
+export async function GET(request:Request){
+ try{
+  const scope=await requirePosSession();
+  requirePermission(scope,"inventory:view");
+  const tenantId=scope.session.tenant_id,branchId=scope.session.branch_id;
+  if(!await isAuthorizedRecyclingTenant(tenantId))
+   return fail("recycling_not_authorized","CUSTOM Recycling entitlement required.",403);
+  const jobId=new URL(request.url).searchParams.get("job_id")?.trim()??"";
+  if(!UUID.test(jobId))
+   return fail("recycling_print_job_id_invalid","Valid print job UUID required.",422);
+  const db=getSupabaseServiceClient();
+  const result=await db.from("print_jobs")
+   .select("id,status,created_at,claimed_at,printed_at,failed_at,idempotency_key")
+   .eq("id",jobId).eq("tenant_id",tenantId).eq("branch_id",branchId)
+   .like("idempotency_key","recycling-barcode:%").maybeSingle();
+  if(result.error)throw new Error("recycling_barcode_status_query_failed");
+  const job=result.data;
+  if(!job)return fail("recycling_print_job_not_found","ไม่พบงานพิมพ์บาร์โค้ดในสาขานี้",404);
+
+  // A Windows POS tab can enqueue while the actual native Print Agent is
+  // suspended or disconnected. Report only recent server-verified liveness.
+  // This is informational; it must NEVER claim/retry a physical print.
+  let agentOnline:boolean|null=null;
+  if(["pending","retrying","printing"].includes(String(job.status)) &&
+     scope.session.device_code){
+   const agent=await db.from("print_agents").select("status,last_seen_at")
+    .eq("tenant_id",tenantId).eq("branch_id",branchId)
+    .eq("device_code",scope.session.device_code)
+    .eq("agent_name","Windows Native POS · "+scope.session.device_code)
+    .maybeSingle();
+   if(!agent.error){
+    const seenAt=Date.parse(String(agent.data?.last_seen_at??""));
+    agentOnline=Boolean(agent.data?.status==="active" &&
+     Number.isFinite(seenAt) && Date.now()-seenAt>=0 && Date.now()-seenAt<45_000);
+   }
+  }
+  return ok({job:{id:job.id,status:job.status,created_at:job.created_at,
+   claimed_at:job.claimed_at,printed_at:job.printed_at,failed_at:job.failed_at},
+   agent_online:agentOnline,printed_means:"windows_spool_acknowledged_not_physical"});
+ }catch(error){
+  if(error instanceof PosGuardError||error instanceof FeatureGateError)
+   return fail(error.code,error.message,error.status);
+  console.warn("[recycling-barcode-status]",{
+   code:error instanceof Error?error.message:"status_unavailable"
+  });
+  return fail("recycling_barcode_status_unavailable","ตรวจสอบคิวพิมพ์ไม่สำเร็จ กรุณาตรวจเครื่องพิมพ์ก่อนสั่งซ้ำ",503);
+ }
+}
