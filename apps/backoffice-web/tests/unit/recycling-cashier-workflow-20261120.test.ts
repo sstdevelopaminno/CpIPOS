@@ -92,7 +92,9 @@ describe("Recycling custom cashier UX", () => {
     expect(cashier).toContain("printRequestId: currentRequestId");
     expect(cashier).toContain("setReceiptDialogOpen(true);");
     expect(receiptDialog).toContain("<RecyclingPrintReceiptButton receiptId={transactionId}");
-    expect(manualPrint).toContain("request_id:crypto.randomUUID()");
+    expect(manualPrint).toContain("seed ?? crypto.randomUUID()");
+    expect(manualPrint).toContain("retry.current?.receiptId===receiptId ? retry.current.requestId");
+    expect(manualPrint).toContain("body:JSON.stringify({request_id:requestId})");
     expect(cashier).not.toContain("queueReceiptPrint(posted.id, window.crypto.randomUUID())");
     expect(cashier).toContain('jobs.some(job => job.status === "failed")');
     expect(cashier).toContain("ตรวจเครื่องพิมพ์และคิวงานก่อนส่งพิมพ์ใหม่");
