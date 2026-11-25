@@ -34,7 +34,7 @@ describe("Recycling printable document numbering",()=>{
     expect(migration).toContain("if v_cash_balance_minor<0 then");
     expect(migration).toContain("recycling_stock_insufficient");
     expect(postRoute).toContain('db.rpc("recycling_post_transaction_vat",');
-    expect(postRoute).toContain('RECYCLING_VAT_WRITES_ENABLED==="1"');
+    expect(postRoute).not.toContain('RECYCLING_VAT_WRITES_ENABLED');
   });
   it("locks down direct access to the sequence allocator",()=>{
     expect(migration).toContain("ALTER TABLE public.recycling_receipt_counters ENABLE ROW LEVEL SECURITY");
