@@ -1,4 +1,5 @@
 import { RecyclingSummaryPrintButton } from "@/components/pos/recycling-summary-print-button";
+import { formatRecyclingMoney } from "@/lib/recycling-money-display";
 import { RecyclingSummaryWorkspace } from "@/components/pos/recycling-summary-workspace";
 import { RecyclingReportDocumentAction } from "@/components/pos/recycling-report-document-action";
 import Link from "next/link";
@@ -8,7 +9,7 @@ import { loadRecyclingHistoryReport, type RecyclingReportKind, type RecyclingRep
 const titles:Record<RecyclingReportKind,string>={summary:"สรุปยอดรับซื้อ–ขายออก",receipts:"ทะเบียนใบรับซื้อ–ขายออกย้อนหลัง",products:"รายการวัสดุขายออก"};
 const unitNames:Record<string,string>={kg:"กก.",khid:"ขีด",g:"กรัม",ton:"ตัน",piece:"ชิ้น",stem:"ต้น"};
 const btn="inline-flex min-h-10 items-center justify-center rounded-lg border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50";
-const minor=(value:number)=>new Intl.NumberFormat("th-TH",{minimumFractionDigits:2,maximumFractionDigits:2}).format(Number(value)/100);
+const minor=(value:number)=>formatRecyclingMoney(Number(value)/100);
 const when=(value:string|null)=>value?new Date(value).toLocaleString("th-TH",{timeZone:"Asia/Bangkok",day:"2-digit",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit"}):"—";
 const payment:Record<string,string>={cash:"เงินสด",bank_transfer:"เงินโอน (ตามรายการ)",credit:"เครดิต/ค้างชำระ"};
 const directions:Record<string,string>={buy:"รับซื้อเข้าร้าน",sell:"ขายออก"};
@@ -94,7 +95,7 @@ export async function RecyclingHistoryReports({scope,kind,search}:{
          <td className="px-3 py-3">{when(t.created_at)}</td><td className="px-3 py-3">{t.receipt_no}</td>
          <td className="px-3 py-3">{l.name_snapshot}<span className="block text-xs text-slate-500">{l.sku_snapshot}</span></td>
          <td className="px-3 py-3">{Number(l.original_quantity).toLocaleString("th-TH",{maximumFractionDigits:6})} {unitNames[l.original_unit]??l.original_unit}</td>
-         <td className="px-3 py-3">{Number(l.price_per_base).toFixed(2)} บาท/{unitNames[l.base_unit]??l.base_unit}</td>
+         <td className="px-3 py-3">{formatRecyclingMoney(l.price_per_base)} บาท/{unitNames[l.base_unit]??l.base_unit}</td>
          <td className="px-3 py-3">{minor(Number(l.amount_minor))}</td><td className="px-3 py-3">{branchNames.get(t.branch_id)}</td>
          <td className="px-3 py-3">{t.status==="voided"?"VOID":"ขายออก"}</td>
          <td className="px-3 py-3">{t.branch_id===report.sessionBranchId
