@@ -113,7 +113,7 @@ export function RecyclingReceiptDialog({
         </p>}
         {a5Error&&<p role="alert" className="text-xs font-semibold text-rose-700">{a5Error}</p>}
         <div className="flex flex-wrap items-center gap-2">
-          <RecyclingPrintReceiptButton key={transactionId} receiptId={transactionId} showBrowserButton={false}
+          <RecyclingPrintReceiptButton receiptId={transactionId} key={transactionId} showBrowserButton={false}
             disabled={printing} retryRequestId={autoPrintNotice?.ok===false ? autoPrintRequestId : undefined}/>
           <button type="button" disabled={!a4Ready} onClick={printA4}
             data-testid="recycling-print-a4"
