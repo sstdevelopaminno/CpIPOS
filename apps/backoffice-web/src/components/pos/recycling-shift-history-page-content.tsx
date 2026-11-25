@@ -1,3 +1,4 @@
+import { formatRecyclingMoney } from "@/lib/recycling-money-display";
 import { notFound } from "next/navigation";
 import { requirePosSession, requirePermission } from "@/lib/pos-session-guard";
 import { isAuthorizedRecyclingTenant } from "@/lib/server/recycling-pos-service";
@@ -8,9 +9,7 @@ function priceFromMinor(value: unknown): string {
   const n = Number(value);
   if (value === null || value === undefined) return "รอตรวจสอบ";
   if (!Number.isSafeInteger(n)) return "รอตรวจสอบ";
-  return new Intl.NumberFormat("th-TH", {
-    minimumFractionDigits: 2, maximumFractionDigits: 2
-  }).format(n / 100);
+  return formatRecyclingMoney(n / 100, "รอตรวจสอบ");
 }
 
 export default async function RecyclingShiftHistoryPageContent() {
@@ -77,11 +76,11 @@ export default async function RecyclingShiftHistoryPageContent() {
             </td>
             <td className="px-3 py-3 text-right">{Number(meta.recycling_buy_count ?? 0)}</td>
             <td className="px-3 py-3 text-right">{Number(meta.recycling_sell_count ?? 0)}</td>
-            <td className="px-3 py-3 text-right">{shift.opening_cash===null?"ยังไม่ยืนยัน":Number(shift.opening_cash).toFixed(2)}</td>
+            <td className="px-3 py-3 text-right">{shift.opening_cash===null?"ยังไม่ยืนยัน":formatRecyclingMoney(shift.opening_cash, "ยังไม่ยืนยัน")}</td>
             <td className="px-3 py-3 text-right font-semibold text-emerald-700">{priceFromMinor(meta.recycling_cash_in_minor)}</td>
             <td className="px-3 py-3 text-right font-semibold text-rose-700">{priceFromMinor(meta.recycling_cash_out_minor)}</td>
-            <td className="px-3 py-3 text-right">{hasExpected?expected.toFixed(2):meta.recycling_expected_cash_minor===null||meta.recycling_expected_cash_minor===undefined?"รอตรวจสอบ":"คาดการณ์ "+priceFromMinor(meta.recycling_expected_cash_minor)}</td>
-            <td className="px-3 py-3 text-right">{hasActual?actual.toFixed(2):"รอตรวจนับ"}</td>
+            <td className="px-3 py-3 text-right">{hasExpected?formatRecyclingMoney(expected, "รอตรวจสอบ"):meta.recycling_expected_cash_minor===null||meta.recycling_expected_cash_minor===undefined?"รอตรวจสอบ":"คาดการณ์ "+priceFromMinor(meta.recycling_expected_cash_minor)}</td>
+            <td className="px-3 py-3 text-right">{hasActual?formatRecyclingMoney(actual, "รอตรวจนับ"):"รอตรวจนับ"}</td>
             <td className="px-3 py-3">{shift.status !== "closed" ? "เปิดกะอยู่"
               : autoClosed ? <span className="font-semibold text-amber-800">ปิดอัตโนมัติ · รอตรวจนับเงินสด</span>
               : variance===null ? <span className="font-semibold text-amber-800">ปิดแล้ว · ยังไม่ยืนยันยอด</span>
