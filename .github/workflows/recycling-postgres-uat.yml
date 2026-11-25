@@ -150,5 +150,12 @@ jobs:
         run: |
           set -euo pipefail
           docker exec -i "$PG_CONTAINER" psql -U postgres -d recycling_uat -v ON_ERROR_STOP=1 < tests/recycling/ephemeral_pg_vat_invoice_acceptance.sql
+      - name: Install whole-carton candidate on disposable PostgreSQL
+        env:
+          PG_CONTAINER: ${{ job.services.postgres.id }}
+        run: |
+          set -euo pipefail
+          docker exec -i "$PG_CONTAINER" psql -U postgres -d recycling_uat -v ON_ERROR_STOP=1 < docs/recycling/carton_unit_draft.sql
+          docker exec -i "$PG_CONTAINER" psql -U postgres -d recycling_uat -v ON_ERROR_STOP=1 < tests/recycling/ephemeral_pg_carton_acceptance.sql
       # No production secrets, URLs or accounts are provided to this job.
       # Successful CI is necessary but not sufficient for a Supabase release.
