@@ -1,4 +1,7 @@
 import { fail,ok } from "@/lib/http";
+import { requireFinanceSession } from "@/lib/server/finance-session";
+import { getTenantPosMenuOverrides } from "@/lib/server/pos-menu-policy-service";
+import { isAccountantMenuVisible } from "@/lib/accountant-menu-policy";
 import { requirePosSession,PosGuardError } from "@/lib/pos-session-guard";
 import { isAuthorizedRecyclingTenant } from "@/lib/server/recycling-pos-service";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
@@ -7,14 +10,23 @@ import { appendAuditLog } from "@/lib/audit-log";
 
 export const dynamic="force-dynamic";
 const todayBangkok=()=>new Intl.DateTimeFormat("en-CA",{timeZone:"Asia/Bangkok",year:"numeric",month:"2-digit",day:"2-digit"}).format(new Date());
-async function scopeForVat(){
+async function scopeForVat(request:Request){
+  const params=new URL(request.url).searchParams;
+  if(params.get("finance")==="1"){
+    const identity=await requireFinanceSession();
+    const branchId=params.get("branch_id")??"";
+    if(!identity||!identity.branchIds.includes(branchId)||!await isAuthorizedRecyclingTenant(identity.tenantId))return null;
+    const overrides=await getTenantPosMenuOverrides(identity.tenantId);
+    if(!isAccountantMenuVisible("finance.tax_reports",overrides))return null;
+    return {session:{tenant_id:identity.tenantId,branch_id:branchId,user_id:identity.userId,role:"accountant"}};
+  }
   const scope=await requirePosSession();
   if(!["owner","accountant"].includes(scope.session.role)||!await isAuthorizedRecyclingTenant(scope.session.tenant_id))return null;
   return scope;
 }
-export async function GET(){
+export async function GET(request:Request){
   try{
-    const scope=await scopeForVat();
+    const scope=await scopeForVat(request);
     if(!scope)return fail("forbidden_role","เฉพาะเจ้าของร้านและฝ่ายบัญชี",403);
     const {tenant_id,branch_id}=scope.session;
     const db=getSupabaseServiceClient();
@@ -32,7 +44,7 @@ export async function GET(){
 }
 export async function POST(request:Request){
   try{
-    const scope=await scopeForVat();
+    const scope=await scopeForVat(request);
     if(!scope||scope.session.role!=="accountant")return fail("accountant_only","เฉพาะฝ่ายบัญชีของสาขาเท่านั้น",403);
     const {tenant_id,branch_id,user_id}=scope.session;
     const raw=await request.json().catch(()=>null) as Record<string,unknown>|null;
