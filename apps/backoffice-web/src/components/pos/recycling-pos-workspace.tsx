@@ -1308,6 +1308,6 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
     {posted&&<RecyclingReceiptDialog transactionId={posted.id}
       receiptNo={posted.receipt_no} open={receiptDialogOpen}
       onClose={()=>{setReceiptDialogOpen(false);window.requestAnimationFrame(()=>scannerRef.current?.focus());}}
-      printing={printing} autoPrintNotice={printNotice}/>}
+      printing={printing} autoPrintNotice={printNotice} autoPrintRequestId={posted.printRequestId}/>}
   </main>;
 }
