@@ -33,7 +33,7 @@ describe("Recycling printable document numbering",()=>{
     expect(migration).toContain("'idempotent',true");
     expect(migration).toContain("if v_cash_balance_minor<0 then");
     expect(migration).toContain("recycling_stock_insufficient");
-    expect(postRoute).toContain('"recycling_post_transaction_vat" : "recycling_post_transaction"');
+    expect(postRoute).toContain('db.rpc("recycling_post_transaction_vat",');
     expect(postRoute).toContain('RECYCLING_VAT_WRITES_ENABLED==="1"');
   });
   it("locks down direct access to the sequence allocator",()=>{

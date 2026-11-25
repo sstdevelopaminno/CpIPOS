@@ -53,7 +53,7 @@ describe("Recycling working capital cash reconciliation",()=>{
    expect(tx).toContain('raw.settlement === "bank_transfer"');
    expect(tx).toContain('recycling_cash_drawer_insufficient');
    expect(tx).toContain('recycling_stock_insufficient');
-   expect(tx).toContain('"recycling_post_transaction_vat" : "recycling_post_transaction"');
+   expect(tx).toContain('db.rpc("recycling_post_transaction_vat",');
     expect(tx).toContain('RECYCLING_VAT_WRITES_ENABLED==="1"');
    expect(ui).toContain('เงินฝากธนาคาร (1110)');
    expect(ui).toContain('ไม่ใช่เงินสดที่จ่ายซื้อได้ทันที');
