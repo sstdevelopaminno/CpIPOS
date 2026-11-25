@@ -457,4 +457,87 @@ end;
 $function$;
 revoke all on function public.recycling_post_transaction_verified_bank(uuid,uuid,uuid,uuid,uuid,text,text,jsonb) from public,anon,authenticated;
 grant execute on function public.recycling_post_transaction_verified_bank(uuid,uuid,uuid,uuid,uuid,text,text,jsonb) to service_role;
+-- Pending cashier intents contain a frozen cart; review never trusts a
+-- reviewer-selected operator, branch, request, or edited cart.
+create table public.recycling_bank_transfer_intents (
+ id uuid primary key default gen_random_uuid(),
+ tenant_id uuid not null references public.tenants(id),
+ branch_id uuid not null references public.branches(id),
+ shift_id uuid not null references public.shifts(id),
+ operator_user_id uuid not null references public.users_profiles(id),
+ request_id uuid not null,
+ direction text not null check(direction in ('buy','sell')),
+ counterparty_name text not null check(length(btrim(counterparty_name)) between 1 and 240),
+ lines jsonb not null check(jsonb_typeof(lines)='array' and jsonb_array_length(lines) between 1 and 100),
+ expected_minor bigint not null check(expected_minor between 1 and 99999999999999),
+ evidence_id uuid unique references public.recycling_bank_transfer_evidence(id),
+ created_at timestamptz not null default now(),
+ unique(tenant_id,branch_id,request_id),
+ foreign key(tenant_id,branch_id) references public.branches(tenant_id,id)
+);
+alter table public.recycling_bank_transfer_intents enable row level security;
+revoke all on public.recycling_bank_transfer_intents from public,anon,authenticated;
+grant select,insert,update on public.recycling_bank_transfer_intents to service_role;
+create function public.recycling_submit_bank_transfer_intent(
+ p_tenant_id uuid,p_branch_id uuid,p_shift_id uuid,p_user_id uuid,p_request_id uuid,
+ p_direction text,p_counterparty_name text,p_lines jsonb,p_expected_minor bigint
+) returns uuid language plpgsql set search_path to '' as $function$
+declare v_intent public.recycling_bank_transfer_intents%rowtype;
+begin
+ if not exists(select 1 from public.user_branch_roles r join public.users_profiles u on u.id=r.user_id
+   where r.tenant_id=p_tenant_id and r.branch_id=p_branch_id and r.user_id=p_user_id and u.is_active)
+ then raise exception 'recycling_bank_operator_forbidden'; end if;
+ if not exists(select 1 from public.shifts s where s.id=p_shift_id and s.tenant_id=p_tenant_id
+   and s.branch_id=p_branch_id and s.status='open' and s.metadata->>'business_shift_mode'='recycling_daily'
+   and (s.opened_at at time zone 'Asia/Bangkok')::date=(now() at time zone 'Asia/Bangkok')::date)
+ then raise exception 'recycling_bank_shift_invalid'; end if;
+ if not exists(select 1 from public.recycling_bank_accounts a where a.tenant_id=p_tenant_id and a.branch_id=p_branch_id and a.active)
+ then raise exception 'recycling_bank_account_not_ready'; end if;
+ if exists(select 1 from public.recycling_transactions t where t.tenant_id=p_tenant_id and t.branch_id=p_branch_id and t.request_id=p_request_id)
+ then raise exception 'recycling_bank_request_already_posted'; end if;
+ insert into public.recycling_bank_transfer_intents(tenant_id,branch_id,shift_id,operator_user_id,request_id,direction,counterparty_name,lines,expected_minor)
+ values(p_tenant_id,p_branch_id,p_shift_id,p_user_id,p_request_id,p_direction,btrim(p_counterparty_name),p_lines,p_expected_minor)
+ on conflict(tenant_id,branch_id,request_id) do nothing;
+ select * into v_intent from public.recycling_bank_transfer_intents where tenant_id=p_tenant_id and branch_id=p_branch_id and request_id=p_request_id for update;
+ if not found or v_intent.operator_user_id is distinct from p_user_id or v_intent.shift_id is distinct from p_shift_id
+   or v_intent.direction is distinct from p_direction or v_intent.counterparty_name is distinct from btrim(p_counterparty_name)
+   or v_intent.lines is distinct from p_lines or v_intent.expected_minor is distinct from p_expected_minor
+ then raise exception 'recycling_request_key_reused'; end if;
+ return v_intent.id;
+end;
+$function$;
+create function public.recycling_review_bank_transfer_intent(
+ p_tenant_id uuid,p_branch_id uuid,p_intent_id uuid,p_verified_by uuid,p_bank_account_id uuid,
+ p_bank_reference text,p_amount_minor bigint,p_transfer_at timestamptz,p_statement_evidence_reference text
+) returns uuid language plpgsql set search_path to '' as $function$
+declare v_intent public.recycling_bank_transfer_intents%rowtype; v_id uuid;
+begin
+ if not exists(select 1 from public.user_branch_roles r join public.users_profiles u on u.id=r.user_id
+   where r.tenant_id=p_tenant_id and r.branch_id=p_branch_id and r.user_id=p_verified_by
+   and r.role::text in ('owner','manager','accountant') and u.is_active)
+ then raise exception 'recycling_bank_reviewer_forbidden'; end if;
+ select * into v_intent from public.recycling_bank_transfer_intents where id=p_intent_id and tenant_id=p_tenant_id and branch_id=p_branch_id for update;
+ if not found then raise exception 'recycling_bank_intent_not_found'; end if;
+ if v_intent.operator_user_id=p_verified_by then raise exception 'recycling_bank_reviewer_forbidden'; end if;
+ if v_intent.evidence_id is not null then
+   if exists(select 1 from public.recycling_bank_transfer_evidence e where e.id=v_intent.evidence_id
+     and e.verified_by=p_verified_by and e.bank_account_id=p_bank_account_id
+     and e.bank_reference=p_bank_reference and e.amount_minor=p_amount_minor
+     and e.transfer_at=p_transfer_at and e.statement_evidence_reference=btrim(p_statement_evidence_reference))
+   then return v_intent.evidence_id; end if;
+   raise exception 'recycling_bank_intent_already_approved';
+ end if;
+ if p_amount_minor is distinct from v_intent.expected_minor then raise exception 'recycling_bank_amount_mismatch'; end if;
+ v_id:=public.recycling_record_bank_transfer_evidence(p_tenant_id,p_branch_id,v_intent.shift_id,v_intent.operator_user_id,
+   v_intent.request_id,v_intent.direction,v_intent.counterparty_name,v_intent.lines,p_bank_account_id,p_bank_reference,
+   p_amount_minor,p_transfer_at,p_statement_evidence_reference,p_verified_by);
+ update public.recycling_bank_transfer_intents set evidence_id=v_id where id=v_intent.id;
+ return v_id;
+end;
+$function$;
+revoke all on function public.recycling_submit_bank_transfer_intent(uuid,uuid,uuid,uuid,uuid,text,text,jsonb,bigint) from public,anon,authenticated;
+grant execute on function public.recycling_submit_bank_transfer_intent(uuid,uuid,uuid,uuid,uuid,text,text,jsonb,bigint) to service_role;
+revoke all on function public.recycling_review_bank_transfer_intent(uuid,uuid,uuid,uuid,uuid,text,bigint,timestamptz,text) from public,anon,authenticated;
+grant execute on function public.recycling_review_bank_transfer_intent(uuid,uuid,uuid,uuid,uuid,text,bigint,timestamptz,text) to service_role;
+
 commit;
