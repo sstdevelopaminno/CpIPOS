@@ -66,3 +66,29 @@ export async function PATCH(request:Request){
     return ok({evidence_id:data});
   }catch(e){return safeError(e);}
 }
+
+/** Complete only the frozen intent previously reviewed against a bank statement.
+ * A successful response is the persisted receipt; a replay returns the same ID.
+ */
+export async function PUT(request:Request){
+  if(!enabled()||process.env.RECYCLING_TRANSACTION_WRITES_ENABLED!=="1")return fail("recycling_bank_not_ready","ยังไม่เปิดบันทึกธุรกรรมเงินโอน",503);
+  try{
+    const scope=await authorized();
+    if(!scope)return fail("recycling_not_authorized","ไม่มีสิทธิ์",403);
+    requirePermission(scope,"sale:create");
+    const {tenant_id,branch_id,user_id}=scope.session;
+    await requireTenantFeature(tenant_id,"core_pos_sales",branch_id);
+    const {shift}=await requireActiveShift(scope);
+    const raw=await request.json().catch(()=>null) as Record<string,unknown>|null;
+    if(!raw||!isUuid(raw.intent_id))return fail("recycling_bank_invalid_intent","ข้อมูลคำขอไม่ถูกต้อง",422);
+    const db=getSupabaseServiceClient();
+    const intent=await db.from("recycling_bank_transfer_intents").select("id,shift_id,operator_user_id,request_id,direction,counterparty_name,lines,evidence_id")
+      .eq("id",raw.intent_id).eq("tenant_id",tenant_id).eq("branch_id",branch_id).eq("operator_user_id",user_id).maybeSingle();
+    if(intent.error)return fail("recycling_bank_unavailable","ตรวจสอบคำขอไม่สำเร็จ",503);
+    if(!intent.data)return fail("recycling_bank_intent_not_found","ไม่พบคำขอของผู้ใช้ในสาขานี้",404);
+    if(intent.data.shift_id!==shift.id||!intent.data.evidence_id)return fail("recycling_bank_transfer_verification_required","ต้องผ่านการตรวจสอบหลักฐานและอยู่ในกะเดิม",409);
+    const {data,error}=await db.rpc("recycling_post_transaction_verified_bank",{p_tenant_id:tenant_id,p_branch_id:branch_id,p_shift_id:shift.id,p_user_id:user_id,p_request_id:intent.data.request_id,p_direction:intent.data.direction,p_settlement:"bank_transfer",p_counterparty_name:intent.data.counterparty_name,p_lines:intent.data.lines});
+    if(error)return fail("recycling_bank_post_rejected","ยังไม่สามารถบันทึกบิลเงินโอนได้ ตรวจสอบยอดจากธนาคาร VAT สต๊อกและสถานะกะ ห้ามรับหรือจ่ายเงินซ้ำ",409);
+    return ok({transaction:data});
+  }catch(e){return safeError(e);}
+}
