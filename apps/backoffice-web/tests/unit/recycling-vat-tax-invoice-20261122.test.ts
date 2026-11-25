@@ -45,8 +45,9 @@ describe("Recycling genuine VAT invoice (isolated UAT contract)",()=>{
     expect(recyclingVatMinor(101)).toBe(7);
     expect(recyclingVatMinor(1)).toBe(0);
     expect(()=>recyclingVatMinor(Number.NaN)).toThrow("recycling_vat_invalid_amount");
-    expect(postApi).toContain('RECYCLING_VAT_WRITES_ENABLED==="1"');
-    expect(postApi).toContain('"recycling_post_transaction_vat" : "recycling_post_transaction"');
+    expect(postApi).toContain('db.rpc("recycling_post_transaction_vat",');
+    expect(postApi).not.toContain('RECYCLING_VAT_WRITES_ENABLED');
+    expect(postApi).not.toContain('db.rpc("recycling_post_transaction",');
     expect(vatPosting).toContain('v_vat_minor := round(v_base_minor::numeric * v_vat_rate / 100)::bigint;');
     expect(vatPosting).toContain("'2200','ภาษีขายรอนำส่ง',v_vat_minor");
   });
