@@ -13,32 +13,7 @@ type TransactionPayload = {
   lines?: unknown;
 };
 
-type TxLine = {
-  product_id: string;
-  unit: string;
-  quantity: number;
-  expected_price: number;
-};
-
-const VALID_UNITS = new Set(["kg", "khid", "g", "ton", "piece", "stem"]);
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const MONEY_PATTERN = /^\d{1,10}(\.\d{1,2})?$/;
-
-function readLine(value: unknown): TxLine | null {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-  const line = value as Record<string, unknown>;
-  if (typeof line.product_id !== "string" || !UUID.test(line.product_id) ||
-      typeof line.unit !== "string" || !VALID_UNITS.has(line.unit)) return null;
-  const qty = Number(line.quantity);
-  const price = Number(line.expected_price);
-  if (!Number.isFinite(qty) || qty <= 0 || qty > 100000000 ||
-      !Number.isFinite(price) || price < 0 || price > 99999999 ||
-      !MONEY_PATTERN.test(String(price))) return null;
-  // Limit precision to six decimal places. One gram equals 0.001 kg.
-  if (!/^\d{1,10}(\.\d{1,6})?$/.test(String(qty))) return null;
-  if ((line.unit === "piece" || line.unit === "stem") && !Number.isInteger(qty)) return null;
-  return { product_id: line.product_id, unit: line.unit, quantity: qty, expected_price: price };
-}
+import { UUID, readLine, isRecyclingDirection, isRecyclingSettlement } from "@/lib/recycling-transaction-input";
 
 export async function POST(request: Request) {
   try {
@@ -77,8 +52,8 @@ export async function POST(request: Request) {
     const raw = await request.json().catch(() => null) as TransactionPayload | null;
     if (!raw || typeof raw !== "object" || Array.isArray(raw) ||
         typeof raw.request_id !== "string" || !UUID.test(raw.request_id) ||
-        !["buy", "sell"].includes(String(raw.direction)) ||
-        !["cash", "bank_transfer", "credit"].includes(String(raw.settlement))) {
+        !isRecyclingDirection(raw.direction) ||
+        !isRecyclingSettlement(raw.settlement)) {
       return fail("invalid_recycling_transaction", "Invalid transaction request.", 422);
     }
     if (raw.settlement === "bank_transfer") {
