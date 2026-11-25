@@ -455,8 +455,8 @@ begin
     'total_minor',v_total_minor,'base_minor',v_base_minor,'vat_minor',v_vat_minor,'tax_state',v_tax_state,'cogs_minor',v_cogs_minor,'idempotent',false);
 end;
 $function$;
-revoke all on function public.recycling_post_transaction_verified_bank(uuid,uuid,uuid,uuid,uuid,text,text,jsonb) from public,anon,authenticated;
-grant execute on function public.recycling_post_transaction_verified_bank(uuid,uuid,uuid,uuid,uuid,text,text,jsonb) to service_role;
+revoke all on function public.recycling_post_transaction_verified_bank(uuid,uuid,uuid,uuid,uuid,text,text,text,jsonb) from public,anon,authenticated;
+grant execute on function public.recycling_post_transaction_verified_bank(uuid,uuid,uuid,uuid,uuid,text,text,text,jsonb) to service_role;
 -- Pending cashier intents contain a frozen cart; review never trusts a
 -- reviewer-selected operator, branch, request, or edited cart.
 create table public.recycling_bank_transfer_intents (
