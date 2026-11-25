@@ -5,7 +5,7 @@
  */
 export type HeldRecyclingLine={
   productId:string;
-  unit:"kg"|"khid"|"g"|"ton"|"piece"|"stem";
+  unit:"kg"|"khid"|"g"|"ton"|"piece"|"stem"|"carton";
   quantity:number;
   unitPrice:number;
 };
@@ -16,7 +16,7 @@ export type HeldRecyclingBill={
   shiftId:string;
   lines:HeldRecyclingLine[];
 };
-const validUnits=new Set(["kg","khid","g","ton","piece","stem"]);
+const validUnits=new Set(["kg","khid","g","ton","piece","stem","carton"]);
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 export function recyclingHeldKey(
   tenantId:string,branchId:string,deviceCode:string|null,shiftId:string

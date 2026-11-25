@@ -1,6 +1,6 @@
 import type { RecyclingPriceBasis, RecyclingUnit } from "@/lib/server/recycling-pos-service";
 
-const KG_MULTIPLIER: Record<Exclude<RecyclingUnit, "piece" | "stem">, number> = {
+const KG_MULTIPLIER: Record<Exclude<RecyclingUnit, "piece" | "stem" | "carton">, number> = {
   ton: 1000,
   kg: 1,
   khid: 0.1,
@@ -12,7 +12,7 @@ const MAX_BASE_QUANTITY = 100_000_000;
 const MAX_AMOUNT_MINOR = 99_999_999_999_999n;
 
 export function recyclingUnitLabel(unit: RecyclingUnit): string {
-  return { ton: "ตัน", kg: "กิโลกรัม", khid: "ขีด", g: "กรัม", piece: "ชิ้น", stem: "ต้น" }[unit];
+  return { ton: "ตัน", kg: "กิโลกรัม", khid: "ขีด", g: "กรัม", piece: "ชิ้น", stem: "ต้น", carton: "ลัง" }[unit];
 }
 
 /**
@@ -29,7 +29,7 @@ export function calculateRecyclingLine(
 ): { amount: number; basisQuantity: number } | null {
   if (!Number.isFinite(quantity) || quantity <= 0 || !Number.isFinite(price) ||
       price < 0 || price > 99_999_999) return null;
-  const countBased = unit === "piece" || unit === "stem";
+  const countBased = unit === "piece" || unit === "stem" || unit === "carton";
   if ((priceBasis === "piece") !== countBased) return null;
   const priceCentsFloat = price * 100;
   const priceCents = Math.round(priceCentsFloat);

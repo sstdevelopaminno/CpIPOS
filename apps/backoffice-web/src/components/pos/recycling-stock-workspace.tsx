@@ -86,9 +86,9 @@ export function RecyclingStockWorkspace({ items, branches, branchId, branchName,
 
   function selectPriceUnit(nextUnit: RecyclingPriceUnit) {
     setEditing(current => {
-      if (!current || (current.id && getRecyclingPriceBasis(nextUnit) !== current.price_basis)) return current;
+      if (!current || (current.id && (getRecyclingPriceBasis(nextUnit) !== current.price_basis || (current.price_unit === "carton") !== (nextUnit === "carton")))) return current;
       const nextBasis = getRecyclingPriceBasis(nextUnit);
-      const sameBasis = current.price_basis === nextBasis;
+      const sameBasis = current.price_basis === nextBasis && (current.price_unit === "carton") === (nextUnit === "carton");
       const buy = sameBasis ? parseRecyclingUnitPrice(current.buy_price, current.price_unit) : null;
       const sell = sameBasis ? parseRecyclingUnitPrice(current.sell_price, current.price_unit) : null;
       return {
@@ -330,7 +330,7 @@ export function RecyclingStockWorkspace({ items, branches, branchId, branchName,
               <td className="px-3 py-2 text-slate-600">{item.category}</td>
               <td className="px-3 py-2 text-right font-bold tabular-nums text-blue-700">{item.buyPrice === null ? "ยังไม่กำหนด" : formatRecyclingUnitPriceDisplay(item.buyPrice,item.priceUnit)}</td>
               <td className="px-3 py-2 text-right font-bold tabular-nums text-emerald-700">{item.sellPrice === null ? "ยังไม่กำหนด" : formatRecyclingUnitPriceDisplay(item.sellPrice,item.priceUnit)}</td>
-              <td className="px-3 py-2 text-slate-600">บาท/{RECYCLING_PRICE_UNIT_LABELS[item.priceUnit]} <small className="block text-[11px] text-slate-400">สต๊อกฐาน: {item.priceBasis === "kg" ? "กก." : "ชิ้น"}</small></td>
+              <td className="px-3 py-2 text-slate-600">บาท/{RECYCLING_PRICE_UNIT_LABELS[item.priceUnit]} <small className="block text-[11px] text-slate-400">สต๊อกฐาน: {item.priceBasis === "kg" ? "กก." : item.priceUnit === "carton" ? "ลัง" : "ชิ้น"}</small></td>
               <td className="px-3 py-2 text-right font-semibold tabular-nums text-slate-800">
                 {item.quantityBase === null ? "รอยืนยันสต๊อก" : item.quantityBase.toLocaleString("th-TH", {maximumFractionDigits:6}) + (item.priceBasis === "kg" ? " กก." : " ชิ้น")}
               </td>
@@ -458,7 +458,8 @@ export function RecyclingStockWorkspace({ items, branches, branchId, branchName,
                   <option value="kg" disabled={Boolean(editing.id) && editing.price_basis === "piece"}>กิโลกรัม (บาท/กก.)</option>
                   <option value="khid" disabled={Boolean(editing.id) && editing.price_basis === "piece"}>ขีด (บาท/ขีด)</option>
                   <option value="g" disabled={Boolean(editing.id) && editing.price_basis === "piece"}>กรัม (บาท/กรัม)</option>
-                  <option value="piece" disabled={Boolean(editing.id) && editing.price_basis === "kg"}>ชิ้น (บาท/ชิ้น)</option>
+                  <option value="piece" disabled={Boolean(editing.id) && (editing.price_basis === "kg" || editing.price_unit === "carton")}>ชิ้น (บาท/ชิ้น)</option>
+                  <option value="carton" disabled={Boolean(editing.id) && editing.price_unit !== "carton"}>ลัง (บาท/ลัง)</option>
                 </select>
               </label>
             </div>
@@ -473,14 +474,14 @@ export function RecyclingStockWorkspace({ items, branches, branchId, branchName,
                 <input required min="0" max="99999999" step="any" type="number" inputMode="decimal" value={editing.buy_price}
                   onChange={event => setEditing(current => current ? {...current, buy_price:event.target.value} : null)}
                   placeholder="0.00" className="mt-2 block h-11 w-full rounded-lg border border-blue-200 bg-white px-3 text-base tabular-nums text-slate-900 outline-none focus:border-blue-600"/>
-                <small className="mt-2 block text-xs font-normal text-blue-800">ใช้ตอนร้านจ่ายเงิน · ราคาอ้างอิง {parseRecyclingUnitPrice(editing.buy_price,editing.price_unit) === null ? "—" : money(parseRecyclingUnitPrice(editing.buy_price,editing.price_unit))} บาท/{editing.price_basis === "kg" ? "กก." : "ชิ้น"}</small>
+                <small className="mt-2 block text-xs font-normal text-blue-800">ใช้ตอนร้านจ่ายเงิน · ราคาอ้างอิง {parseRecyclingUnitPrice(editing.buy_price,editing.price_unit) === null ? "—" : money(parseRecyclingUnitPrice(editing.buy_price,editing.price_unit))} บาท/{editing.price_basis === "kg" ? "กก." : editing.price_unit === "carton" ? "ลัง" : "ชิ้น"}</small>
               </label>
               <label className="block rounded-lg border border-emerald-200 bg-emerald-50/60 p-3 text-sm font-bold text-emerald-900">
                 ราคาขายออก (บาท/{RECYCLING_PRICE_UNIT_LABELS[editing.price_unit]})
                 <input required min="0" max="99999999" step="any" type="number" inputMode="decimal" value={editing.sell_price}
                   onChange={event => setEditing(current => current ? {...current, sell_price:event.target.value} : null)}
                   placeholder="0.00" className="mt-2 block h-11 w-full rounded-lg border border-emerald-200 bg-white px-3 text-base tabular-nums text-slate-900 outline-none focus:border-emerald-600"/>
-                <small className="mt-2 block text-xs font-normal text-emerald-800">ใช้ตอนร้านรับชำระเงิน · ราคาอ้างอิง {parseRecyclingUnitPrice(editing.sell_price,editing.price_unit) === null ? "—" : money(parseRecyclingUnitPrice(editing.sell_price,editing.price_unit))} บาท/{editing.price_basis === "kg" ? "กก." : "ชิ้น"}</small>
+                <small className="mt-2 block text-xs font-normal text-emerald-800">ใช้ตอนร้านรับชำระเงิน · ราคาอ้างอิง {parseRecyclingUnitPrice(editing.sell_price,editing.price_unit) === null ? "—" : money(parseRecyclingUnitPrice(editing.sell_price,editing.price_unit))} บาท/{editing.price_basis === "kg" ? "กก." : editing.price_unit === "carton" ? "ลัง" : "ชิ้น"}</small>
               </label>
             </div>
           </fieldset>

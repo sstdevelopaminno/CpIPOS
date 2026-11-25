@@ -11,6 +11,7 @@ on:
       - "supabase/migrations/20261122103100_recycling_vat_schema_v1.sql"
       - "supabase/migrations/20261122103126_recycling_vat_posting_finance_v1.sql"
       - "supabase/migrations/20261122103138_recycling_tax_invoice_issue_v1.sql"
+      - "supabase/migrations/20261125165418_recycling_whole_carton_unit.sql"
       - "tests/recycling/**"
       - "apps/backoffice-web/src/app/api/pos/recycling/**"
       - "apps/backoffice-web/src/lib/recycling-**"
@@ -150,5 +151,12 @@ jobs:
         run: |
           set -euo pipefail
           docker exec -i "$PG_CONTAINER" psql -U postgres -d recycling_uat -v ON_ERROR_STOP=1 < tests/recycling/ephemeral_pg_vat_invoice_acceptance.sql
+      - name: Install whole-carton candidate on disposable PostgreSQL
+        env:
+          PG_CONTAINER: ${{ job.services.postgres.id }}
+        run: |
+          set -euo pipefail
+          docker exec -i "$PG_CONTAINER" psql -U postgres -d recycling_uat -v ON_ERROR_STOP=1 < supabase/migrations/20261125165418_recycling_whole_carton_unit.sql
+          docker exec -i "$PG_CONTAINER" psql -U postgres -d recycling_uat -v ON_ERROR_STOP=1 < tests/recycling/ephemeral_pg_carton_acceptance.sql
       # No production secrets, URLs or accounts are provided to this job.
       # Successful CI is necessary but not sufficient for a Supabase release.

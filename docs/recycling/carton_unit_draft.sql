@@ -1,0 +1,2 @@
+-- Superseded by the applied canonical migration: supabase/migrations/20261125165418_recycling_whole_carton_unit.sql
+-- Do not apply this draft.
