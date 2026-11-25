@@ -10,7 +10,7 @@ type Paper="auto"|"58"|"80"|"a4"|"a5";
  * queues its configured thermal print job once after server commit.
  */
 export function RecyclingReceiptDialog({
-  transactionId,receiptNo,open,onClose,autoPrintNotice,printing
+  transactionId,receiptNo,open,onClose,autoPrintNotice,printing,autoPrintRequestId
 }:{
   transactionId:string;
   receiptNo?:string|null;
@@ -18,6 +18,7 @@ export function RecyclingReceiptDialog({
   onClose:()=>void;
   autoPrintNotice?:{ok:boolean;message:string}|null;
   printing?:boolean;
+  autoPrintRequestId?:string;
 }){
   const [paper,setPaper]=useState<Paper>("auto");
   const [a4Ready,setA4Ready]=useState(false);
@@ -112,7 +113,8 @@ export function RecyclingReceiptDialog({
         </p>}
         {a5Error&&<p role="alert" className="text-xs font-semibold text-rose-700">{a5Error}</p>}
         <div className="flex flex-wrap items-center gap-2">
-          <RecyclingPrintReceiptButton receiptId={transactionId} showBrowserButton={false}/>
+          <RecyclingPrintReceiptButton key={transactionId} receiptId={transactionId} showBrowserButton={false}
+            disabled={printing} retryRequestId={autoPrintNotice?.ok===false ? autoPrintRequestId : undefined}/>
           <button type="button" disabled={!a4Ready} onClick={printA4}
             data-testid="recycling-print-a4"
             className="min-h-11 rounded-lg border border-blue-300 bg-blue-50 px-4 text-sm font-bold text-blue-900 disabled:opacity-40">
