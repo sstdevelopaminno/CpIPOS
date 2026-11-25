@@ -78,21 +78,10 @@ export async function POST(request: Request) {
     // Atomic RPC is the ONLY path for posting a purchase/sale. It prices from
     // the server-side catalog, locks stock, records documents and balances its
     // accounting subledger in the same Postgres transaction.
-    // Rollout gate: the original atomic posting RPC is unchanged until the new
-    // Postgres VAT UAT, verified issuer registration and Finance chart are ready.
-    // A new VAT RPC must NEVER silently fall back to untaxed posting on error.
-    const vatRollout=process.env.RECYCLING_VAT_WRITES_ENABLED==="1";
-    // Never allow a direct API caller to bypass the VAT checkout gate by
-    // invoking the legacy untaxed posting path for a VAT-enabled branch.
-    if (raw.direction==="sell" && !vatRollout) {
-      const settings=await db.from("tenant_tax_settings").select("is_enabled")
-        .eq("tenant_id",scope.session.tenant_id).eq("branch_id",scope.session.branch_id).maybeSingle();
-      if(settings.error)return fail("recycling_vat_settings_unavailable","ไม่สามารถตรวจสอบ VAT ของสาขา",503);
-      if(settings.data?.is_enabled===true)return fail("recycling_vat_release_disabled",
-        "ยังไม่เปิดระบบบันทึกภาษีขาย Recycling ห้ามบันทึกขายออกแบบไม่คิด VAT",409);
-    }
-    const { data, error } = await db.rpc(vatRollout
-      ? "recycling_post_transaction_vat" : "recycling_post_transaction", {
+    // Use the installed VAT-aware atomic RPC for every transaction. It applies
+    // VAT only for a configured sale and requires an active verified issuer
+    // and the correct chart. Never fall back to the legacy untaxed RPC.
+    const { data, error } = await db.rpc("recycling_post_transaction_vat", {
       p_tenant_id: scope.session.tenant_id,
       p_branch_id: scope.session.branch_id,
       p_shift_id: shift.id,
@@ -106,8 +95,7 @@ export async function POST(request: Request) {
     if (error) {
       if (error.code === "PGRST202" || error.code === "42883") {
         return fail("recycling_migration_required",
-          vatRollout ? "ยังไม่ได้ติดตั้งระบบ VAT Recycling ในฐานข้อมูล ห้ามบันทึกขายออกจนกว่าการย้ายฐานข้อมูลและบัญชีจะเสร็จสมบูรณ์" :
-            "Recycling transaction backend is not installed. No transaction was recorded.", 503);
+          "ระบบบันทึกธุรกรรม Recycling ไม่พร้อมใช้งาน ยังไม่มีการบันทึกบิล", 503);
       }
       // Preserve the exact server-side financial refusal: never bypass the
       // cash-drawer guard or fabricate opening cash to make a purchase pass.

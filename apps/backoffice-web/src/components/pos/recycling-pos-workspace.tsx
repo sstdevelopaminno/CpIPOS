@@ -248,12 +248,12 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
   const total = Number(visibleLines.reduce((sum,line)=>sum+BigInt(Math.round(line.total*100)),0n))/100;
   const baseMinor=Math.round(total*100);
   const vatApplied=direction==="sell" && vatQuote?.configured===true &&
-    vatQuote.rollout_enabled===true && vatQuote.ready===true && vatQuote.rate_pct===7;
+    vatQuote.ready===true && vatQuote.rate_pct===7;
   const vatPreviewMinor=vatApplied?recyclingVatMinor(baseMinor,7):0;
   const grossPreviewMinor=baseMinor+vatPreviewMinor;
   const saleVatReady=direction==="buy" ||
     (vatQuote!==null&&vatQuote.ready&&(!vatQuote.configured||
-      (vatQuote.rollout_enabled&&vatQuote.rate_pct===7)));
+      vatQuote.rate_pct===7));
   const categories=useMemo(()=>Array.from(new Set(products.map(item=>item.category)))
     .sort((a,b)=>a.localeCompare(b,"th")), [products]);
   // Sorting 1,000 product cards for every scanner character stalls checkout.

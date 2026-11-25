@@ -51,7 +51,8 @@ export async function GET(){
     const verified=Boolean(issuerData?.active&&issuerData.verified_at&&
       issuerData.verified_from<=today&&
       (!issuerData.verified_until||issuerData.verified_until>=today));
-    const rollout=process.env.RECYCLING_VAT_WRITES_ENABLED==="1";
+    // The VAT RPC is installed; branch settings and verified Finance readiness govern use.
+    const rollout=true;
     const blockers=recyclingVatBlockers({configured,rollout,ruleValid,verified,accountReady:!!account.data});
     const ready=blockers.length===0;
     const reason=blockers[0]??null;
