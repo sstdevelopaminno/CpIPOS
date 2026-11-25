@@ -69,7 +69,7 @@ export function FinanceAccountantShell({
           ) : null}
         </header>
 
-        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain py-1">
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain py-1 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
           <FinanceSidebarNav
             collapsed={collapsed}
             onExpand={() => changeCollapsed(false)}
