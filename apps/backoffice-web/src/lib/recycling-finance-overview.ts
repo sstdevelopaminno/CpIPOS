@@ -40,7 +40,7 @@ export function summarizeRecyclingFinance(rows:readonly RecyclingFinanceTransact
  const result=add(revenue,-cogs);
  return {buy,sell,revenue,cogs,profit:Math.max(0,result),loss:Math.max(0,-result),cashIn,cashOut,bankIn,bankOut,cashNet:add(cashIn,-cashOut),bankNet:add(bankIn,-bankOut),vat,creditBuy,creditSell,count:rows.length};
 }
-function closingSnapshot(s:RecyclingFinanceShift,rows:readonly RecyclingFinanceTransaction[],end:string):{amount:number|null;estimated:boolean}{
+function closingSnapshot(s:RecyclingFinanceShift,rows:readonly RecyclingFinanceTransaction[],end:string,allowCompute=true):{amount:number|null;estimated:boolean}{
  if(s.closed_at&&Date.parse(s.closed_at)<Date.parse(end)){
   const actual=baht(s.actual_cash);if(actual!==null)return {amount:actual,estimated:false};
   const expected=baht(s.expected_cash);
@@ -49,6 +49,7 @@ function closingSnapshot(s:RecyclingFinanceShift,rows:readonly RecyclingFinanceT
   const raw=meta?.recycling_expected_cash_minor;
   if(raw!==null&&raw!==undefined&&Number.isSafeInteger(Number(raw)))return {amount:Number(raw),estimated:true};
  }
+ if(!allowCompute)return {amount:null,estimated:true};
  const opening=baht(s.opening_cash);if(opening===null)return {amount:null,estimated:true};
  const m=summarizeRecyclingFinance(rows.filter(r=>r.shift_id===s.id));
  return {amount:add(opening,m.cashNet),estimated:true};
@@ -59,7 +60,7 @@ export function summarizeRecyclingCapital(branchIds:readonly string[],shifts:rea
  for(const branch of branchIds){
   const period=shifts.filter(s=>s.branch_id===branch).sort((a,b)=>Date.parse(a.opened_at)-Date.parse(b.opened_at));
   const prev=prior.find(s=>s.branch_id===branch);
-  const previous=prev&&prev.closed_at&&Date.parse(prev.closed_at)<=Date.parse(start)?closingSnapshot(prev,[],end):null;
+  const previous=prev&&prev.closed_at&&Date.parse(prev.closed_at)<=Date.parse(start)?closingSnapshot(prev,[],end,false):null;
   const first=period[0],last=period[period.length-1];
   const open=first?baht(first.opening_cash):previous?.amount??null;
   const close=last?closingSnapshot(last,rows,end):previous??{amount:null,estimated:true};
