@@ -10,7 +10,8 @@ import { recyclingCashierShortcutFromCode, RECYCLING_SHORTCUT_DELAY_MS, type Rec
 import { parseRecyclingHeldBills, recyclingHeldKey, type HeldRecyclingBill } from "@/lib/recycling-held-bills";
 import { calculateRecyclingLine, recyclingUnitLabel } from "@/lib/recycling-calculation";
 import { recyclingVatMinor } from "@/lib/recycling-tax-invoice";
-import { formatRecyclingUnitPrice, RECYCLING_PRICE_UNIT_LABELS } from "@/lib/recycling-price-units";
+import { RECYCLING_PRICE_UNIT_LABELS } from "@/lib/recycling-price-units";
+import { formatRecyclingUnitPriceDisplay } from "@/lib/recycling-money-display";
 import type { RecyclingCatalogItem, RecyclingUnit } from "@/lib/server/recycling-pos-service";
 import { RecyclingSalesModeSwitcher } from "@/components/pos/recycling-sales-mode-switcher";
 import { RecyclingReceiptDialog } from "@/components/pos/recycling-receipt-dialog";
@@ -974,7 +975,7 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
                   <small className="block text-[11px] font-normal text-slate-500">
                     /{item.priceBasis==="kg"?"กก.":"ชิ้น"}
                     {price!==null&&item.priceUnit!==item.priceBasis
-                      ?" · "+formatRecyclingUnitPrice(price,item.priceUnit)+" ฿/"+RECYCLING_PRICE_UNIT_LABELS[item.priceUnit]:""}
+                      ?" · "+formatRecyclingUnitPriceDisplay(price,item.priceUnit)+" ฿/"+RECYCLING_PRICE_UNIT_LABELS[item.priceUnit]:""}
                   </small>
                 </strong>
               </button>;
@@ -1285,7 +1286,7 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
           <div className="flex justify-between gap-2"><span>ราคาฐานที่ใช้คำนวณ</span>
             <strong>{selectedPrice === null ? "—" : formatMoney(selectedPrice)} ฿ /{pending.priceBasis === "kg" ? "กก." : "ชิ้น"}</strong></div>
           {selectedPrice !== null && pending.priceUnit !== pending.priceBasis && <p className="mt-1 text-xs text-blue-800">
-            ราคาที่ตั้งในทะเบียน: {formatRecyclingUnitPrice(selectedPrice,pending.priceUnit)} บาท/{RECYCLING_PRICE_UNIT_LABELS[pending.priceUnit]} · ระบบแปลงเป็นหน่วยฐานแล้ว
+            ราคาที่ตั้งในทะเบียน: {formatRecyclingUnitPriceDisplay(selectedPrice,pending.priceUnit)} บาท/{RECYCLING_PRICE_UNIT_LABELS[pending.priceUnit]} · ระบบแปลงเป็นหน่วยฐานแล้ว
           </p>}
           {preview && <div className="mt-2 flex justify-between gap-2 text-slate-600">
             <span>จำนวนเทียบหน่วยราคา</span><span>{preview.basisQuantity.toLocaleString("th-TH", { maximumFractionDigits: 6 })} {pending.priceBasis === "kg" ? "กก." : "ชิ้น"}</span>
