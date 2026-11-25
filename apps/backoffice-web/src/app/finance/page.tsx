@@ -1,6 +1,6 @@
+import { RecyclingFinanceDashboard } from "@/components/finance/recycling-finance-dashboard";
 import { requireAccountantPage } from "@/lib/server/accountant-page-guard";
 import { isAuthorizedRecyclingTenant } from "@/lib/server/recycling-pos-service";
-import { RecyclingAccountantOverview } from "@/components/finance/recycling-accountant-overview";
 import { FinanceSalesDashboard } from "@/components/finance/finance-sales-dashboard";
 
 export const dynamic = "force-dynamic";
@@ -10,8 +10,7 @@ export default async function FinancePage() {
   const recycling=await isAuthorizedRecyclingTenant(identity.tenantId);
   return (
     <section className="finance-office-workbench w-full min-w-0 text-slate-900">
-      {recycling&&<RecyclingAccountantOverview identity={identity}/>}
-      <FinanceSalesDashboard actor="accountant" />
+      {recycling?<RecyclingFinanceDashboard actor="accountant"/>:<FinanceSalesDashboard actor="accountant" />}
     </section>
   );
 }
