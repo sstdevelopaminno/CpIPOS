@@ -5,7 +5,7 @@ type TxLine = {
   expected_price: number;
 };
 
-const VALID_UNITS = new Set(["kg", "khid", "g", "ton", "piece", "stem"]);
+const VALID_UNITS = new Set(["kg", "khid", "g", "ton", "piece", "stem", "carton"]);
 export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const MONEY_PATTERN = /^\d{1,10}(\.\d{1,2})?$/;
 
@@ -23,7 +23,7 @@ export function readLine(value: unknown): TxLine | null {
       !MONEY_PATTERN.test(String(price))) return null;
   // Limit precision to six decimal places. One gram equals 0.001 kg.
   if (!/^\d{1,10}(\.\d{1,6})?$/.test(String(qty))) return null;
-  if ((line.unit === "piece" || line.unit === "stem") && !Number.isInteger(qty)) return null;
+  if ((line.unit === "piece" || line.unit === "stem" || line.unit === "carton") && !Number.isInteger(qty)) return null;
   return { product_id: line.product_id, unit: line.unit, quantity: qty, expected_price: price };
 }
 

@@ -83,7 +83,7 @@ export function renderRecyclingTaxInvoiceHtml(
   const buyerAddress=[b.address_line,b.subdistrict,b.district,b.province,b.postal_code].filter(Boolean).join(" ");
   const rows=invoice.items_snapshot.map((item,i)=>`<tr>
     <td>${i+1}</td><td><strong>${escapeHtml(item.name)}</strong><div class="muted">${escapeHtml(item.sku)}</div></td>
-    <td class="right">${escapeHtml(item.quantity)} ${escapeHtml(item.unit)}</td>
+    <td class="right">${escapeHtml(item.quantity)} ${escapeHtml(item.unit === "carton" ? "ลัง" : item.unit)}</td>
     <td class="right">${escapeHtml(amount(item.base_minor))}</td>
   </tr>`).join("");
   return `<!doctype html><html lang="th"><head><meta charset="utf-8">

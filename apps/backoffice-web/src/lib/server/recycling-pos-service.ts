@@ -2,7 +2,7 @@ import "server-only";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 import { type RecyclingPriceUnit, isRecyclingPriceUnit, getRecyclingPriceBasis } from "@/lib/recycling-price-units";
 
-export type RecyclingUnit = "kg" | "khid" | "g" | "ton" | "piece" | "stem";
+export type RecyclingUnit = "kg" | "khid" | "g" | "ton" | "piece" | "stem" | "carton";
 export type RecyclingPriceBasis = "kg" | "piece";
 
 export type RecyclingCatalogItem = {

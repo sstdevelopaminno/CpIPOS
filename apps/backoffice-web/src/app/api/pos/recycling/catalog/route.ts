@@ -78,6 +78,7 @@ export async function POST(request: Request) {
       }
       const previousBasis = metadata.recycling_price_basis === "piece" || existing.sell_unit === "piece" ? "piece" : "kg";
       // Unit changes need a controlled stock conversion/migration workflow.
+      if ((metadata.recycling_price_unit === "carton") !== (priceUnit === "carton")) return fail("carton_unit_locked", "กรุณาสร้าง SKU ใหม่สำหรับหน่วยลัง ไม่สามารถเปลี่ยนหน่วยนับของสต๊อกเดิมได้",409);
       if (previousBasis !== priceBasis) return fail("price_basis_locked", "Material price basis cannot be changed after creation.", 409);
     }
     const patch = {
