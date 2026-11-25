@@ -28,7 +28,7 @@ describe("Recycling custom cashier UX", () => {
   });
   it("adds countable scans immediately but requires scale weight confirmation", () => {
     expect(cashier).toContain('if (product.priceBasis === "piece")');
-    expect(cashier).toContain('addLineToCart(product, "piece", 1, price)');
+    expect(cashier).toContain('addLineToCart(product, product.priceUnit === "carton" ? "carton" : "piece", 1, price)');
     expect(cashier).toContain("openQuantityPopup(product);");
     expect(cashier).toContain('setQuantity(item.priceBasis === "piece" ? "1" : "")');
     expect(cashier).toContain("resolveRecyclingBarcode(barcodeIndex, normalized)");
