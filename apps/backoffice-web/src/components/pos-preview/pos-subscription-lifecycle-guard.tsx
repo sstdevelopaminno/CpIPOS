@@ -117,18 +117,58 @@ export function PosSubscriptionLifecycleGuard({ initial }:{
   },[]);
 
   useEffect(()=>{
-    if(!runtime?.tenant_id)return;
+    const tenantId=runtime?.tenant_id;
+    if(!tenantId)return;
     let supabase:ReturnType<typeof getSupabaseBrowserClient>;
     try{supabase=getSupabaseBrowserClient();}catch{return;}
-    const channel=supabase.channel(`subscription-runtime:${runtime.tenant_id}`)
-      .on("postgres_changes",{
-        event:"*",
-        schema:"public",
-        table:"tenant_subscription_runtime",
-        filter:`tenant_id=eq.${runtime.tenant_id}`
-      },()=>{void refreshRuntime("realtime");})
-      .subscribe();
-    return()=>{void supabase.removeChannel(channel);};
+    let disposed=false;
+    let revision=0;
+    let authTimer:number|undefined;
+    let channel:ReturnType<typeof supabase.channel>|null=null;
+    let channelUserId:string|null=null;
+    // The projection explicitly denies anon SELECT. A custom POS cookie is
+    // not a Supabase Auth session. Keep the authenticated HTTP/push fallback
+    // instead of attempting a filtered subscription with the anon key.
+    const {data:{subscription}}=supabase.auth.onAuthStateChange((_event,session)=>{
+      const current=++revision;
+      if(authTimer!==undefined)window.clearTimeout(authTimer);
+      const userId=session?.user?.id;
+      const accessToken=session?.access_token;
+      // Defer async Supabase calls outside the auth event callback/lock.
+      authTimer=window.setTimeout(()=>{
+        authTimer=undefined;
+        void (async()=>{
+          if(disposed || current!==revision)return;
+          if(channel && (!accessToken || channelUserId!==userId)){
+            const previous=channel;
+            channel=null;
+            channelUserId=null;
+            await supabase.removeChannel(previous);
+          }
+          if(disposed || current!==revision || !userId || !accessToken || channel)return;
+          await supabase.realtime.setAuth(accessToken);
+          if(disposed || current!==revision || channel)return;
+          channelUserId=userId;
+          channel=supabase.channel(`subscription-runtime:${tenantId}`)
+            .on("postgres_changes",{
+              event:"*",
+              schema:"public",
+              table:"tenant_subscription_runtime",
+              filter:`tenant_id=eq.${tenantId}`
+            },()=>{if(!disposed && channelUserId===userId)void refreshRuntime("realtime");})
+            .subscribe();
+        })().catch(()=>{
+          // Preserve the authenticated HTTP fallback on Realtime/auth failure.
+        });
+      },0);
+    });
+    return()=>{
+      disposed=true;
+      revision++;
+      subscription.unsubscribe();
+      if(authTimer!==undefined)window.clearTimeout(authTimer);
+      if(channel)void supabase.removeChannel(channel);
+    };
   },[runtime?.tenant_id,refreshRuntime]);
 
   useEffect(()=>{

@@ -18,6 +18,17 @@ describe("POS subscription runtime stability",()=>{
     expect(migration).toContain("alter publication supabase_realtime add table public.tenant_subscription_runtime");
   });
 
+  it("never joins the protected tenant projection without an Auth session",()=>{
+    expect(guard).toContain("supabase.auth.onAuthStateChange");
+    expect(guard).toContain("session?.access_token");
+    expect(guard).toContain("!userId || !accessToken || channel)return;");
+    expect(guard.indexOf("await supabase.realtime.setAuth(accessToken)")).toBeLessThan(guard.indexOf('table:"tenant_subscription_runtime"'));
+    expect(guard).toContain("subscription.unsubscribe()");
+    expect(guard).toContain("refreshRuntime(\"fallback\"),5*60_000");
+    expect(migration).toContain("revoke all on public.tenant_subscription_runtime from public, anon");
+    expect(migration).toContain("grant select on public.tenant_subscription_runtime to authenticated");
+  });
+
   it("locks by client clock and routes payment to the actual package page",()=>{
     expect(guard).toContain("expiredByClock");
     expect(guard).toContain('pathname==="/preview/pos/payments/package"');
