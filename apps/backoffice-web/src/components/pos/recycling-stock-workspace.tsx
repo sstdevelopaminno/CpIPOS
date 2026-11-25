@@ -7,6 +7,7 @@ import { optimizeRecyclingMaterialImage } from "@/lib/recycling-material-image";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import type { RecyclingCatalogItem, RecyclingPriceBasis } from "@/lib/server/recycling-pos-service";
+import { formatRecyclingUnitPriceDisplay } from "@/lib/recycling-money-display";
 import { type RecyclingPriceUnit, formatRecyclingUnitPrice, getRecyclingPriceBasis, parseRecyclingUnitPrice, RECYCLING_PRICE_UNIT_LABELS } from "@/lib/recycling-price-units";
 import type { RecyclingStockBranch } from "@/lib/server/recycling-stock-branch-scope";
 
@@ -327,8 +328,8 @@ export function RecyclingStockWorkspace({ items, branches, branchId, branchName,
 </td>
               <td className="px-3 py-2 font-bold text-slate-900">{item.name}</td>
               <td className="px-3 py-2 text-slate-600">{item.category}</td>
-              <td className="px-3 py-2 text-right font-bold tabular-nums text-blue-700">{item.buyPrice === null ? "ยังไม่กำหนด" : formatRecyclingUnitPrice(item.buyPrice,item.priceUnit)}</td>
-              <td className="px-3 py-2 text-right font-bold tabular-nums text-emerald-700">{item.sellPrice === null ? "ยังไม่กำหนด" : formatRecyclingUnitPrice(item.sellPrice,item.priceUnit)}</td>
+              <td className="px-3 py-2 text-right font-bold tabular-nums text-blue-700">{item.buyPrice === null ? "ยังไม่กำหนด" : formatRecyclingUnitPriceDisplay(item.buyPrice,item.priceUnit)}</td>
+              <td className="px-3 py-2 text-right font-bold tabular-nums text-emerald-700">{item.sellPrice === null ? "ยังไม่กำหนด" : formatRecyclingUnitPriceDisplay(item.sellPrice,item.priceUnit)}</td>
               <td className="px-3 py-2 text-slate-600">บาท/{RECYCLING_PRICE_UNIT_LABELS[item.priceUnit]} <small className="block text-[11px] text-slate-400">สต๊อกฐาน: {item.priceBasis === "kg" ? "กก." : "ชิ้น"}</small></td>
               <td className="px-3 py-2 text-right font-semibold tabular-nums text-slate-800">
                 {item.quantityBase === null ? "รอยืนยันสต๊อก" : item.quantityBase.toLocaleString("th-TH", {maximumFractionDigits:6}) + (item.priceBasis === "kg" ? " กก." : " ชิ้น")}
