@@ -1,10 +1,11 @@
 "use client";
 import {useCallback,useEffect,useState} from "react";
+import {RecyclingBankAccountSetup} from "@/components/pos/recycling-bank-account-setup";
 type Intent={id:string;request_id:string;operator_user_id:string;direction:"buy"|"sell";counterparty_name:string;expected_minor:number; evidence_id:string|null;created_at:string};
 type Account={id:string;bank_code:string;account_last4:string;account_label:string};
 type Status={intents:Intent[];accounts:Account[];can_review:boolean;actor_id:string};
 const endpoint="/api/pos/recycling/bank-transfers";
-export function RecyclingBankTransferReview(){
+export function RecyclingBankTransferReview({canManageAccounts=false}:{canManageAccounts?:boolean}){
  const [status,setStatus]=useState<Status|null>(null);
  const [error,setError]=useState("");
  const [busy,setBusy]=useState(false);
@@ -20,6 +21,7 @@ export function RecyclingBankTransferReview(){
    <div><h2 className="text-lg font-extrabold">ตรวจสอบรายการเงินโอน Recycling</h2><p className="text-sm text-slate-600">ตรวจสอบจากรายการเดินบัญชีธนาคารจริง ไม่ใช่การยืนยันด้วยภาพสลิปหรือ AI เพียงอย่างเดียว</p></div>
    <button type="button" onClick={()=>void refresh()} disabled={busy} className="rounded border px-3 py-2 text-sm font-bold">ตรวจสอบคำขอล่าสุด</button>
    {error&&<p role="alert" className="rounded bg-amber-50 p-3 text-sm text-amber-900">{error}</p>}
+   {canManageAccounts&&<RecyclingBankAccountSetup onSaved={refresh}/>}
    {status&&!status.accounts.length&&<p className="text-sm text-amber-900">ยังไม่มีบัญชีธนาคารของสาขาที่ผ่านการยืนยันหลักฐาน</p>}
    {status?.intents.map(intent=><div key={intent.id} className="flex flex-wrap items-center justify-between gap-2 rounded border p-3 text-sm">
       <div><strong>{intent.direction==="buy"?"จ่ายรับซื้อ":"รับเงินขายออก"} · {intent.counterparty_name}</strong><p className="text-xs text-slate-500">{intent.request_id}</p></div>

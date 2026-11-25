@@ -543,4 +543,29 @@ grant execute on function public.recycling_submit_bank_transfer_intent(uuid,uuid
 revoke all on function public.recycling_review_bank_transfer_intent(uuid,uuid,uuid,uuid,uuid,text,bigint,timestamptz,text) from public,anon,authenticated;
 grant execute on function public.recycling_review_bank_transfer_intent(uuid,uuid,uuid,uuid,uuid,text,bigint,timestamptz,text) to service_role;
 
+-- Accountant attestation only; masked suffix is not independent proof.
+create unique index recycling_bank_account_evidence_key on public.recycling_bank_accounts
+ (tenant_id,branch_id,bank_code,evidence_reference);
+create function public.recycling_register_verified_bank_account(
+ p_tenant_id uuid,p_branch_id uuid,p_verified_by uuid,p_bank_code text,p_account_last4 text,p_account_label text,p_evidence_reference text
+) returns uuid language plpgsql set search_path to '' as $function$
+declare v_account public.recycling_bank_accounts%rowtype;
+begin
+ if not exists(select 1 from public.user_branch_roles r join public.users_profiles u on u.id=r.user_id
+   where r.tenant_id=p_tenant_id and r.branch_id=p_branch_id and r.user_id=p_verified_by and r.role::text='accountant' and u.is_active)
+ then raise exception 'recycling_bank_reviewer_forbidden'; end if;
+ if not exists(select 1 from public.finance_accounting_chart where tenant_id=p_tenant_id and account_code='1110' and account_type='asset')
+ then raise exception 'recycling_bank_account_not_ready'; end if;
+ insert into public.recycling_bank_accounts(tenant_id,branch_id,bank_code,account_last4,account_label,evidence_reference,verified_by,verified_at,active)
+ values(p_tenant_id,p_branch_id,p_bank_code,p_account_last4,p_account_label,p_evidence_reference,p_verified_by,now(),true)
+ on conflict(tenant_id,branch_id,bank_code,evidence_reference) do nothing;
+ select * into v_account from public.recycling_bank_accounts where tenant_id=p_tenant_id and branch_id=p_branch_id and bank_code=p_bank_code and evidence_reference=p_evidence_reference;
+ if not found or not v_account.active or v_account.account_last4 is distinct from p_account_last4 or v_account.account_label is distinct from p_account_label
+ then raise exception 'recycling_bank_account_conflict'; end if;
+ return v_account.id;
+end;
+$function$;
+revoke all on function public.recycling_register_verified_bank_account(uuid,uuid,uuid,text,text,text,text) from public,anon,authenticated;
+grant execute on function public.recycling_register_verified_bank_account(uuid,uuid,uuid,text,text,text,text) to service_role;
+
 commit;

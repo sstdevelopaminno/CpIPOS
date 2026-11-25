@@ -97,7 +97,7 @@ export default async function RecyclingAccountingPage() {
       <div className="rounded-xl border bg-white p-4"><p className="text-xs text-slate-500">ธุรกรรมเดบิต/เครดิตไม่สมดุล</p>
         <strong className={`text-2xl ${unbalanced ? "text-rose-700" : "text-emerald-700"}`}>{unbalanced}</strong></div>
     </div>
-    {process.env.RECYCLING_BANK_TRANSFERS_ENABLED==="1"&&<RecyclingBankTransferReview/>}
+    {process.env.RECYCLING_BANK_TRANSFERS_ENABLED==="1"&&<RecyclingBankTransferReview canManageAccounts={role==="accountant"}/>}
     <RecyclingFinanceApprovalQueue
       transactions={(transactionResult.data ?? []) as RecyclingFinancePendingTransaction[]}
       canPost={role === "accountant"}
