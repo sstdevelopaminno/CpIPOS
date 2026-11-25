@@ -14,6 +14,7 @@ import { RECYCLING_PRICE_UNIT_LABELS } from "@/lib/recycling-price-units";
 import { formatRecyclingUnitPriceDisplay } from "@/lib/recycling-money-display";
 import type { RecyclingCatalogItem, RecyclingUnit } from "@/lib/server/recycling-pos-service";
 import { RecyclingSalesModeSwitcher } from "@/components/pos/recycling-sales-mode-switcher";
+import { RecyclingBankPendingPanel } from "@/components/pos/recycling-bank-pending-panel";
 import { RecyclingReceiptDialog } from "@/components/pos/recycling-receipt-dialog";
 
 type Direction = "buy" | "sell";
@@ -39,7 +40,7 @@ function CatalogImage({ item, mediaUrl }: { item: RecyclingCatalogItem; mediaUrl
     : <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-slate-100 text-xl" aria-hidden="true">♻️</div>;
 }
 
-export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByProduct, branchName, storeName, deviceCode, sellerName, shiftStatus, generalSaleEnabled, transactionWritesEnabled, fastWindowsReceiptEnabled }: {
+export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByProduct, branchName, storeName, deviceCode, sellerName, shiftStatus, generalSaleEnabled, transactionWritesEnabled, fastWindowsReceiptEnabled, bankTransferEnabled = false }: {
   products: RecyclingCatalogItem[];
   tenantId: string;
   branchId: string;
@@ -52,6 +53,7 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
   generalSaleEnabled: boolean;
   transactionWritesEnabled: boolean;
   fastWindowsReceiptEnabled: boolean;
+  bankTransferEnabled?: boolean;
 }) {
   const [shiftGate,setShiftGate]=useState<"checking"|"open"|"blocked">("checking");
   const [shiftOpenedAt,setShiftOpenedAt]=useState("");
@@ -126,6 +128,8 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
   const [settlement, setSettlement] = useState<"cash" | "bank_transfer">("cash");
   const [posting, setPosting] = useState(false);
   const [postError, setPostError] = useState("");
+  const [bankPanelOpen,setBankPanelOpen]=useState(false);
+  const [bankSubmitting,setBankSubmitting]=useState(false);
   const [vatQuote,setVatQuote]=useState<{
     configured:boolean;rollout_enabled:boolean;ready:boolean;
     rate_pct:number;mode:string;reason:string|null;
@@ -507,7 +511,19 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
       setPostError("ยังตรวจสอบภาษีขายไม่ผ่าน ไม่สามารถบันทึกรับชำระเงินได้");return;
     }
     if (settlement === "bank_transfer") {
-      setPostError("ต้องตรวจหลักฐานธนาคารก่อนจึงจะยืนยันการจ่ายหรือรับเงินโอนได้");
+      if(!bankTransferEnabled){setPostError("ต้องตรวจหลักฐานธนาคารก่อนจึงจะยืนยันการจ่ายหรือรับเงินโอนได้");return;}
+      postingRef.current=true;setPosting(true);setBankSubmitting(true);setPostError("");
+      if(!requestIdRef.current)requestIdRef.current=window.crypto.randomUUID();
+      try{
+        const response=await fetch("/api/pos/recycling/bank-transfers",{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},body:JSON.stringify({
+          request_id:requestIdRef.current,direction,counterparty_name:counterpartyName.trim()||"-",expected_minor:grossPreviewMinor,
+          lines:visibleLines.map(line=>({product_id:line.product.id,quantity:line.quantity,unit:line.unit,expected_price:line.unitPrice}))
+        })});
+        const body=await response.json().catch(()=>null);
+        if(!response.ok||!body?.data?.intent_id){setPostError(body?.error?.message??"ยังไม่ยืนยันผลคำขอ กรุณาส่งคำขอเดิมซ้ำ ห้ามรับหรือจ่ายเงินซ้ำ");return;}
+        setBankSubmitting(false);requestIdRef.current="";setCheckoutOpen(false);setLines(current=>current.filter(line=>line.direction!==direction));setCounterpartyName("");setBankPanelOpen(true);
+      }catch{setPostError("ยังไม่ยืนยันผลคำขอ กรุณาส่งคำขอเดิมซ้ำ ห้ามรับหรือจ่ายเงินซ้ำ");}
+      finally{postingRef.current=false;setPosting(false);}
       return;
     }
     // Synchronous guard prevents rapid Enter/click from submitting twice
@@ -774,7 +790,7 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
       if(scanErrorPopup){closeScanErrorPopup();return;}
       if(cancelOpen)setCancelOpen(false);
       else if(heldOpen)setHeldOpen(false);
-      else if(checkoutOpen)setCheckoutOpen(false);
+      else if(checkoutOpen&&!bankSubmitting)setCheckoutOpen(false);
       else if(pending){setPending(null);setQuantity("");}
       window.requestAnimationFrame(()=>scannerRef.current?.focus());
       return;
@@ -838,6 +854,8 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
       generalSaleEnabled={generalSaleEnabled} direction={direction}
       onDirectionChange={changeDirection} busy={posting}
       heldCount={heldBills.length} onOpenHeldBills={openHeldBills}/>
+    {bankTransferEnabled&&<div className="mx-3 mt-2"><button type="button" disabled={posting||checkoutOpen} onClick={()=>setBankPanelOpen(true)} className="rounded border border-blue-300 px-3 py-2 text-xs font-bold text-blue-800">คำขอเงินโอนของฉัน / กู้คืนบิล</button></div>}
+    {bankPanelOpen&&<RecyclingBankPendingPanel canPost={canUseShift&&transactionWritesEnabled} onClose={()=>setBankPanelOpen(false)} onCommitted={async (tx,requestId)=>{setBankPanelOpen(false);setPosted({...tx,printRequestId:requestId});setReceiptDialogOpen(true);await queueReceiptPrint(tx.id,requestId);}}/>}
     {shiftGate==="checking" && <div role="status" data-testid="recycling-shift-inline-check"
       className="mx-3 mt-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-900">
       กำลังตรวจสอบสถานะกะ Recycling · ระบบยังไม่อนุญาตให้บันทึกรายการจนกว่าจะตรวจสอบสำเร็จ
@@ -1174,7 +1192,7 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
               ? "รับซื้อเข้าร้าน · ร้านจ่ายเงินให้ผู้ขายวัสดุ"
               : "ขายออก · ร้านรับชำระเงินจากผู้ซื้อวัสดุ"}</p>
           </div>
-          <button type="button" disabled={posting} aria-label="ปิดหน้าต่างชำระเงิน"
+          <button type="button" disabled={posting||bankSubmitting} aria-label="ปิดหน้าต่างชำระเงิน"
             onClick={() => setCheckoutOpen(false)}
             className="rounded-lg border border-slate-200 px-3 py-1 text-lg text-slate-500 disabled:opacity-50">×</button>
         </div>
@@ -1200,13 +1218,13 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
           <span className="ml-1 text-xs font-normal text-slate-500">(ไม่บังคับ · เว้นว่างแสดง - บนบิล)</span>
         </label>
         <input id="recycling-counterparty" maxLength={240}
-          value={counterpartyName} disabled={posting}
+          value={counterpartyName} disabled={posting||bankSubmitting}
           onChange={event => setCounterpartyName(event.target.value)}
           placeholder="ไม่ระบุก็ได้"
           className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-3 text-sm text-slate-900 focus:border-blue-600 focus:outline-none"/>
         <fieldset className="mt-4" tabIndex={0}
           onKeyDown={event=>{
-            if(posting)return;
+            if(posting||bankSubmitting)return;
             if(event.key==="ArrowLeft"||event.key==="ArrowRight"){
               event.preventDefault();event.stopPropagation();setPostError("");
               const next=event.key==="ArrowLeft"?"cash":"bank_transfer";
@@ -1214,7 +1232,7 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
               if(next==="cash")cashMethodRef.current?.focus();
             }else if(event.key==="Enter"){
               event.preventDefault();event.stopPropagation();
-              if(settlement==="bank_transfer"){
+              if(settlement==="bank_transfer"&&!bankTransferEnabled){
                 setPostError("ยังไม่สามารถยืนยันเงินโอนโดยไม่มีหลักฐานธนาคารที่ตรวจสอบแล้ว");
               }else if(canUseShift && transactionWritesEnabled && visibleLines.length && !posting && saleVatReady){
                 event.currentTarget.closest("form")?.requestSubmit();
@@ -1228,7 +1246,7 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
             <label className={"flex min-w-0 cursor-pointer items-center gap-2 rounded-lg border p-3 "+
               (settlement==="cash"?"border-blue-600 bg-blue-50 ring-1 ring-blue-100":"border-slate-200 bg-white")}>
               <input type="radio" ref={cashMethodRef} autoFocus name="recycling-settlement" checked={settlement==="cash"}
-                disabled={posting} onChange={()=>{setSettlement("cash");setPostError("");}}/>
+                disabled={posting||bankSubmitting} onChange={()=>{setSettlement("cash");setPostError("");}}/>
               <span className="text-xl" aria-hidden="true">💵</span>
               <span className="min-w-0 text-sm font-bold text-slate-800">
                 {direction==="buy"?"จ่ายเงินสด":"ชำระเงินสด"}
@@ -1247,17 +1265,18 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
           </div>
           <p className="mt-2 text-xs text-slate-500">ใช้ลูกศร ← / → เลือกเงินสดหรือเงินโอน แล้วกด Enter เพื่อยืนยันเมื่อผ่านการตรวจสอบเงื่อนไข</p>
         </fieldset>
-        {settlement === "bank_transfer" && <p role="alert" className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs font-semibold text-amber-900">
+        {settlement === "bank_transfer" && !bankTransferEnabled && <p role="alert" className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs font-semibold text-amber-900">
           ยังไม่เปิดการตรวจสอบหลักฐานโอนเงินสำหรับ Recycling จึงไม่อนุญาตให้ยืนยันการ{direction === "buy" ? "จ่ายเงิน" : "รับชำระเงิน"}หรือสร้างบิลสำเร็จ
         </p>}
+        {settlement==="bank_transfer"&&bankTransferEnabled&&<p role="note" className="mt-3 rounded-lg bg-blue-50 p-3 text-xs font-semibold text-blue-900">ส่งคำขอให้ผู้มีสิทธิ์ตรวจสอบหลักฐานธนาคารก่อน ยังไม่บันทึกบิลหรือสต๊อก</p>}
         {!transactionWritesEnabled && <p role="alert" className="mt-3 rounded-lg bg-amber-50 p-3 text-xs font-semibold text-amber-900">ตัวอย่างหน้าต่างชำระเงิน: การบันทึกธุรกรรมจริงยังปิดไว้จนกว่าจะผ่านตรวจรับบัญชีและสต๊อก</p>}
         {postError && <p role="alert" className="mt-3 rounded-lg bg-rose-50 p-3 text-sm font-semibold text-rose-800">{postError}</p>}
         <div className="mt-5 flex justify-end gap-2">
-          <button type="button" disabled={posting} onClick={() => setCheckoutOpen(false)}
+          <button type="button" disabled={posting||bankSubmitting} onClick={() => setCheckoutOpen(false)}
             className="rounded-lg border border-slate-300 px-5 py-3 text-sm font-bold text-slate-700 disabled:opacity-50">ย้อนกลับ</button>
-          <button type="submit" disabled={!canUseShift || !transactionWritesEnabled || posting || settlement === "bank_transfer" || !visibleLines.length || !saleVatReady || vatQuoteLoading}
+          <button type="submit" disabled={!canUseShift || !transactionWritesEnabled || posting || (settlement === "bank_transfer" && !bankTransferEnabled) || !visibleLines.length || !saleVatReady || vatQuoteLoading}
             className="rounded-lg bg-blue-700 px-5 py-3 text-sm font-extrabold text-white disabled:cursor-not-allowed disabled:opacity-50">
-            {posting ? "กำลังบันทึก..." : direction === "buy" ? "ยืนยันจ่ายเงินและออกใบรับซื้อ" : "ยืนยันรับชำระและออกใบเสร็จขายออก"}
+            {posting ? "กำลังบันทึก..." : settlement==="bank_transfer"&&bankTransferEnabled?"ส่งคำขอตรวจสอบเงินโอน":direction === "buy" ? "ยืนยันจ่ายเงินและออกใบรับซื้อ" : "ยืนยันรับชำระและออกใบเสร็จขายออก"}
           </button>
         </div>
       </form>

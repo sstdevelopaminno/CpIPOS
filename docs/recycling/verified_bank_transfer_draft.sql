@@ -84,6 +84,7 @@ begin
       and s.branch_id=p_branch_id and s.status='open'
       and s.metadata->>'business_shift_mode'='recycling_daily'
       and p_transfer_at>=s.opened_at
+      and (s.opened_at at time zone 'Asia/Bangkok')::date=(now() at time zone 'Asia/Bangkok')::date
       and (p_transfer_at at time zone 'Asia/Bangkok')::date=(now() at time zone 'Asia/Bangkok')::date)
   then raise exception 'recycling_bank_shift_invalid'; end if;
   select * into v_account from public.recycling_bank_accounts
@@ -242,6 +243,8 @@ begin
     into v_opening_cash_minor
     from public.shifts s where s.id=p_shift_id
       and s.tenant_id=p_tenant_id and s.branch_id=p_branch_id and s.status='open'
+      and s.metadata->>'business_shift_mode'='recycling_daily'
+      and (s.opened_at at time zone 'Asia/Bangkok')::date=(now() at time zone 'Asia/Bangkok')::date
     for update;
   if not found then raise exception 'recycling_shift_closed'; end if;
   if v_opening_cash_minor<0 then raise exception 'recycling_shift_opening_cash_invalid'; end if;

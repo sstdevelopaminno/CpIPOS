@@ -60,5 +60,6 @@ export async function RecyclingSalesContent({
     shiftStatus={shift.data?.status ?? "ยังไม่เปิดกะ"}
     generalSaleEnabled={generalSaleEnabled}
     transactionWritesEnabled={process.env.RECYCLING_TRANSACTION_WRITES_ENABLED==="1"}
+    bankTransferEnabled={process.env.RECYCLING_BANK_TRANSFERS_ENABLED==="1"}
     fastWindowsReceiptEnabled={fastWindowsReceiptEnabled} />;
 }

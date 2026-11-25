@@ -18,7 +18,7 @@ async function authorized(){
   if(!await isAuthorizedRecyclingTenant(scope.session.tenant_id))return null;
   return scope;
 }
-export async function GET(){
+export async function GET(request:Request){
   if(!enabled())return fail("recycling_bank_not_ready","ยังไม่เปิดระบบตรวจสอบเงินโอน",503);
   try{
     const scope=await authorized();
@@ -27,11 +27,16 @@ export async function GET(){
     const {tenant_id,branch_id,user_id,role}=scope.session;
     const db=getSupabaseServiceClient();
     let query=db.from("recycling_bank_transfer_intents").select("id,request_id,operator_user_id,direction,counterparty_name,expected_minor,evidence_id,created_at").eq("tenant_id",tenant_id).eq("branch_id",branch_id);
-    if(!reviewer(role))query=query.eq("operator_user_id",user_id);
+    if(!reviewer(role)||new URL(request.url).searchParams.get("mine")==="1")query=query.eq("operator_user_id",user_id);
     const [intents,accounts]=await Promise.all([query.order("created_at",{ascending:false}).limit(100),
       db.from("recycling_bank_accounts").select("id,bank_code,account_last4,account_label").eq("tenant_id",tenant_id).eq("branch_id",branch_id).eq("active",true)]);
     if(intents.error||accounts.error)return fail("recycling_bank_unavailable","ตรวจสอบสถานะเงินโอนไม่สำเร็จ",503);
-    return ok({intents:intents.data??[],accounts:accounts.data??[],can_review:reviewer(role),actor_id:user_id});
+    const rows=intents.data??[];
+    const posted=rows.length?await db.from("recycling_transactions").select("id,request_id,receipt_no,status")
+      .eq("tenant_id",tenant_id).eq("branch_id",branch_id).in("request_id",rows.map(row=>row.request_id)):{data:[],error:null};
+    if(posted.error)return fail("recycling_bank_unavailable","ตรวจสอบบิลเดิมไม่สำเร็จ",503);
+    const byRequest=new Map((posted.data??[]).map(tx=>[tx.request_id,tx]));
+    return ok({intents:rows.map(row=>({...row,transaction:byRequest.get(row.request_id)??null})),accounts:accounts.data??[],can_review:reviewer(role),actor_id:user_id});
   }catch(e){return safeError(e);}
 }
 export async function POST(request:Request){
