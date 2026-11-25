@@ -26,7 +26,7 @@ declare
  wrong_id uuid:='b1000000-0000-4000-8000-000000000006';
  buy_lines jsonb:=jsonb_build_array(jsonb_build_object('product_id',p,'quantity',2,'unit','kg','expected_price',50.25));
  sale_lines jsonb:=jsonb_build_array(jsonb_build_object('product_id',p,'quantity',1,'unit','kg','expected_price',100));
- buy jsonb; sale jsonb; replay jsonb; evidence uuid;
+ buy jsonb; sale jsonb; replay jsonb; evidence uuid; intent uuid; retry_intent uuid;
 begin
  begin
   perform public.recycling_post_transaction_verified_bank(t,b,s,u,buy_id,'buy','bank_transfer','Supplier',buy_lines);
@@ -36,7 +36,19 @@ begin
   perform public.recycling_record_bank_transfer_evidence(t,b,s,u,buy_id,'buy','Supplier',buy_lines,bank,'TEST-BUY-001',10050,now(),'TEST-STATEMENT',u);
   raise exception 'BANK_SELF_APPROVAL_ACCEPTED';
  exception when others then if sqlerrm not like '%recycling_bank_evidence_invalid%' then raise; end if; end;
- evidence:=public.recycling_record_bank_transfer_evidence(t,b,s,u,buy_id,'buy','Supplier',buy_lines,bank,'TEST-BUY-001',10050,now(),'TEST-STATEMENT',a);
+ intent:=public.recycling_submit_bank_transfer_intent(t,b,s,u,buy_id,'buy','Supplier',buy_lines,10050);
+ retry_intent:=public.recycling_submit_bank_transfer_intent(t,b,s,u,buy_id,'buy','Supplier',buy_lines,10050);
+ if retry_intent<>intent then raise exception 'BANK_INTENT_IDEMPOTENCY'; end if;
+ begin
+  perform public.recycling_submit_bank_transfer_intent(t,b,s,u,buy_id,'buy','Changed supplier',buy_lines,10050);
+  raise exception 'BANK_CHANGED_CART_ACCEPTED';
+ exception when others then if sqlerrm not like '%recycling_request_key_reused%' then raise; end if; end;
+ begin
+  perform public.recycling_review_bank_transfer_intent(t,b,intent,u,bank,'TEST-BUY-001',10050,now(),'TEST-STATEMENT');
+  raise exception 'BANK_INTENT_SELF_APPROVAL_ACCEPTED';
+ exception when others then if sqlerrm not like '%recycling_bank_reviewer_forbidden%' then raise; end if; end;
+ evidence:=public.recycling_review_bank_transfer_intent(t,b,intent,a,bank,'TEST-BUY-001',10050,now(),'TEST-STATEMENT');
+ if not exists(select 1 from public.recycling_bank_transfer_intents where id=intent and evidence_id=evidence) then raise exception 'BANK_INTENT_NOT_LINKED'; end if;
  buy:=public.recycling_post_transaction_verified_bank(t,b,s,u,buy_id,'buy','bank_transfer','Supplier',buy_lines);
  if (buy->>'total_minor')::bigint<>10050 or not exists(select 1 from public.recycling_bank_transfer_evidence where id=evidence and consumed_transaction_id=(buy->>'id')::uuid) then raise exception 'BANK_BUY_NOT_CONSUMED'; end if;
  if not exists(select 1 from public.recycling_accounting_entries where transaction_id=(buy->>'id')::uuid and account_code='1110' and credit_minor=10050) then raise exception 'BANK_BUY_LEDGER'; end if;
