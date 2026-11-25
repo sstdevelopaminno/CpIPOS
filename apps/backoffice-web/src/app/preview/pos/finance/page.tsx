@@ -1,3 +1,5 @@
+import { isAuthorizedRecyclingTenant } from "@/lib/server/recycling-pos-service";
+import { RecyclingFinanceDashboard } from "@/components/finance/recycling-finance-dashboard";
 import { notFound } from "next/navigation";
 import { FinanceSalesDashboard } from "@/components/finance/finance-sales-dashboard";
 import { hasFinancePackageAccess } from "@/lib/server/finance-package-access";
@@ -15,7 +17,7 @@ export default async function OwnerFinancePage() {
 
   return (
     <section className="h-full w-full min-w-0 overflow-y-auto bg-white text-slate-900">
-      <FinanceSalesDashboard actor="owner" />
+      {await isAuthorizedRecyclingTenant(scope.session.tenant_id)?<RecyclingFinanceDashboard actor="owner"/>:<FinanceSalesDashboard actor="owner" />}
     </section>
   );
 }

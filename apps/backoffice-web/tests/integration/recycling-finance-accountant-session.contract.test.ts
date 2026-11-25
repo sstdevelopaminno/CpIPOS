@@ -7,7 +7,7 @@ describe("Finance-only Recycling accountant entry",()=>{
   const page=read("app/finance/page.tsx");
   expect(page).toContain('await requireAccountantPage("main.finance")');
   expect(page).toContain("isAuthorizedRecyclingTenant(identity.tenantId)");
-  expect(page).toContain("<RecyclingAccountantOverview identity={identity}/>");
+  expect(page).toContain("<RecyclingFinanceDashboard actor=\"accountant\"/>");
   expect(page).toContain('<FinanceSalesDashboard actor="accountant" />');
  });
  it("restricts the branch selected in the VAT setup endpoint to Finance grants and menu policy",()=>{
