@@ -1,3 +1,6 @@
+import { isAuthorizedRecyclingTenant } from "@/lib/server/recycling-pos-service";
+import { RecyclingFinanceVatWorkspace } from "@/components/finance/recycling-finance-vat-workspace";
+import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 import { notFound } from "next/navigation";
 import { FinanceAccountingRegister } from "@/components/finance/finance-accounting-register";
 import { FinanceIncomeWorkspace } from "@/components/finance/finance-income-workspace";
@@ -29,6 +32,8 @@ export default async function FinanceModulePage({ params }: {
   const item = accountantFinanceModule(slug);
   if (!item) notFound();
   const identity = await requireAccountantPage(item.key);
+  const recyclingTax=slug==="tax-reports"&&await isAuthorizedRecyclingTenant(identity.tenantId);
+  const recyclingBranches=recyclingTax?await getSupabaseServiceClient().from("branches").select("id,name").eq("tenant_id",identity.tenantId).in("id",identity.branchIds).order("name"):null;
   return (
     <section className="finance-secondary-workbench w-full min-w-0 bg-white text-slate-900">
       <FinanceSectionHeader title={item.label}
@@ -54,6 +59,7 @@ export default async function FinanceModulePage({ params }: {
               ไม่ใช่แบบ ภ.พ.30 หรือ ภ.ง.ด.3/53 พร้อมยื่น
             </p>
           </div>
+          {recyclingTax&&(recyclingBranches?.error?<p role="alert" className="p-4 text-amber-900">ยังโหลดสาขาสำหรับตั้งค่า VAT Recycling ไม่สำเร็จ</p>:<RecyclingFinanceVatWorkspace branches={(recyclingBranches?.data??[]).map(b=>({id:String(b.id),name:String(b.name)}))}/>)}
           <FinanceDocumentWorkspace kind="tax" />
         </>
       )}

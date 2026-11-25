@@ -1,8 +1,7 @@
 "use client";
 import { useCallback,useEffect,useState } from "react";
 type Status={configured:boolean;verified:boolean;chart:{account_code:string;account_name:string;account_type:string}|null;can_edit:boolean};
-const endpoint="/api/pos/recycling/vat/setup";
-export function RecyclingVatSetup(){
+export function RecyclingVatSetup({endpoint="/api/pos/recycling/vat/setup"}:{endpoint?:string}={}){
   const [status,setStatus]=useState<Status|null>(null);
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState("");
@@ -14,7 +13,7 @@ export function RecyclingVatSetup(){
       if(!response.ok||!body.data)throw Error(body.error?.message??"ตรวจสอบสถานะไม่สำเร็จ");
       setStatus(body.data);
     }catch(e){setStatus(null);setError(e instanceof Error?e.message:"ตรวจสอบสถานะไม่สำเร็จ");}
-  },[]);
+  },[endpoint]);
   useEffect(()=>{void refresh();},[refresh]);
   async function submit(payload:Record<string,unknown>){
     if(busy||!status?.can_edit)return;
