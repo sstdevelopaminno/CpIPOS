@@ -120,6 +120,24 @@ describe("recycling print fast enqueue in multi-owner and multi-branch mode", ()
     expect(mocks.getSupabaseServiceClient().from).toHaveBeenCalledTimes(4);
   });
 
+  it("rejects a receipt outside the authenticated tenant and branch before enqueue", async () => {
+    const filters: Array<[string,string]> = [];
+    const original = mocks.getSupabaseServiceClient().from;
+    const query = {
+      eq(column:string, value:string) { filters.push([column,value]); return query; },
+      maybeSingle: async () => ({ data: null, error: null })
+    };
+    mocks.getSupabaseServiceClient.mockReturnValue({
+      from: (table:string) => table === "recycling_transactions" ? { select: () => query } : original(table)
+    });
+    await expect(queueRoutedRecyclingReceipt({
+      auth: auth("owner-A", "branch-A"),
+      transactionId: "foreign-receipt", requestId: "request-1"
+    })).rejects.toThrow("recycling_receipt_not_found");
+    expect(filters).toEqual([["id","foreign-receipt"],["tenant_id","owner-A"],["branch_id","branch-A"]]);
+    expect(mocks.enqueuePrintJob).not.toHaveBeenCalled();
+  });
+
   it("isolates concurrent receipts between two owners and two branches", async () => {
     const scopes = [
       ["owner-A", "branch-1"], ["owner-A", "branch-2"],
