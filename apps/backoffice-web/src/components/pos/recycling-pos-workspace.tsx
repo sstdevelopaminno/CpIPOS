@@ -12,6 +12,7 @@ import { calculateRecyclingLine, recyclingUnitLabel } from "@/lib/recycling-calc
 import { recyclingVatMinor } from "@/lib/recycling-tax-invoice";
 import { RECYCLING_PRICE_UNIT_LABELS } from "@/lib/recycling-price-units";
 import { formatRecyclingUnitPriceDisplay } from "@/lib/recycling-money-display";
+import { recyclingVatBlockerMessage } from "@/lib/recycling-vat-readiness";
 import type { RecyclingCatalogItem, RecyclingUnit } from "@/lib/server/recycling-pos-service";
 import { RecyclingSalesModeSwitcher } from "@/components/pos/recycling-sales-mode-switcher";
 import { RecyclingReceiptDialog } from "@/components/pos/recycling-receipt-dialog";
@@ -128,7 +129,7 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
   const [postError, setPostError] = useState("");
   const [vatQuote,setVatQuote]=useState<{
     configured:boolean;rollout_enabled:boolean;ready:boolean;
-    rate_pct:number;mode:string;reason:string|null;
+    rate_pct:number;mode:string;reason:string|null;blockers?:string[];
   }|null>(null);
   const [vatQuoteLoading,setVatQuoteLoading]=useState(false);
   const [posted, setPosted] = useState<{ id: string; receipt_no?: string; total_minor: number; printRequestId: string } | null>(null);
@@ -251,8 +252,8 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
   const vatPreviewMinor=vatApplied?recyclingVatMinor(baseMinor,7):0;
   const grossPreviewMinor=baseMinor+vatPreviewMinor;
   const saleVatReady=direction==="buy" ||
-    (vatQuote!==null&&(!vatQuote.configured||
-      (vatQuote.rollout_enabled&&vatQuote.ready&&vatQuote.rate_pct===7)));
+    (vatQuote!==null&&vatQuote.ready&&(!vatQuote.configured||
+      (vatQuote.rollout_enabled&&vatQuote.rate_pct===7)));
   const categories=useMemo(()=>Array.from(new Set(products.map(item=>item.category)))
     .sort((a,b)=>a.localeCompare(b,"th")), [products]);
   // Sorting 1,000 product cards for every scanner character stalls checkout.
@@ -404,7 +405,7 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
         credentials:"same-origin",cache:"no-store"
       });
       const result=await response.json().catch(()=>null) as {
-        data?:{configured:boolean;rollout_enabled:boolean;ready:boolean;rate_pct:number;mode:string;reason:string|null};
+        data?:{configured:boolean;rollout_enabled:boolean;ready:boolean;rate_pct:number;mode:string;reason:string|null;blockers?:string[]};
         error?:{message?:string};
       }|null;
       if(!response.ok||!result?.data)throw Error(result?.error?.message??"VAT settings unavailable");
@@ -1180,7 +1181,7 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
         </div>
         <div className="mt-4 flex items-center justify-between rounded-lg bg-blue-50 px-4 py-3">
           <span className="text-sm font-semibold text-slate-700">
-            {direction === "buy" ? "ยอดที่ร้านต้องจ่าย" : "ยอดที่ร้านต้องรับ"}
+            {direction === "buy" ? "ยอดที่ร้านต้องจ่าย" : !saleVatReady ? "ยอดก่อนภาษี (ยังยืนยันไม่ได้)" : "ยอดที่ร้านต้องรับ"}
           </span>
           <div className="text-right">
             {vatApplied&&<small className="block text-xs font-semibold text-blue-800">
@@ -1192,9 +1193,11 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
           </div>
         </div>
         {direction==="sell"&&vatQuoteLoading&&<p role="status" className="mt-2 text-xs text-blue-700">กำลังตรวจสอบ VAT จากเซิร์ฟเวอร์...</p>}
-        {direction==="sell"&&vatQuote?.configured&&!saleVatReady&&<p role="alert" className="mt-2 rounded-md bg-amber-50 p-3 text-xs font-bold text-amber-900">
-          ตั้ง VAT ของสาขาแล้ว แต่ยังไม่ผ่านเงื่อนไขการจดทะเบียนภาษีหรือผังบัญชี ({vatQuote.reason??"VAT not ready"}) กรุณาติดต่อฝ่ายบัญชี
-        </p>}
+        {direction==="sell"&&vatQuote&&!saleVatReady&&<div role="alert" className="mt-2 rounded-md bg-amber-50 p-3 text-xs font-semibold text-amber-900">
+          <p className="font-bold">ยังไม่พร้อมบันทึกการขายออก · กรุณาดำเนินการให้ครบ</p>
+          <ul className="mt-1 list-disc space-y-1 pl-4">{(vatQuote.blockers?.length?vatQuote.blockers:[vatQuote.reason??"unknown"]).map(code=><li key={code}>{recyclingVatBlockerMessage(code)}</li>)}</ul>
+          <button type="button" disabled={vatQuoteLoading||posting} onClick={()=>void refreshVatQuote()} className="mt-2 rounded border border-amber-300 bg-white px-3 py-1 font-bold">ตรวจสอบความพร้อมอีกครั้ง</button>
+        </div>}
         <label htmlFor="recycling-counterparty" className="mt-4 block text-sm font-semibold text-slate-800">
           {direction === "buy" ? "ชื่อผู้ขายวัสดุ" : "ชื่อผู้ซื้อวัสดุ"}
           <span className="ml-1 text-xs font-normal text-slate-500">(ไม่บังคับ · เว้นว่างแสดง - บนบิล)</span>
@@ -1248,7 +1251,7 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
           <p className="mt-2 text-xs text-slate-500">ใช้ลูกศร ← / → เลือกเงินสดหรือเงินโอน แล้วกด Enter เพื่อยืนยันเมื่อผ่านการตรวจสอบเงื่อนไข</p>
         </fieldset>
         {settlement === "bank_transfer" && <p role="alert" className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs font-semibold text-amber-900">
-          ยังไม่เปิดการตรวจสอบหลักฐานโอนเงินสำหรับ Recycling จึงไม่อนุญาตให้ยืนยันการ{direction === "buy" ? "จ่ายเงิน" : "รับชำระเงิน"}หรือสร้างบิลสำเร็จ
+          ระบบยังไม่รองรับการยืนยันเงินโอนสำหรับ Recycling ต้องตรวจสอบยอดและเลขอ้างอิงจากธนาคารโดยผู้มีสิทธิ์ก่อนบันทึก{direction === "buy" ? "จ่ายเงิน" : "รับชำระเงิน"} ขณะนี้ยังไม่มีการสร้างบิลหรือบันทึกเงินโอน
         </p>}
         {!transactionWritesEnabled && <p role="alert" className="mt-3 rounded-lg bg-amber-50 p-3 text-xs font-semibold text-amber-900">ตัวอย่างหน้าต่างชำระเงิน: การบันทึกธุรกรรมจริงยังปิดไว้จนกว่าจะผ่านตรวจรับบัญชีและสต๊อก</p>}
         {postError && <p role="alert" className="mt-3 rounded-lg bg-rose-50 p-3 text-sm font-semibold text-rose-800">{postError}</p>}

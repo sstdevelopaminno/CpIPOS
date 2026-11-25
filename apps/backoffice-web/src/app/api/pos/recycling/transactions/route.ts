@@ -82,6 +82,15 @@ export async function POST(request: Request) {
     // Postgres VAT UAT, verified issuer registration and Finance chart are ready.
     // A new VAT RPC must NEVER silently fall back to untaxed posting on error.
     const vatRollout=process.env.RECYCLING_VAT_WRITES_ENABLED==="1";
+    // Never allow a direct API caller to bypass the VAT checkout gate by
+    // invoking the legacy untaxed posting path for a VAT-enabled branch.
+    if (raw.direction==="sell" && !vatRollout) {
+      const settings=await db.from("tenant_tax_settings").select("is_enabled")
+        .eq("tenant_id",scope.session.tenant_id).eq("branch_id",scope.session.branch_id).maybeSingle();
+      if(settings.error)return fail("recycling_vat_settings_unavailable","ไม่สามารถตรวจสอบ VAT ของสาขา",503);
+      if(settings.data?.is_enabled===true)return fail("recycling_vat_release_disabled",
+        "ยังไม่เปิดระบบบันทึกภาษีขาย Recycling ห้ามบันทึกขายออกแบบไม่คิด VAT",409);
+    }
     const { data, error } = await db.rpc(vatRollout
       ? "recycling_post_transaction_vat" : "recycling_post_transaction", {
       p_tenant_id: scope.session.tenant_id,
