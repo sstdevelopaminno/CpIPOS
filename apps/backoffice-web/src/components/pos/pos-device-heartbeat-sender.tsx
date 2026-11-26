@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { withWindowsAgentDeadline } from "@/lib/printing/windows-agent-request";
 import { acknowledgeDeviceCommands } from "@/lib/pos/device-command-ack-client";
 import {
   buildHeartbeatPayload,
@@ -20,14 +21,20 @@ type SessionCurrentResponse = {
 
 const STARTUP_DELAY_MS = 15_000;
 const HEARTBEAT_INTERVAL_MS = 5 * 60_000;
+// The Windows print API requires a device-health snapshot younger than 180s.
+// Leave 60s of slack without changing the Android/browser heartbeat cadence.
+const WINDOWS_HEARTBEAT_INTERVAL_MS = 120_000;
 const HEARTBEAT_MIN_GAP_MS = 60_000;
 
-async function loadSessionDeviceCode(): Promise<string | null> {
+async function loadSessionDeviceCode(windows: boolean): Promise<string | null> {
   try {
-    const response = await fetch("/api/pos/session/current", { cache: "no-store", credentials: "include" });
-    if (!response.ok) return null;
-    const body = (await response.json()) as SessionCurrentResponse;
-    return body.data?.device?.code ?? null;
+    const load = async (signal?: AbortSignal) => {
+      const response = await fetch("/api/pos/session/current", { cache: "no-store", credentials: "include", signal });
+      if (!response.ok) return null;
+      const body = (await response.json()) as SessionCurrentResponse;
+      return body.data?.device?.code ?? null;
+    };
+    return windows ? await withWindowsAgentDeadline(load) : await load();
   } catch {
     return null;
   }
@@ -42,17 +49,19 @@ export function PosDeviceHeartbeatSender() {
     let cancelled = false;
     let deviceCode = "POS-DEVICE";
     let machineId = "";
+    let initialized = false;
+    let lastWindowsRecoveryAt = 0;
+    const surface = detectSurface();
     startedAtRef.current = Date.now();
 
     async function send(reason: DeviceHeartbeatReason) {
-      if (cancelled || inFlightRef.current) return;
+      if (cancelled || !initialized || inFlightRef.current) return;
       const now = Date.now();
       if (reason !== "startup" && reason !== "command" && now - lastSentAtRef.current < HEARTBEAT_MIN_GAP_MS) return;
 
       let followUpSnapshot = false;
       inFlightRef.current = true;
       try {
-        const surface = detectSurface();
         const payload = await buildHeartbeatPayload({
           surface,
           deviceCode,
@@ -99,6 +108,8 @@ export function PosDeviceHeartbeatSender() {
             }
           }
         }
+      } catch (error) {
+        if (!cancelled) console.warn("[pos-device-heartbeat] snapshot unavailable", error instanceof Error ? error.name : "unknown");
       } finally {
         inFlightRef.current = false;
       }
@@ -112,14 +123,15 @@ export function PosDeviceHeartbeatSender() {
     let intervalTimer: number | undefined;
 
     async function init() {
-      const surface = detectSurface();
       machineId = resolveMachineId(surface);
-      const sessionDeviceCode = await loadSessionDeviceCode();
+      const sessionDeviceCode = await loadSessionDeviceCode(surface === "windows_runtime");
       if (cancelled) return;
       deviceCode = resolveDeviceCode(surface, sessionDeviceCode);
+      initialized = true;
 
       startupTimer = window.setTimeout(() => void send("startup"), STARTUP_DELAY_MS);
-      intervalTimer = window.setInterval(() => void send("interval"), HEARTBEAT_INTERVAL_MS);
+      intervalTimer = window.setInterval(() => void send("interval"),
+        surface === "windows_runtime" ? WINDOWS_HEARTBEAT_INTERVAL_MS : HEARTBEAT_INTERVAL_MS);
     }
 
     function handleOnline() {
@@ -134,7 +146,19 @@ export function PosDeviceHeartbeatSender() {
       if (document.visibilityState === "visible") void send("visible");
     }
 
+    // Only an authenticated Windows print request that hit the existing health
+    // gate can ask for a fresh snapshot. Bound recovery to once per minute;
+    // reuse the same in-flight sender and never invent printer validity.
+    function handleWindowsPrintHealthRecovery() {
+      if (surface !== "windows_runtime" || cancelled || !initialized || inFlightRef.current) return;
+      const now = Date.now();
+      if (now - lastWindowsRecoveryAt < HEARTBEAT_MIN_GAP_MS) return;
+      lastWindowsRecoveryAt = now;
+      void send("command");
+    }
+
     void init();
+    window.addEventListener("cpi-windows-print-health-recovery", handleWindowsPrintHealthRecovery);
     window.addEventListener("online", handleOnline);
     window.addEventListener("offline", handleOffline);
     document.addEventListener("visibilitychange", handleVisibilityChange);
@@ -143,6 +167,7 @@ export function PosDeviceHeartbeatSender() {
       cancelled = true;
       if (startupTimer !== undefined) window.clearTimeout(startupTimer);
       if (intervalTimer !== undefined) window.clearInterval(intervalTimer);
+      window.removeEventListener("cpi-windows-print-health-recovery", handleWindowsPrintHealthRecovery);
       window.removeEventListener("online", handleOnline);
       window.removeEventListener("offline", handleOffline);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
