@@ -5,10 +5,11 @@ import Link from "next/link";
 import { RecyclingBarcodeDialog, RecyclingBarcodeMark } from "@/components/pos/recycling-barcode-dialog";
 import { optimizeRecyclingMaterialImage } from "@/lib/recycling-material-image";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import type { RecyclingCatalogItem, RecyclingPriceBasis } from "@/lib/server/recycling-pos-service";
 import { formatRecyclingUnitPriceDisplay } from "@/lib/recycling-money-display";
-import { type RecyclingPriceUnit, formatRecyclingUnitPrice, getRecyclingPriceBasis, parseRecyclingUnitPrice, RECYCLING_PRICE_UNIT_LABELS } from "@/lib/recycling-price-units";
+import { RecyclingPriceUnitManager,type PriceUnitRow } from "@/components/pos/recycling-price-unit-manager";
+import { type RecyclingPriceUnit, formatRecyclingUnitPrice, getRecyclingPriceBasis, parseRecyclingUnitPrice, priceUnitLabel } from "@/lib/recycling-price-units";
 import type { RecyclingStockBranch } from "@/lib/server/recycling-stock-branch-scope";
 
 const money = (v: number | null) => v === null ? "ยังไม่กำหนด"
@@ -57,6 +58,12 @@ export function RecyclingStockWorkspace({ items, branches, branchId, branchName,
   useEffect(() => () => { if(photoPreview) URL.revokeObjectURL(photoPreview); }, [photoPreview]);
   const [editing, setEditing] = useState<FormState | null>(null);
   const [editingBranchId, setEditingBranchId] = useState("");
+  const [unitsOpen,setUnitsOpen]=useState(false);
+  const [unitRows,setUnitRows]=useState<PriceUnitRow[]>([]);
+  const [unitError,setUnitError]=useState("");
+  const unitBranch=editing?editingBranchId:branchId;
+  const updateUnits=useCallback((rows:PriceUnitRow[])=>setUnitRows(rows),[]);
+  useEffect(()=>{let live=true;setUnitRows([]);setUnitError("");if(!unitBranch)return;fetch("/api/pos/recycling/price-units?branch_id="+encodeURIComponent(unitBranch),{credentials:"same-origin",cache:"no-store"}).then(async r=>{const j=await r.json();if(!r.ok||!Array.isArray(j?.data?.units))throw Error(j?.error?.message??"โหลดหน่วยไม่สำเร็จ");if(live)setUnitRows(j.data.units);}).catch(e=>{if(live)setUnitError(e instanceof Error?e.message:"โหลดหน่วยไม่สำเร็จ");});return()=>{live=false;};},[unitBranch]);
   const [busy, setBusy] = useState(false);
   const [deleteTarget,setDeleteTarget] = useState<RecyclingCatalogItem|"all"|null>(null);
   const [deleteConfirmation,setDeleteConfirmation] = useState("");
@@ -109,7 +116,7 @@ export function RecyclingStockWorkspace({ items, branches, branchId, branchName,
   useEffect(() => {
     if (!editing) return;
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && !busy) {
+      if (event.key === "Escape" && !busy && !unitsOpen) {
         event.preventDefault();
         setEditing(null);
         setPhotoFile(null);
@@ -118,7 +125,7 @@ export function RecyclingStockWorkspace({ items, branches, branchId, branchName,
     };
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, [editing, busy]);
+  }, [editing, busy, unitsOpen]);
 
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -131,6 +138,7 @@ export function RecyclingStockWorkspace({ items, branches, branchId, branchName,
       setError("ไม่สามารถย้ายวัสดุข้ามสาขาด้วยการแก้ไขทะเบียนได้");
       return;
     }
+    if (!editing.id && !unitRows.some(u=>u.active&&u.code===editing.price_unit)){setError("กรุณาเลือกหน่วยราคาที่เปิดใช้งานในสาขา");return;}
     if (parseRecyclingUnitPrice(editing.buy_price, editing.price_unit) === null ||
         parseRecyclingUnitPrice(editing.sell_price, editing.price_unit) === null) {
       setError("กรุณาระบุราคาที่แปลงเป็นหน่วยฐานได้ตรงสตางค์: บาท/กก. 2, บาท/ขีด 3, บาท/กรัม 5 ตำแหน่ง");
@@ -278,6 +286,7 @@ export function RecyclingStockWorkspace({ items, branches, branchId, branchName,
             className="inline-flex min-h-10 items-center rounded-lg border border-rose-300 bg-white px-3 text-sm font-bold text-rose-700 hover:bg-rose-50 disabled:opacity-50">
             ลบทั้งหมด
           </button>}
+          {canManage && <button type="button" disabled={busy||Boolean(editing)||Boolean(deleteTarget)} onClick={()=>setUnitsOpen(true)} className="rounded-lg border border-blue-300 bg-white px-3 py-2 text-sm font-bold text-blue-800">+ เพิ่มหน่วยราคามาตรฐาน</button>}
           {canManage && <button ref={addButtonRef} type="button" onClick={() => edit()}
             className="inline-flex min-h-10 items-center rounded-lg bg-blue-700 px-4 text-sm font-extrabold text-white hover:bg-blue-800">
             + เพิ่มวัสดุ
@@ -286,6 +295,7 @@ export function RecyclingStockWorkspace({ items, branches, branchId, branchName,
       </div>
     </header>
 
+    {unitsOpen&&unitBranch&&<RecyclingPriceUnitManager key={unitBranch} branchId={unitBranch} canManage={branches.some(b=>b.id===unitBranch&&b.canManage)} onClose={()=>setUnitsOpen(false)} onChange={updateUnits}/>}
     {notice && <p role="status" className="mx-3 mt-2 shrink-0 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-800">{notice}</p>}
 
     <section className="flex min-h-0 flex-1 flex-col overflow-hidden" aria-label="ทะเบียนวัสดุ" data-testid="recycling-stock-table-area">
@@ -330,9 +340,9 @@ export function RecyclingStockWorkspace({ items, branches, branchId, branchName,
               <td className="px-3 py-2 text-slate-600">{item.category}</td>
               <td className="px-3 py-2 text-right font-bold tabular-nums text-blue-700">{item.buyPrice === null ? "ยังไม่กำหนด" : formatRecyclingUnitPriceDisplay(item.buyPrice,item.priceUnit)}</td>
               <td className="px-3 py-2 text-right font-bold tabular-nums text-emerald-700">{item.sellPrice === null ? "ยังไม่กำหนด" : formatRecyclingUnitPriceDisplay(item.sellPrice,item.priceUnit)}</td>
-              <td className="px-3 py-2 text-slate-600">บาท/{RECYCLING_PRICE_UNIT_LABELS[item.priceUnit]} <small className="block text-[11px] text-slate-400">สต๊อกฐาน: {item.priceBasis === "kg" ? "กก." : RECYCLING_PRICE_UNIT_LABELS[item.priceUnit]}</small></td>
+              <td className="px-3 py-2 text-slate-600">บาท/{priceUnitLabel(item.priceUnit)} <small className="block text-[11px] text-slate-400">สต๊อกฐาน: {item.priceBasis === "kg" ? "กก." : priceUnitLabel(item.priceUnit)}</small></td>
               <td className="px-3 py-2 text-right font-semibold tabular-nums text-slate-800">
-                {item.quantityBase === null ? "รอยืนยันสต๊อก" : item.quantityBase.toLocaleString("th-TH", {maximumFractionDigits:6}) + (item.priceBasis === "kg" ? " กก." : " "+RECYCLING_PRICE_UNIT_LABELS[item.priceUnit])}
+                {item.quantityBase === null ? "รอยืนยันสต๊อก" : item.quantityBase.toLocaleString("th-TH", {maximumFractionDigits:6}) + (item.priceBasis === "kg" ? " กก." : " "+priceUnitLabel(item.priceUnit))}
               </td>
               {canManage && <td className="px-3 py-2 text-center">
                 <div className="flex items-center justify-center gap-2">
@@ -452,15 +462,15 @@ export function RecyclingStockWorkspace({ items, branches, branchId, branchName,
                   placeholder="กลุ่มวัสดุ" className="mt-1 block h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100"/>
               </label>
               <label className="block text-xs font-semibold text-slate-700">หน่วยราคามาตรฐาน
-                <select value={editing.price_unit}
+                <select value={unitRows.some(u=>u.active&&u.code===editing.price_unit)||editing.id?editing.price_unit:""}
                   onChange={event => selectPriceUnit(event.target.value as RecyclingPriceUnit)}
                   className="mt-1 block h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 focus:border-blue-600 focus:outline-none">
-                  <option value="kg" disabled={Boolean(editing.id) && editing.price_basis === "piece"}>กิโลกรัม (บาท/กก.)</option>
-                  <option value="khid" disabled={Boolean(editing.id) && editing.price_basis === "piece"}>ขีด (บาท/ขีด)</option>
-                  <option value="g" disabled={Boolean(editing.id) && editing.price_basis === "piece"}>กรัม (บาท/กรัม)</option>
-                  <option value="piece" disabled={Boolean(editing.id) && editing.price_unit !== "piece"}>ชิ้น (บาท/ชิ้น)</option>
-                  {(["carton","vehicle","set","unit","machine","cabinet"] as const).map(unit=><option key={unit} value={unit} disabled={Boolean(editing.id) && editing.price_unit !== unit}>{RECYCLING_PRICE_UNIT_LABELS[unit]} (บาท/{RECYCLING_PRICE_UNIT_LABELS[unit]})</option>)}
+                  <option value="" disabled>เลือกหน่วยราคา</option>
+                  {unitRows.filter(u=>u.active||Boolean(editing.id)&&u.code===editing.price_unit).map(u=><option key={u.code} value={u.code} disabled={Boolean(editing.id)&&(getRecyclingPriceBasis(u.code)!==editing.price_basis||editing.price_basis==="piece"&&editing.price_unit!==u.code)}>{priceUnitLabel(u.code)} (บาท/{u.code==="kg"?"กก.":priceUnitLabel(u.code)}){u.active?"":" · เลิกใช้"}</option>)}
+                  {editing.id&&!unitRows.some(u=>u.code===editing.price_unit)&&<option value={editing.price_unit}>{priceUnitLabel(editing.price_unit)}</option>}
                 </select>
+                {unitError&&<span role="alert" className="block text-rose-700">{unitError}</span>}
+                {editingBranchId&&branches.some(b=>b.id===editingBranchId&&b.canManage)&&<button type="button" onClick={()=>setUnitsOpen(true)} className="mt-2 text-blue-700">+ เพิ่ม / ลบหน่วยราคามาตรฐาน</button>}
               </label>
             </div>
             <p className="text-xs font-medium text-slate-600">สามารถสลับหน่วย กก. / ขีด / กรัม โดยแปลงราคาอ้างอิงอย่างแม่นยำ · ยอดสต๊อกใช้กิโลกรัมเหมือนเดิม {editing.id ? "· ห้ามเปลี่ยนหน่วยนับของ SKU เดิมหลังบันทึกทะเบียน" : ""}</p>
@@ -470,18 +480,18 @@ export function RecyclingStockWorkspace({ items, branches, branchId, branchName,
             <legend className="text-sm font-extrabold text-slate-900">กำหนดราคาแยกตามธุรกรรม</legend>
             <div className="grid gap-3 sm:grid-cols-2">
               <label className="block rounded-lg border border-blue-200 bg-blue-50/60 p-3 text-sm font-bold text-blue-900">
-                ราคารับซื้อเข้าร้าน (บาท/{RECYCLING_PRICE_UNIT_LABELS[editing.price_unit]})
+                ราคารับซื้อเข้าร้าน (บาท/{priceUnitLabel(editing.price_unit)})
                 <input required min="0" max="99999999" step="any" type="number" inputMode="decimal" value={editing.buy_price}
                   onChange={event => setEditing(current => current ? {...current, buy_price:event.target.value} : null)}
                   placeholder="0.00" className="mt-2 block h-11 w-full rounded-lg border border-blue-200 bg-white px-3 text-base tabular-nums text-slate-900 outline-none focus:border-blue-600"/>
-                <small className="mt-2 block text-xs font-normal text-blue-800">ใช้ตอนร้านจ่ายเงิน · ราคาอ้างอิง {parseRecyclingUnitPrice(editing.buy_price,editing.price_unit) === null ? "—" : money(parseRecyclingUnitPrice(editing.buy_price,editing.price_unit))} บาท/{editing.price_basis === "kg" ? "กก." : RECYCLING_PRICE_UNIT_LABELS[editing.price_unit]}</small>
+                <small className="mt-2 block text-xs font-normal text-blue-800">ใช้ตอนร้านจ่ายเงิน · ราคาอ้างอิง {parseRecyclingUnitPrice(editing.buy_price,editing.price_unit) === null ? "—" : money(parseRecyclingUnitPrice(editing.buy_price,editing.price_unit))} บาท/{editing.price_basis === "kg" ? "กก." : priceUnitLabel(editing.price_unit)}</small>
               </label>
               <label className="block rounded-lg border border-emerald-200 bg-emerald-50/60 p-3 text-sm font-bold text-emerald-900">
-                ราคาขายออก (บาท/{RECYCLING_PRICE_UNIT_LABELS[editing.price_unit]})
+                ราคาขายออก (บาท/{priceUnitLabel(editing.price_unit)})
                 <input required min="0" max="99999999" step="any" type="number" inputMode="decimal" value={editing.sell_price}
                   onChange={event => setEditing(current => current ? {...current, sell_price:event.target.value} : null)}
                   placeholder="0.00" className="mt-2 block h-11 w-full rounded-lg border border-emerald-200 bg-white px-3 text-base tabular-nums text-slate-900 outline-none focus:border-emerald-600"/>
-                <small className="mt-2 block text-xs font-normal text-emerald-800">ใช้ตอนร้านรับชำระเงิน · ราคาอ้างอิง {parseRecyclingUnitPrice(editing.sell_price,editing.price_unit) === null ? "—" : money(parseRecyclingUnitPrice(editing.sell_price,editing.price_unit))} บาท/{editing.price_basis === "kg" ? "กก." : RECYCLING_PRICE_UNIT_LABELS[editing.price_unit]}</small>
+                <small className="mt-2 block text-xs font-normal text-emerald-800">ใช้ตอนร้านรับชำระเงิน · ราคาอ้างอิง {parseRecyclingUnitPrice(editing.sell_price,editing.price_unit) === null ? "—" : money(parseRecyclingUnitPrice(editing.sell_price,editing.price_unit))} บาท/{editing.price_basis === "kg" ? "กก." : priceUnitLabel(editing.price_unit)}</small>
               </label>
             </div>
           </fieldset>

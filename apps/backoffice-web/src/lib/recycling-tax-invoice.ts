@@ -1,3 +1,4 @@
+import {priceUnitLabel} from "@/lib/recycling-price-units";
 /** Tax-invoice presentation uses immutable snapshots written by PostgreSQL.
  * This module cannot issue invoices or infer VAT from today's settings.
  */
@@ -83,7 +84,7 @@ export function renderRecyclingTaxInvoiceHtml(
   const buyerAddress=[b.address_line,b.subdistrict,b.district,b.province,b.postal_code].filter(Boolean).join(" ");
   const rows=invoice.items_snapshot.map((item,i)=>`<tr>
     <td>${i+1}</td><td><strong>${escapeHtml(item.name)}</strong><div class="muted">${escapeHtml(item.sku)}</div></td>
-    <td class="right">${escapeHtml(item.quantity)} ${escapeHtml(({carton:"ลัง",vehicle:"คัน",set:"ชุด",unit:"ตัว",machine:"เครื่อง",cabinet:"ตู้"} as Record<string,string>)[item.unit] ?? item.unit)}</td>
+    <td class="right">${escapeHtml(item.quantity)} ${escapeHtml(priceUnitLabel(item.unit))}</td>
     <td class="right">${escapeHtml(amount(item.base_minor))}</td>
   </tr>`).join("");
   return `<!doctype html><html lang="th"><head><meta charset="utf-8">

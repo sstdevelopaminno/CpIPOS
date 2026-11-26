@@ -10,7 +10,7 @@ import { recyclingCashierShortcutFromCode, RECYCLING_SHORTCUT_DELAY_MS, type Rec
 import { parseRecyclingHeldBills, recyclingHeldKey, type HeldRecyclingBill } from "@/lib/recycling-held-bills";
 import { calculateRecyclingLine, recyclingUnitLabel } from "@/lib/recycling-calculation";
 import { recyclingVatMinor } from "@/lib/recycling-tax-invoice";
-import { RECYCLING_PRICE_UNIT_LABELS } from "@/lib/recycling-price-units";
+import { priceUnitLabel } from "@/lib/recycling-price-units";
 import { formatRecyclingUnitPriceDisplay } from "@/lib/recycling-money-display";
 import { recyclingVatBlockerMessage } from "@/lib/recycling-vat-readiness";
 import type { RecyclingCatalogItem, RecyclingUnit } from "@/lib/server/recycling-pos-service";
@@ -974,9 +974,9 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
                 <strong className="block w-full text-right text-sm tabular-nums text-blue-800">
                   {price===null?"ยังไม่ตั้งราคา":formatMoney(price)+" ฿"}
                   <small className="block text-[11px] font-normal text-slate-500">
-                    /{item.priceBasis==="kg"?"กก.":RECYCLING_PRICE_UNIT_LABELS[item.priceUnit]}
+                    /{item.priceBasis==="kg"?"กก.":priceUnitLabel(item.priceUnit)}
                     {price!==null&&item.priceUnit!==item.priceBasis
-                      ?" · "+formatRecyclingUnitPriceDisplay(price,item.priceUnit)+" ฿/"+RECYCLING_PRICE_UNIT_LABELS[item.priceUnit]:""}
+                      ?" · "+formatRecyclingUnitPriceDisplay(price,item.priceUnit)+" ฿/"+priceUnitLabel(item.priceUnit):""}
                   </small>
                 </strong>
               </button>;
@@ -1023,7 +1023,7 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
               <td className="px-3 py-3 text-slate-500">{index + 1}</td>
               <td className="px-3 py-3"><strong>{line.product.name}</strong><span className="block text-xs text-slate-500">{line.product.sku}</span></td>
               <td className="px-3 py-3 text-right">{line.quantity.toLocaleString("th-TH")} {recyclingUnitLabel(line.unit)}</td>
-              <td className="px-3 py-3 text-right">{formatMoney(line.unitPrice)} /{line.product.priceBasis === "kg" ? "กก." : RECYCLING_PRICE_UNIT_LABELS[line.product.priceUnit]}</td>
+              <td className="px-3 py-3 text-right">{formatMoney(line.unitPrice)} /{line.product.priceBasis === "kg" ? "กก." : priceUnitLabel(line.product.priceUnit)}</td>
               <td className="px-3 py-3 text-right font-extrabold">{formatMoney(line.total)}</td>
               <td className="px-3 py-3"><button type="button" disabled={posting || checkoutOpen} aria-label={`ลบ ${line.product.name}`}
                 className="rounded px-2 py-1 text-rose-700 hover:bg-rose-50"
@@ -1287,12 +1287,12 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
           className="mt-1 w-full rounded-lg border-2 border-blue-300 px-3 py-3 text-xl font-bold text-slate-900 focus:border-blue-700 focus:outline-none" />
         <div className="mt-4 rounded-lg bg-slate-50 p-3 text-sm">
           <div className="flex justify-between gap-2"><span>ราคาฐานที่ใช้คำนวณ</span>
-            <strong>{selectedPrice === null ? "—" : formatMoney(selectedPrice)} ฿ /{pending.priceBasis === "kg" ? "กก." : RECYCLING_PRICE_UNIT_LABELS[pending.priceUnit]}</strong></div>
+            <strong>{selectedPrice === null ? "—" : formatMoney(selectedPrice)} ฿ /{pending.priceBasis === "kg" ? "กก." : priceUnitLabel(pending.priceUnit)}</strong></div>
           {selectedPrice !== null && pending.priceUnit !== pending.priceBasis && <p className="mt-1 text-xs text-blue-800">
-            ราคาที่ตั้งในทะเบียน: {formatRecyclingUnitPriceDisplay(selectedPrice,pending.priceUnit)} บาท/{RECYCLING_PRICE_UNIT_LABELS[pending.priceUnit]} · ระบบแปลงเป็นหน่วยฐานแล้ว
+            ราคาที่ตั้งในทะเบียน: {formatRecyclingUnitPriceDisplay(selectedPrice,pending.priceUnit)} บาท/{priceUnitLabel(pending.priceUnit)} · ระบบแปลงเป็นหน่วยฐานแล้ว
           </p>}
           {preview && <div className="mt-2 flex justify-between gap-2 text-slate-600">
-            <span>จำนวนเทียบหน่วยราคา</span><span>{preview.basisQuantity.toLocaleString("th-TH", { maximumFractionDigits: 6 })} {pending.priceBasis === "kg" ? "กก." : RECYCLING_PRICE_UNIT_LABELS[pending.priceUnit]}</span>
+            <span>จำนวนเทียบหน่วยราคา</span><span>{preview.basisQuantity.toLocaleString("th-TH", { maximumFractionDigits: 6 })} {pending.priceBasis === "kg" ? "กก." : priceUnitLabel(pending.priceUnit)}</span>
           </div>}
           <div className="mt-3 flex justify-between border-t border-slate-200 pt-3 text-lg font-extrabold text-blue-900">
             <span>รวม</span><span>{preview ? formatMoney(preview.amount) : "—"} ฿</span>

@@ -1,0 +1,2 @@
+-- Superseded by canonical migration supabase/migrations/20261126055219_recycling_custom_price_units.sql.
+-- Do not apply separately.

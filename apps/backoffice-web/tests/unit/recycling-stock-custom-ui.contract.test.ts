@@ -49,8 +49,10 @@ describe("CUSTOM Recycling material management in the native POS shell", () => {
 
   it("separates buy/sell prices without changing actual stock balances", () => {
     expect(workspace).toContain("ราคารับซื้อเข้าร้าน");
-    expect(workspace).toContain('<option value="g"');
-    expect(workspace).toContain('<option value="khid"');
+    expect(workspace).toContain("unitRows.filter");
+    expect(workspace).toContain("RecyclingPriceUnitManager");
+    expect(read("src/lib/recycling-price-units.ts")).toContain('khid: "ขีด", g: "กรัม"');
+    expect(catalogApi).toContain("recycling_unit_inactive");
     expect(workspace).toContain("parseRecyclingUnitPrice");
     expect(catalogApi).toContain("recycling_price_unit: priceUnit");
     expect(workspace).toContain("ราคาขายออก");
