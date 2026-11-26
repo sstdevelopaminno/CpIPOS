@@ -35,7 +35,7 @@ begin
   if exists(select 1 from public.shifts s where s.tenant_id=actor.tenant_id and s.branch_id=actor.branch_id and s.id<>p_shift_id and (s.closed_at is null or s.closed_at>p_opened_at)) then raise exception 'shift_history_later'; end if;
   if tx_count>0 and (p_opened_at is distinct from old_shift.opened_at or p_closed_at is distinct from old_shift.closed_at or p_opening_cash is distinct from old_shift.opening_cash) then raise exception 'shift_history_dependencies'; end if;
  else
-  if tx_count>0 or old_shift.actual_cash is not null then raise exception 'shift_history_dependencies'; end if;
+  if tx_count>0 or (old_shift.actual_cash is not null and old_shift.actual_cash is distinct from old_shift.opening_cash) then raise exception 'shift_history_dependencies'; end if;
  end if;
  -- No source funding adjustment or approval may be bypassed. For a real
  -- transaction, only a separately attested recount is permitted.
