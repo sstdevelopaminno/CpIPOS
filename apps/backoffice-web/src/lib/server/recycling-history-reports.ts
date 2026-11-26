@@ -54,12 +54,14 @@ export async function loadRecyclingHistoryReport(scope:PosSessionScope,kind:Recy
  if(branch!=="all"&&!branches.some(b=>b.id===branch))throw new Error("recycling_report_branch_denied");
  const ids=branch==="all"?branches.map(b=>b.id):[branch];
  const db=getSupabaseServiceClient();
+ const useDocumentTime=process.env.RECYCLING_MANUAL_DOCUMENT_TIME_ENABLED==="1"&&kind!=="summary";
+ const dateColumn=useDocumentTime?"effective_document_at":"created_at";
  const result=await db.from("recycling_transactions")
-  .select("id,receipt_no,direction,settlement,total_minor,base_minor,vat_minor,tax_state,cogs_minor,status,branch_id,shift_id,operator_user_id,counterparty_name,created_at",{count:"exact"})
+  .select(useDocumentTime?"id,receipt_no,direction,settlement,total_minor,base_minor,vat_minor,tax_state,cogs_minor,status,branch_id,shift_id,operator_user_id,counterparty_name,created_at:effective_document_at":"id,receipt_no,direction,settlement,total_minor,base_minor,vat_minor,tax_state,cogs_minor,status,branch_id,shift_id,operator_user_id,counterparty_name,created_at",{count:"exact"})
   .eq("tenant_id",scope.session.tenant_id).in("branch_id",ids).in("status",["posted","voided"])
-  .gte("created_at",new Date(from+"T00:00:00+07:00").toISOString())
-  .lt("created_at",new Date(Date.parse(to+"T00:00:00+07:00")+86400000).toISOString())
-  .order("created_at",{ascending:false}).order("id",{ascending:false}).range(0,MAX_TX);
+  .gte(dateColumn,new Date(from+"T00:00:00+07:00").toISOString())
+  .lt(dateColumn,new Date(Date.parse(to+"T00:00:00+07:00")+86400000).toISOString())
+  .order(dateColumn,{ascending:false}).order("id",{ascending:false}).range(0,MAX_TX);
  if(result.error)throw new Error("recycling_report_transactions_unavailable");
  if((result.count??0)>MAX_TX)throw new Error("recycling_report_narrow_period_required");
  const transactions=(result.data??[]) as RecyclingTransaction[];
