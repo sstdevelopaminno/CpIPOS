@@ -114,7 +114,9 @@ export function PosStaffMenu({ lang, collapsed, orientation = "vertical", sessio
   const effectiveRole = resolveMenuRole(sessionRole);
   const menuItems = useMemo(
      () => MENU_DEFS.map((item) => ({ ...item, label:
-       item.key === "pos_menu_sales_list" && recyclingMenuAllowed
+       item.key === "pos_menu_sales" && recyclingMenuAllowed
+         ? (lang === "th" ? "แคชเชียร์" : lang === "lo" ? "ແຄຊຽ" : "Cashier")
+         : item.key === "pos_menu_sales_list" && recyclingMenuAllowed
          ? (lang === "th" ? "รายการซื้อ–ขาย" : lang === "lo" ? "ລາຍການຊື້–ຂາຍ" : "Purchases & Sales")
          : labelFor(item, lang)
      })).filter((item) =>
