@@ -12,7 +12,7 @@ declare
 begin
  if p_action is null or p_action not in ('edit','delete') or p_version is null or length(btrim(coalesce(p_reason,''))) not between 5 and 500 then raise exception 'shift_history_invalid'; end if;
  select * into actor from public.pos_sessions where id=p_session_id;
- if not found or actor.status<>'active' or actor.expires_at<=now() or actor.role not in ('owner','manager') then raise exception 'shift_history_forbidden'; end if;
+ if not found or actor.status<>'active' or actor.expires_at is null or actor.expires_at<=now() or actor.role not in ('owner','manager') then raise exception 'shift_history_forbidden'; end if;
  if not exists(select 1 from public.users_profiles u join public.user_branch_roles r on r.user_id=u.id where u.id=actor.user_id and u.is_active and r.tenant_id=actor.tenant_id and r.branch_id=actor.branch_id and r.role::text in ('owner','manager')) then raise exception 'shift_history_forbidden'; end if;
  -- Serialize with branch FK inserts and the posting/VOID row lock.
  perform 1 from public.branches where id=actor.branch_id and tenant_id=actor.tenant_id for update;
@@ -87,5 +87,31 @@ end;
 $manage$;
 revoke all on function public.recycling_manage_closed_shift_v1(uuid,uuid,text,timestamptz,text,timestamptz,timestamptz,numeric,numeric) from public,anon,authenticated;
 grant execute on function public.recycling_manage_closed_shift_v1(uuid,uuid,text,timestamptz,text,timestamptz,timestamptz,numeric,numeric) to service_role;
-grant delete on public.recycling_shift_auto_close_events to service_role;
+-- Serialize new shift-report jobs against history correction/deletion.
+create function public.recycling_guard_shift_report_version()
+returns trigger language plpgsql security invoker set search_path='' as $print$
+declare s public.shifts%rowtype; v_id text; v_version text; v_type text;
+begin
+ v_type:=new.payload_json->>'document_type';
+ if v_type is null or v_type not in ('shift_report','recycling_shift_open_slip') then return new; end if;
+ v_id:=new.payload_json->>'shift_id'; v_version:=new.payload_json->>'recycling_shift_version';
+ if v_id is null or v_id !~ '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12} then return new; end if;
+ select * into s from public.shifts where id=v_id::uuid and tenant_id=new.tenant_id and branch_id=new.branch_id for share;
+ if not found then
+  if v_version is not null or v_type='recycling_shift_open_slip' or exists(select 1 from public.audit_logs where tenant_id=new.tenant_id and branch_id=new.branch_id and target_id=v_id::uuid and action='recycling_shift_history_delete') then raise exception 'recycling_shift_print_stale'; end if;
+  return new;
+ end if;
+ if s.metadata->>'business_shift_mode' is distinct from 'recycling_daily' then return new; end if;
+ if (v_type='recycling_shift_open_slip' and s.status<>'open') or (v_type='shift_report' and s.status<>'closed') then raise exception 'recycling_shift_print_stale'; end if;
+ if v_version is not null then
+  if s.updated_at is distinct from v_version::timestamptz then raise exception 'recycling_shift_print_stale'; end if;
+ elsif s.metadata ? 'recycling_history_corrected_at' then raise exception 'recycling_shift_print_stale';
+ end if;
+ return new;
+end;
+$print$;
+revoke all on function public.recycling_guard_shift_report_version() from public,anon,authenticated;
+grant execute on function public.recycling_guard_shift_report_version() to service_role;
+create trigger recycling_shift_report_version_guard before insert on public.print_jobs
+for each row execute function public.recycling_guard_shift_report_version();
 commit;
