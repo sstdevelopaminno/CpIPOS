@@ -1,3 +1,4 @@
+import {getRecyclingPriceUnits} from "@/lib/server/recycling-price-unit-registry";
 import { fail, ok } from "@/lib/http";
 import { appendAuditLog } from "@/lib/audit-log";
 import { FeatureGateError } from "@/lib/feature-gate";
@@ -80,6 +81,11 @@ export async function POST(request: Request) {
       // Unit changes need a controlled stock conversion/migration workflow.
       if (previousBasis === "piece" && (metadata.recycling_price_unit ?? "piece") !== priceUnit) return fail("count_unit_locked", "กรุณาสร้าง SKU ใหม่เมื่อเปลี่ยนหน่วยนับ ไม่สามารถเปลี่ยนหน่วยนับของสต๊อกเดิมได้",409);
       if (previousBasis !== priceBasis) return fail("price_basis_locked", "Material price basis cannot be changed after creation.", 409);
+    }
+    // A removed unit remains immutable on existing products, but cannot be assigned to a new SKU.
+    if (!id || (metadata.recycling_price_unit ?? (metadata.recycling_price_basis === "piece" ? "piece" : "kg")) !== priceUnit) {
+      const units=await getRecyclingPriceUnits(tenantId,branchId);
+      if(!units.some(u=>u.code===priceUnit&&u.active))return fail("recycling_unit_inactive","หน่วยราคานี้ไม่เปิดใช้งานในสาขา",409);
     }
     const patch = {
       sku, name, category,
