@@ -23,6 +23,8 @@ alter table public.recycling_historical_corrections enable row level security;
 alter table public.recycling_tax_adjustment_notes enable row level security;
 alter table public.recycling_tax_note_sequences enable row level security;
 revoke all on public.recycling_historical_corrections,public.recycling_tax_adjustment_notes,public.recycling_tax_note_sequences from public,anon,authenticated,service_role;
+-- Narrow read grant for the existing service-role VOID safety check only.
+grant select(tenant_id,branch_id,product_id,recorded_at) on public.recycling_historical_corrections to service_role;
 -- Append signed account deltas as a balanced immutable journal, never overwrite GL.
 create function public.recycling_append_adjustment_journal(p_tenant uuid,p_branch uuid,p_doc uuid,p_actor uuid,p_day date,p_key text,p_event text,p_entries jsonb)
 returns uuid language plpgsql security invoker set search_path='' as $fn$
