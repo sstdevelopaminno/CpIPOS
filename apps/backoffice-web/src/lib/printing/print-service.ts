@@ -1286,7 +1286,7 @@ export async function enqueueOrderPrintJobs(args: {
             note: item.notes
           }))
         },
-        printer.paper_width_mm,visibility
+        printer.paper_width_mm
       );
 
       const job = await enqueuePrintJob({
@@ -1598,7 +1598,7 @@ export async function enqueuePrintJobsForOrderSnapshot(args: {
             note: item.note ?? undefined
           }))
         },
-        printer.paper_width_mm,visibility
+        printer.paper_width_mm
       );
 
       const job = await enqueuePrintJob({
@@ -1645,7 +1645,7 @@ export async function enqueueKitchenTicketForOrderSnapshot(args: {
           note: item.note ?? undefined
         }))
       },
-      printer.paper_width_mm,visibility
+      printer.paper_width_mm
     );
     const job = await enqueuePrintJob({
       auth,
