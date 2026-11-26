@@ -1,3 +1,4 @@
+import {RecyclingShiftHistoryActions} from "@/components/pos/recycling-shift-history-actions";
 import { formatRecyclingMoney } from "@/lib/recycling-money-display";
 import { notFound } from "next/navigation";
 import { requirePosSession, requirePermission } from "@/lib/pos-session-guard";
@@ -18,11 +19,12 @@ export default async function RecyclingShiftHistoryPageContent() {
   // Staff can open/view their own terminal shift; never expose other
   // employees' cash close reports or another branch's financial data.
   requirePermission(scope,"shift:join");
+  const canManageHistory=["owner","manager"].includes(role);
   const canViewBranchHistory=["owner","manager","accountant"].includes(role);
   if (!await isAuthorizedRecyclingTenant(tenantId)) notFound();
   const db = getSupabaseServiceClient();
   let history=db.from("shifts")
-    .select("id,opened_by,device_code,opened_at,closed_at,opening_cash,expected_cash,actual_cash,status,metadata")
+    .select("id,opened_by,device_code,opened_at,closed_at,opening_cash,expected_cash,actual_cash,status,metadata,updated_at")
     .eq("tenant_id",tenantId).eq("branch_id",branchId);
   if(!canViewBranchHistory){
     history=history.eq("opened_by",scope.session.user_id);
@@ -60,6 +62,7 @@ export default async function RecyclingShiftHistoryPageContent() {
             <th className="px-3 py-3 text-right">คงเหลือนับจริง</th>
             <th className="px-3 py-3">สถานะ</th>
             <th className="px-3 py-3">ใบสรุป</th>
+            {canManageHistory&&<th className="px-3 py-3">จัดการ</th>}
           </tr>
         </thead>
         <tbody>{shifts.length ? shifts.map(shift => {
@@ -87,8 +90,9 @@ export default async function RecyclingShiftHistoryPageContent() {
               : variance===0 ? <span className="font-semibold text-emerald-700">ยอดตรง</span>
               : <span className="font-semibold text-rose-700">ผลต่าง {priceFromMinor(variance)}</span>}</td>
             <td className="px-3 py-3">{shift.status==="closed"?<RecyclingShiftPrintButton shiftId={shift.id} automatic={autoClosed}/>: "—"}</td>
+            {canManageHistory&&<td className="px-3 py-3">{shift.status==="closed"?<RecyclingShiftHistoryActions key={shift.updated_at} shift={{id:shift.id,opened_at:shift.opened_at,closed_at:shift.closed_at,opening_cash:shift.opening_cash,actual_cash:shift.actual_cash,updated_at:shift.updated_at}}/>:"—"}</td>}
           </tr>;
-        }) : <tr><td colSpan={10} className="px-4 py-14 text-center text-slate-500">
+        }) : <tr><td colSpan={canManageHistory?11:10} className="px-4 py-14 text-center text-slate-500">
           ยังไม่มีรายงานปิดกะรีไซเคิลที่ผ่านการบันทึกจริง
         </td></tr>}</tbody>
       </table>
