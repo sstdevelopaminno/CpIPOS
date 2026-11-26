@@ -257,7 +257,7 @@ export function FinanceAccountingRegister({module,recyclingExpenses=false}:{modu
      <button className={outline} disabled={loading} onClick={()=>void refresh()}>โหลดใหม่</button>
      {module==="ledger"
       ?<button className={primary} disabled={!enabled} onClick={()=>setAccountOpen(true)}>เพิ่มบัญชี</button>
-      :<button className={primary} disabled={!enabled||!branch} onClick={openCreate}>{module==="expenses"?"+ เพิ่มรายจ่ายอื่น ๆ":module==="banking"?"+ เพิ่มรายการโอน":"+ เพิ่มเอกสาร"}</button>}
+      :<button className={primary} disabled={!enabled||!branch} onClick={openCreate}>{module==="expenses"?(recyclingExpenses?"+ เพิ่มรายจ่ายอื่น ๆ":"+ เพิ่มรายจ่าย"):module==="banking"?"+ เพิ่มรายการโอน":"+ เพิ่มเอกสาร"}</button>}
     </div>
    </div>
    {error&&<p role="alert" className="mx-5 my-3 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-900">{error}</p>}
