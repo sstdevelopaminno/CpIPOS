@@ -3,23 +3,23 @@
  * The transactional ledger and balance always use THB/kg and kilograms.
  * Price conversions use integer satang arithmetic and never approximate.
  */
-export type RecyclingPriceUnit = "kg" | "khid" | "g" | "piece" | "carton";
+export type RecyclingPriceUnit = "kg" | "khid" | "g" | "piece" | "carton" | "vehicle" | "set" | "unit" | "machine" | "cabinet";
 export const RECYCLING_PRICE_UNIT_LABELS: Record<RecyclingPriceUnit, string> = {
-  kg: "กิโลกรัม", khid: "ขีด", g: "กรัม", piece: "ชิ้น", carton: "ลัง"
+  kg: "กิโลกรัม", khid: "ขีด", g: "กรัม", piece: "ชิ้น", carton: "ลัง", vehicle: "คัน", set: "ชุด", unit: "ตัว", machine: "เครื่อง", cabinet: "ตู้"
 };
 const CANONICAL_CENTS_PER_INPUT_UNIT: Record<RecyclingPriceUnit, bigint> = {
-  kg: 100n, khid: 1_000n, g: 100_000n, piece: 100n, carton: 100n
+  kg: 100n, khid: 1_000n, g: 100_000n, piece: 100n, carton: 100n, vehicle: 100n, set: 100n, unit: 100n, machine: 100n, cabinet: 100n
 };
 const PRICE_DECIMALS: Record<RecyclingPriceUnit, number> = {
-  kg: 2, khid: 3, g: 5, piece: 2, carton: 2
+  kg: 2, khid: 3, g: 5, piece: 2, carton: 2, vehicle: 2, set: 2, unit: 2, machine: 2, cabinet: 2
 };
 const MAX_CENTS = 9_999_999_900n;
 
 export function isRecyclingPriceUnit(raw: unknown): raw is RecyclingPriceUnit {
-  return raw === "kg" || raw === "khid" || raw === "g" || raw === "piece" || raw === "carton";
+  return typeof raw === "string" && Object.prototype.hasOwnProperty.call(RECYCLING_PRICE_UNIT_LABELS, raw);
 }
 export function getRecyclingPriceBasis(unit: RecyclingPriceUnit): "kg" | "piece" {
-  return unit === "piece" || unit === "carton" ? "piece" : "kg";
+  return unit === "kg" || unit === "khid" || unit === "g" ? "kg" : "piece";
 }
 export function parseRecyclingUnitPrice(raw: unknown, unit: RecyclingPriceUnit): number | null {
   if (!isRecyclingPriceUnit(unit) || (typeof raw !== "number" && typeof raw !== "string")) return null;

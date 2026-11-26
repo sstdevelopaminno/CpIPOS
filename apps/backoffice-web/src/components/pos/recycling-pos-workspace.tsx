@@ -316,7 +316,7 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
         line.direction === direction && line.product.id === product.id &&
         line.unit === selectedUnit && line.unitPrice === price
       );
-      if (existing < 0 || selectedUnit !== "piece" && selectedUnit !== "carton") {
+      if (existing < 0 || product.priceBasis !== "piece") {
         return [...current, {
           key: nextKey.current, direction, product, unit: selectedUnit,
           quantity: selectedQuantity, basisQuantity: calculated.basisQuantity,
@@ -361,7 +361,7 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
     if (product.priceBasis === "piece") {
       // Barcode scanners terminate with Enter; a counted item has an exact
       // unambiguous quantity of one, so add immediately like ordinary POS.
-      addLineToCart(product, product.priceUnit === "carton" ? "carton" : "piece", 1, price);
+      addLineToCart(product, product.priceUnit, 1, price);
       scannerRef.current?.focus();
     } else {
       // Weighted materials require the actual scale reading. Never invent
@@ -974,7 +974,7 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
                 <strong className="block w-full text-right text-sm tabular-nums text-blue-800">
                   {price===null?"ยังไม่ตั้งราคา":formatMoney(price)+" ฿"}
                   <small className="block text-[11px] font-normal text-slate-500">
-                    /{item.priceBasis==="kg"?"กก.":item.priceUnit==="carton"?"ลัง":"ชิ้น"}
+                    /{item.priceBasis==="kg"?"กก.":RECYCLING_PRICE_UNIT_LABELS[item.priceUnit]}
                     {price!==null&&item.priceUnit!==item.priceBasis
                       ?" · "+formatRecyclingUnitPriceDisplay(price,item.priceUnit)+" ฿/"+RECYCLING_PRICE_UNIT_LABELS[item.priceUnit]:""}
                   </small>
@@ -1023,7 +1023,7 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
               <td className="px-3 py-3 text-slate-500">{index + 1}</td>
               <td className="px-3 py-3"><strong>{line.product.name}</strong><span className="block text-xs text-slate-500">{line.product.sku}</span></td>
               <td className="px-3 py-3 text-right">{line.quantity.toLocaleString("th-TH")} {recyclingUnitLabel(line.unit)}</td>
-              <td className="px-3 py-3 text-right">{formatMoney(line.unitPrice)} /{line.product.priceBasis === "kg" ? "กก." : line.product.priceUnit === "carton" ? "ลัง" : "ชิ้น"}</td>
+              <td className="px-3 py-3 text-right">{formatMoney(line.unitPrice)} /{line.product.priceBasis === "kg" ? "กก." : RECYCLING_PRICE_UNIT_LABELS[line.product.priceUnit]}</td>
               <td className="px-3 py-3 text-right font-extrabold">{formatMoney(line.total)}</td>
               <td className="px-3 py-3"><button type="button" disabled={posting || checkoutOpen} aria-label={`ลบ ${line.product.name}`}
                 className="rounded px-2 py-1 text-rose-700 hover:bg-rose-50"
@@ -1287,12 +1287,12 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
           className="mt-1 w-full rounded-lg border-2 border-blue-300 px-3 py-3 text-xl font-bold text-slate-900 focus:border-blue-700 focus:outline-none" />
         <div className="mt-4 rounded-lg bg-slate-50 p-3 text-sm">
           <div className="flex justify-between gap-2"><span>ราคาฐานที่ใช้คำนวณ</span>
-            <strong>{selectedPrice === null ? "—" : formatMoney(selectedPrice)} ฿ /{pending.priceBasis === "kg" ? "กก." : pending.priceUnit === "carton" ? "ลัง" : "ชิ้น"}</strong></div>
+            <strong>{selectedPrice === null ? "—" : formatMoney(selectedPrice)} ฿ /{pending.priceBasis === "kg" ? "กก." : RECYCLING_PRICE_UNIT_LABELS[pending.priceUnit]}</strong></div>
           {selectedPrice !== null && pending.priceUnit !== pending.priceBasis && <p className="mt-1 text-xs text-blue-800">
             ราคาที่ตั้งในทะเบียน: {formatRecyclingUnitPriceDisplay(selectedPrice,pending.priceUnit)} บาท/{RECYCLING_PRICE_UNIT_LABELS[pending.priceUnit]} · ระบบแปลงเป็นหน่วยฐานแล้ว
           </p>}
           {preview && <div className="mt-2 flex justify-between gap-2 text-slate-600">
-            <span>จำนวนเทียบหน่วยราคา</span><span>{preview.basisQuantity.toLocaleString("th-TH", { maximumFractionDigits: 6 })} {pending.priceBasis === "kg" ? "กก." : pending.priceUnit === "carton" ? "ลัง" : "ชิ้น"}</span>
+            <span>จำนวนเทียบหน่วยราคา</span><span>{preview.basisQuantity.toLocaleString("th-TH", { maximumFractionDigits: 6 })} {pending.priceBasis === "kg" ? "กก." : RECYCLING_PRICE_UNIT_LABELS[pending.priceUnit]}</span>
           </div>}
           <div className="mt-3 flex justify-between border-t border-slate-200 pt-3 text-lg font-extrabold text-blue-900">
             <span>รวม</span><span>{preview ? formatMoney(preview.amount) : "—"} ฿</span>
