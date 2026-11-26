@@ -62,6 +62,7 @@ export async function loadRecyclingHistoryReport(scope:PosSessionScope,kind:Recy
   .order("created_at",{ascending:false}).order("id",{ascending:false}).range(0,MAX_TX);
  if(result.error)throw new Error("recycling_report_transactions_unavailable");
  if((result.count??0)>MAX_TX)throw new Error("recycling_report_narrow_period_required");
+ if(result.count===null||result.count!==(result.data??[]).length)throw new Error("recycling_report_transactions_incomplete");
  const transactions=(result.data??[]) as RecyclingTransaction[];
  const direction=["buy","sell"].includes(query.direction??"")?query.direction!:"all";
  const status=["posted","voided"].includes(query.status??"")?query.status!:"all";
