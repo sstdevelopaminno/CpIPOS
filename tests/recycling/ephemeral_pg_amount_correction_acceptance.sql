@@ -100,6 +100,18 @@ begin
   perform public.recycling_replace_eligible_bill(t,b,final_id,m,gen_random_uuid(),d,new_total,l,'Issued tax invoice must remain unchanged','pos',true,true);
   raise exception 'AMOUNT_ISSUED_VAT_ACCEPTED';
  exception when others then if sqlerrm not like '%recycling_amount_correction_tax_note_required%' then raise; end if; end;
+ -- Posting a replacement into GL uses the effective document date, not actual entry time.
+ result:=public.recycling_finance_post_transaction(t,b,new_id,a);
+ if not exists(select 1 from public.finance_accounting_documents doc join public.finance_accounting_journals j on j.id=doc.posted_journal_id
+  join public.recycling_transactions tx on tx.finance_document_id=doc.id
+  where tx.id=new_id and doc.document_date=(tx.effective_document_at at time zone 'Asia/Bangkok')::date
+  and j.accounting_date=doc.document_date and j.debit_total_minor=j.credit_total_minor and j.debit_total_minor=22650)
+ then raise exception 'AMOUNT_GL_DOCUMENT_DATE_FAILED'; end if;
+ select effective_document_at,total_minor into strict d,new_total from public.recycling_transactions where id=new_id;
+ begin
+  perform public.recycling_replace_eligible_bill(t,b,new_id,m,gen_random_uuid(),d,new_total,l,'Posted GL requires separate reversal','pos',true,true);
+  raise exception 'AMOUNT_POSTED_GL_ACCEPTED';
+ exception when others then if sqlerrm not like '%recycling_amount_correction_gl_reversal_required%' then raise; end if; end;
  if has_function_privilege('authenticated','public.recycling_replace_eligible_bill(uuid,uuid,uuid,uuid,uuid,timestamptz,bigint,jsonb,text,text,boolean,boolean)','execute') then raise exception 'AMOUNT_RPC_EXPOSED'; end if;
  raise notice 'PASS: atomic replacement, historical document date, stock/cost, VAT, balanced ledger delta, retry and rollback';
 end;
