@@ -132,6 +132,17 @@ begin
     if not found or v_stock.last_transaction_id is distinct from v_original.id then
       raise exception 'recycling_void_material_has_later_movement';
     end if;
+    -- A historical correction can change stock without replacing the last
+    -- movement ID. Never restore a pre-correction snapshot over that change.
+    -- The historical table is optional until its candidate is installed.
+    if pg_catalog.to_regclass('public.recycling_historical_corrections') is not null then
+      execute 'select count(*) from public.recycling_historical_corrections
+        where tenant_id=$1 and branch_id=$2 and product_id=$3 and recorded_at >= $4'
+        into v_count using p_tenant_id,p_branch_id,v_snapshot.product_id,v_original.created_at;
+      if v_count>0 then
+        raise exception 'recycling_void_historical_replay_required';
+      end if;
+    end if;
     update public.recycling_stock_balances set
       quantity_base=v_snapshot.stock_qty_before,
       carrying_cost_minor=v_snapshot.stock_cost_before_minor,
