@@ -231,6 +231,17 @@ export function WindowsNativePrintAgent() {
       nextPollAt = Date.now() + (urgent ? 0 : 150);
       timer = setTimeout(() => { void poll(); }, urgent ? 0 : 150);
     }
+    // Native host and local JS watchdog share the SAME serialized worker.
+    // Only wake a genuinely overdue timer, never release an in-flight spool.
+    function onWatchdogTick() {
+      if (stopped || inFlight || !navigator.onLine || nextPollAt === 0 ||
+          Date.now() - nextPollAt < 5_000) return;
+      if (timer) clearTimeout(timer);
+      nextPollAt = Date.now();
+      void poll();
+    }
+    const watchdogTimer = setInterval(onWatchdogTick, 10_000);
+    window.addEventListener("cpi-windows-native-watchdog", onWatchdogTick);
     function onVisibilityChange() {
       if (document.visibilityState === "visible") wake();
     }
@@ -261,6 +272,8 @@ export function WindowsNativePrintAgent() {
     void poll();
     return () => {
       stopped = true;
+      clearInterval(watchdogTimer);
+      window.removeEventListener("cpi-windows-native-watchdog", onWatchdogTick);
       window.removeEventListener("pointerdown", onCashierActivity);
       window.removeEventListener("keydown", onCashierActivity);
       window.removeEventListener("cpi-windows-fast-print-prime", primeFastPrint);
