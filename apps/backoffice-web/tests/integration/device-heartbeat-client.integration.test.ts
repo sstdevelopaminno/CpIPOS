@@ -4,7 +4,8 @@ import {
   detectSurface,
   executePendingActions,
   resolveDeviceCode,
-  resolveMachineId
+  resolveMachineId,
+  sendDeviceHeartbeat
 } from "@/lib/pos/device-heartbeat-client";
 
 const originalFetch = globalThis.fetch;
@@ -293,5 +294,60 @@ describe("Windows managed printer selection", () => {
     }]);
     expect(result[0].applied).toBe(false);
     expect(fetchSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe("Windows heartbeat connection deadlines", () => {
+  it("does not leave a hung loopback health request blocking future device snapshots", async () => {
+    vi.useFakeTimers();
+    try {
+      (globalThis as { window?: unknown }).window = {
+        CpIPOSWindowsRuntime: {
+          bridge_health_url: "http://127.0.0.1:3210/health",
+          native_bridge_version: "cpipos-windows-native-bridge-0.2.6"
+        }
+      };
+      globalThis.fetch = ((_url: string | URL | Request, init?: RequestInit) => new Promise<Response>((_, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")), { once: true });
+      })) as typeof fetch;
+      const request = buildHeartbeatPayload({
+        surface: "windows_runtime", deviceCode: "POS001", machineId: "win-test",
+        startedAt: Date.now(), reason: "interval"
+      });
+      await vi.advanceTimersByTimeAsync(5000);
+      const payload = await request;
+      expect(payload.runtime.local_bridge_online).toBe(false);
+      expect(payload.peripherals.selected_printer_valid).toBeNull();
+      expect(vi.getTimerCount()).toBe(0);
+
+      globalThis.fetch = (async () => ({
+        ok: true, json: async () => ({ ok: true, data: { resolved_printer: "POS-80C", selected_printer_valid: true } })
+      })) as typeof fetch;
+      const recovered = await buildHeartbeatPayload({
+        surface: "windows_runtime", deviceCode: "POS001", machineId: "win-test",
+        startedAt: Date.now(), reason: "interval"
+      });
+      expect(recovered.peripherals.selected_printer_valid).toBe(true);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally { vi.useRealTimers(); }
+  });
+
+  it("bounds stalled Windows heartbeat uploads without retrying commands", async () => {
+    vi.useFakeTimers();
+    try {
+      const payload = await buildHeartbeatPayload({
+        surface: "windows_runtime", deviceCode: "POS001", machineId: "win-test",
+        startedAt: Date.now(), reason: "interval"
+      });
+      const fetchMock = vi.fn((_url: string | URL | Request, init?: RequestInit) => new Promise<Response>((_, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")), { once: true });
+      }));
+      globalThis.fetch = fetchMock as typeof fetch;
+      const request = sendDeviceHeartbeat(payload);
+      await vi.advanceTimersByTimeAsync(12_000);
+      await expect(request).resolves.toEqual([]);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally { vi.useRealTimers(); }
   });
 });
