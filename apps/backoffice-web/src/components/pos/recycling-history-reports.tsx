@@ -7,7 +7,7 @@ import type { PosSessionScope } from "@/lib/pos-session-guard";
 import { loadRecyclingHistoryReport, type RecyclingReportKind, type RecyclingReportQuery } from "@/lib/server/recycling-history-reports";
 
 const titles:Record<RecyclingReportKind,string>={summary:"สรุปยอดรับซื้อ–ขายออก",receipts:"ทะเบียนใบรับซื้อ–ขายออกย้อนหลัง",products:"รายการวัสดุขายออก"};
-const unitNames:Record<string,string>={kg:"กก.",khid:"ขีด",g:"กรัม",ton:"ตัน",piece:"ชิ้น",stem:"ต้น",carton:"ลัง"};
+const unitNames:Record<string,string>={kg:"กก.",khid:"ขีด",g:"กรัม",ton:"ตัน",piece:"ชิ้น",stem:"ต้น",carton:"ลัง",vehicle:"คัน",set:"ชุด",unit:"ตัว",machine:"เครื่อง",cabinet:"ตู้"};
 const btn="inline-flex min-h-10 items-center justify-center rounded-lg border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50";
 const minor=(value:number)=>formatRecyclingMoney(Number(value)/100);
 const when=(value:string|null)=>value?new Date(value).toLocaleString("th-TH",{timeZone:"Asia/Bangkok",day:"2-digit",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit"}):"—";
@@ -95,7 +95,7 @@ export async function RecyclingHistoryReports({scope,kind,search}:{
          <td className="px-3 py-3">{when(t.created_at)}</td><td className="px-3 py-3">{t.receipt_no}</td>
          <td className="px-3 py-3">{l.name_snapshot}<span className="block text-xs text-slate-500">{l.sku_snapshot}</span></td>
          <td className="px-3 py-3">{Number(l.original_quantity).toLocaleString("th-TH",{maximumFractionDigits:6})} {unitNames[l.original_unit]??l.original_unit}</td>
-         <td className="px-3 py-3">{formatRecyclingMoney(l.price_per_base)} บาท/{l.original_unit==="carton"?"ลัง":unitNames[l.base_unit]??l.base_unit}</td>
+         <td className="px-3 py-3">{formatRecyclingMoney(l.price_per_base)} บาท/{l.base_unit==="piece"?(unitNames[l.original_unit]??l.original_unit):(unitNames[l.base_unit]??l.base_unit)}</td>
          <td className="px-3 py-3">{minor(Number(l.amount_minor))}</td><td className="px-3 py-3">{branchNames.get(t.branch_id)}</td>
          <td className="px-3 py-3">{t.status==="voided"?"VOID":"ขายออก"}</td>
          <td className="px-3 py-3">{t.branch_id===report.sessionBranchId
