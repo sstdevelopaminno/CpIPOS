@@ -128,7 +128,7 @@ export async function queueRoutedRecyclingReceipt(args: {
   const db = getSupabaseServiceClient();
   const [tx, lines, tenant, branch] = await Promise.all([
     db.from("recycling_transactions")
-      .select("id,receipt_no,direction,settlement,counterparty_name,total_minor,base_minor,vat_minor,tax_state,status,void_reason,created_at")
+      .select(process.env.RECYCLING_MANUAL_DOCUMENT_TIME_ENABLED==="1"?"id,receipt_no,direction,settlement,counterparty_name,total_minor,base_minor,vat_minor,tax_state,status,void_reason,created_at:effective_document_at":"id,receipt_no,direction,settlement,counterparty_name,total_minor,base_minor,vat_minor,tax_state,status,void_reason,created_at")
       .eq("id",args.transactionId).eq("tenant_id",args.auth.tenantId).eq("branch_id",args.auth.branchId).maybeSingle(),
     db.from("recycling_transaction_lines")
       .select("line_no,sku_snapshot,name_snapshot,original_quantity,original_unit,base_unit,price_per_base,amount_minor")
