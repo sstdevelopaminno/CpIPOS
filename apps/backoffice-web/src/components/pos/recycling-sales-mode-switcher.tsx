@@ -23,7 +23,7 @@ function RecyclingModeIcon() {
  */
 export function RecyclingSalesModeSwitcher({
   storeName, branchName, deviceCode, generalSaleEnabled, sellerName, shiftStatus,
-  direction, onDirectionChange, onOpenHeldBills, heldCount, busy
+  direction, onDirectionChange, onOpenHeldBills, heldCount, busy, fixedDocumentTime
 }: {
   storeName: string;
   branchName: string;
@@ -36,6 +36,7 @@ export function RecyclingSalesModeSwitcher({
   onOpenHeldBills: () => void;
   heldCount: number;
   busy: boolean;
+  fixedDocumentTime?: string | null;
 }) {
   const [open, setOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
@@ -105,7 +106,7 @@ export function RecyclingSalesModeSwitcher({
           <section className="posui-sales-meta-card" aria-label="ข้อมูลหน้าขาย">
             <PosSalesMetaDetails sellerName={sellerName} shiftStatus={shiftStatus}
               branchName={branchName} deviceCode={deviceCode}
-              labels={THAI_POS_SALES_META_LABELS}/>
+              labels={THAI_POS_SALES_META_LABELS} fixedDocumentTime={fixedDocumentTime}/>
           </section>
         </div>}
       </div>
