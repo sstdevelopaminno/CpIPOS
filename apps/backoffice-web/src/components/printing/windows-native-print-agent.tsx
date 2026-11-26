@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { withWindowsAgentDeadline } from "@/lib/printing/windows-agent-request";
 import { hasLocalWindowsPrintBridge, openWindowsCashDrawerJob, prewarmWindowsHtmlRenderer, printWindowsReceiptHtml } from "@/lib/printing/windows-local-printer-test";
 
 type Job = {
@@ -16,22 +17,27 @@ type Job = {
   text?: string | null;
   drawer?: { kickPin: 0 | 1; pulseOnMs: number; pulseOffMs: number } | null;
 };
-type Reply = { data?: { jobs?: Job[]; prewarm_fast_html?: boolean }; error?: { code?: string; message?: string } };
+type Reply = { data?: { jobs?: Job[]; prewarm_fast_html?: boolean; status?: string }; error?: { code?: string; message?: string } };
 const PRINTED_ATTEMPTS_LEDGER = "cpi_windows_native_agent_attempted_v1";
 const AGENT_ENDPOINT = "/api/pos/windows-print/agent";
 
 async function command(payload: Record<string, unknown>, signal?: AbortSignal) {
-  const response = await fetch(AGENT_ENDPOINT, {
-    method: "POST",
-    credentials: "same-origin",
-    headers: { "Content-Type": "application/json" },
-    cache: "no-store",
-    body: JSON.stringify(payload),
-    signal
-  });
-  const body = await response.json().catch(() => null) as Reply | null;
-  if (!response.ok || body?.error) throw new Error(body?.error?.code ?? `windows_agent_http_${response.status}`);
-  return body?.data ?? {};
+  return withWindowsAgentDeadline(async (requestSignal) => {
+    const response = await fetch(AGENT_ENDPOINT, {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      cache: "no-store",
+      body: JSON.stringify(payload),
+      signal: requestSignal
+    });
+    const body = await response.json() as Reply | null;
+    if (!response.ok || body?.error) throw new Error(body?.error?.code ?? `windows_agent_http_${response.status}`);
+    if (!body?.data || typeof body.data !== "object" || Array.isArray(body.data)) {
+      throw new Error("windows_agent_invalid_response");
+    }
+    return body.data;
+  }, signal);
 }
 
 function alreadyAttempted(jobId: string) {
@@ -73,6 +79,8 @@ export function WindowsNativePrintAgent() {
     // Do not run 5-second polls all day when the cashier station is idle:
     // only accelerate during a short, recently active cashier window.
     let fastPollingActiveUntil = 0;
+    let nextPollAt = 0;
+
     const abort = new AbortController();
 
     async function poll() {
@@ -85,6 +93,7 @@ export function WindowsNativePrintAgent() {
       try {
         const data = await command({ action: "claim" }, abort.signal);
         const response = data as { jobs?: Job[]; prewarm_fast_html?: boolean; fast_idle_poll_ms?: number | null };
+        if (!Array.isArray(response.jobs)) throw new Error("windows_agent_invalid_claim");
         enrolledFastPrinter = response.prewarm_fast_html === true;
         authenticatedFastIdlePollMs = response.fast_idle_poll_ms === 5000 ? 5000 : null;
         // Only prewarm when the authenticated claim identifies a printer
@@ -117,6 +126,7 @@ export function WindowsNativePrintAgent() {
               }, abort.signal);
               return;
             }
+            let spoolAccepted = false;
             try {
               const spool = job.kind === "cash_drawer"
                 ? await openWindowsCashDrawerJob(job.drawer)
@@ -129,16 +139,21 @@ export function WindowsNativePrintAgent() {
                       fastHtml: job.fast_html === true
                     })
                   : (() => { throw new Error("windows_job_payload_invalid"); })();
-              await command({
+              spoolAccepted = true;
+              const acknowledgement = await command({
                 action: "ack", job_id: job.id, agent_attempt_id: job.agent_attempt_id,
                 provider_job_id: spool.spoolJobId
               }, abort.signal);
+              if (acknowledgement.status !== "printed") throw new Error("windows_agent_ack_unconfirmed");
               if (job.kind === "html" && job.sale_receipt && job.order_no) {
                 window.dispatchEvent(new CustomEvent("cpi-windows-print-agent-result", {
                   detail: { orderNo: job.order_no, status: "spooled" }
                 }));
               }
             } catch (error) {
+              // A lost ACK is not a failed physical submission. Never send fail
+              // or replay after the bridge accepted the spool job.
+              if (spoolAccepted) throw error;
               await command({
                 action: "fail", job_id: job.id, agent_attempt_id: job.agent_attempt_id,
                 error_code: "windows_spool_failed_or_unknown",
@@ -159,10 +174,11 @@ export function WindowsNativePrintAgent() {
         // No automatic retries of a claimed print; a later poll only claims a
         // different fresh job. On disconnect, the lease expires and server
         // rejects jobs too old for safe automatic printing.
-        if (!stopped && !(error instanceof DOMException && error.name === "AbortError")) {
+        if (!stopped) {
           console.warn("[windows-print-agent] unavailable", error instanceof Error ? error.message : "unknown");
         }
-        nextMs = Date.now() < priorityPollUntil ? 1_500 : 15_000;
+        priorityPollUntil = 0;
+        nextMs = 15_000;
       } finally {
         inFlight = false;
         if (!stopped) {
@@ -177,6 +193,7 @@ export function WindowsNativePrintAgent() {
           const waitMs = urgentWakePending ? 0 : nextMs;
           urgentWakePending = false;
           if (timer) clearTimeout(timer);
+          nextPollAt = Date.now() + waitMs;
           timer = setTimeout(() => { void poll(); }, waitMs);
         }
       }
@@ -201,6 +218,7 @@ export function WindowsNativePrintAgent() {
         return;
       }
       if (timer) clearTimeout(timer);
+      nextPollAt = Date.now() + (urgent ? 0 : 150);
       timer = setTimeout(() => { void poll(); }, urgent ? 0 : 150);
     }
     function onVisibilityChange() {
@@ -215,6 +233,12 @@ export function WindowsNativePrintAgent() {
     }
     function onCashierActivity() {
       fastPollingActiveUntil = Date.now() + 120_000;
+      // An idle 30s timer may already be armed. Shorten it on actual cashier
+      // activity only for an authenticated, enrolled foreground printer.
+      if (!inFlight && enrolledFastPrinter && authenticatedFastIdlePollMs === 5000 &&
+          document.visibilityState === "visible" && nextPollAt - Date.now() > 5000) {
+        wake();
+      }
     }
     window.addEventListener("pointerdown", onCashierActivity, { passive: true });
     window.addEventListener("keydown", onCashierActivity);

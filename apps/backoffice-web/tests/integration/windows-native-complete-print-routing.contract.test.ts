@@ -184,3 +184,26 @@ describe("Windows local POS printing: sale, reprint, kitchen, shift, notices and
     expect(local).toContain("window.location.origin");
   });
 });
+
+describe("Windows agent connection recovery safeguards", () => {
+  it("bounds HTTP operations without cancelling or repeating the physical spool call", () => {
+    const worker = read("src/components/printing/windows-native-print-agent.tsx");
+    expect(worker).toContain("return withWindowsAgentDeadline(async (requestSignal)");
+    expect(worker).toContain("signal: requestSignal");
+    expect(worker).toContain("windows_agent_invalid_response");
+    expect(worker).toContain("windows_agent_invalid_claim");
+    expect(worker).toContain("if (spoolAccepted) throw error;");
+    expect(worker).toContain('acknowledgement.status !== "printed"');
+    expect(worker.indexOf("spoolAccepted = true;")).toBeLessThan(worker.indexOf('action: "ack"'));
+    expect(worker).toContain("if (stopped || inFlight) return;");
+  });
+
+  it("shortens a previously scheduled idle timer on enrolled foreground cashier activity", () => {
+    const worker = read("src/components/printing/windows-native-print-agent.tsx");
+    expect(worker).toContain("nextPollAt = Date.now() + waitMs");
+    expect(worker).toContain("!inFlight && enrolledFastPrinter && authenticatedFastIdlePollMs === 5000");
+    expect(worker).toContain('document.visibilityState === "visible" && nextPollAt - Date.now() > 5000');
+    expect(worker).toContain("priorityPollUntil = 0;");
+    expect(worker).toContain("nextMs = 15_000;");
+  });
+});
