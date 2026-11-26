@@ -3,6 +3,7 @@ import { PosGuardError, requirePermission, requirePosSession } from "@/lib/pos-s
 import { isAuthorizedRecyclingTenant } from "@/lib/server/recycling-pos-service";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 import { resolvePrinterRoutes } from "@/lib/printing/printer-routing-service";
+import {resolveCustomReceiptVisibility} from "@/lib/server/custom-receipt-layout-service";
 import { renderRecyclingSharedReceipt } from "@/lib/printing/recycling-receipt-print-service";
 import { loadReceiptStoreProfile } from "@/lib/services/store-profile-service";
 import { loadTaxSettings } from "@/lib/services/pos-settings-service";
@@ -78,7 +79,9 @@ export async function GET(request:Request,{params}:{params:Promise<{id:string}>}
         if(routes[0]?.printer.paper_width_mm===58)width=58;
       }catch{ /* preview remains available even without a local printer */ }
     }
+    const visibility=await resolveCustomReceiptVisibility(tenantId,branchId,profile?.metadata,"recycling");
     const html=renderRecyclingSharedReceipt({
+      visibility,
       width,shop:tenant.data?.display_name||tenant.data?.name||
         profile?.display_name||profile?.name||"ร้านค้าวัสดุรีไซเคิล",
       branch:branch.data?.name||"สาขา",receiptNo:tx.data.receipt_no,

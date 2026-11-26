@@ -3,6 +3,7 @@ import {isAuthorizedRecyclingTenant} from "@/lib/server/recycling-pos-service";
 import {loadRecyclingHistoryReport} from "@/lib/server/recycling-history-reports";
 import {getSupabaseServiceClient} from "@/lib/supabase-admin";
 import {loadReceiptStoreProfile} from "@/lib/services/store-profile-service";
+import {resolveCustomReceiptVisibility} from "@/lib/server/custom-receipt-layout-service";
 import {renderRecyclingSharedReceipt} from "@/lib/printing/recycling-receipt-print-service";
 import {composeRecyclingBatchReceipts,isRecyclingBatchPaper} from "@/lib/printing/recycling-batch-receipt-html";
 export const dynamic="force-dynamic";
@@ -24,6 +25,7 @@ export async function GET(request:Request){
   const branches=new Map(report.branchOptions.map(b=>[b.id,b.name]));
   const [tenant,profile]=await Promise.all([db.from("tenants").select("name,display_name").eq("id",tenantId).maybeSingle(),loadReceiptStoreProfile(tenantId)]);
   if(tenant.error||!tenant.data)return fail(503,"อ่านข้อมูลร้านไม่สำเร็จ");
+  const visibilityByBranch=new Map(await Promise.all([...new Set(txs.map(t=>t.branch_id))].map(async b=>[b,await resolveCustomReceiptVisibility(tenantId,b,profile?.metadata,"recycling")] as const)));
   const html:string[]=[];let chars=0,lineCount=0;
   // Each receipt has at most 100 lines. Small batches avoid PostgREST row cap.
   for(let i=0;i<txs.length;i+=8){
@@ -40,7 +42,7 @@ export async function GET(request:Request){
     if(!fresh||!branches.has(t.branch_id)||fresh.status!==t.status||fresh.created_at!==t.created_at||Number(fresh.total_minor)!==Number(t.total_minor)||fresh.base_minor!==t.base_minor||fresh.vat_minor!==t.vat_minor||fresh.tax_state!==t.tax_state||!items.length)return fail(409,"ข้อมูลบิลเปลี่ยนหรือไม่ครบ กรุณาคัดกรองใหม่");
     const total=Number(t.total_minor),base=Number(t.base_minor??total),vat=Number(t.vat_minor??0);
     if(!Number.isSafeInteger(total)||!Number.isSafeInteger(base)||!Number.isSafeInteger(vat)||base<0||vat<0||base+vat!==total||(t.direction==="buy"&&vat!==0)||(t.tax_state!=="vat_recorded"&&vat!==0)||items.some(l=>!Number.isSafeInteger(Number(l.amount_minor))||Number(l.amount_minor)<0)||items.reduce((s,l)=>s+Number(l.amount_minor),0)!==base)return fail(409,"ยอดบิลและรายละเอียดวัสดุไม่ตรงกัน จึงยังไม่พิมพ์ทั้งชุด");
-    const receipt=renderRecyclingSharedReceipt({width:paper==="58"?58:80,shop:tenant.data.display_name||tenant.data.name||profile?.display_name||profile?.name||"ร้านวัสดุรีไซเคิล",branch:branches.get(t.branch_id)!,receiptNo:t.receipt_no,direction:t.direction,status:t.status,voidReason:fresh.void_reason,createdAt:t.created_at,counterparty:t.counterparty_name||"-",settlement:t.settlement,totalMinor:total,baseMinor:base,vatMinor:vat,taxState:t.tax_state,lines:items,storeAddress:profile?.company_address??null,storePhone:profile?.contact_phone??null,logoUrl:profile?.logo_url??null});
+    const receipt=renderRecyclingSharedReceipt({visibility:visibilityByBranch.get(t.branch_id),width:paper==="58"?58:80,shop:tenant.data.display_name||tenant.data.name||profile?.display_name||profile?.name||"ร้านวัสดุรีไซเคิล",branch:branches.get(t.branch_id)!,receiptNo:t.receipt_no,direction:t.direction,status:t.status,voidReason:fresh.void_reason,createdAt:t.created_at,counterparty:t.counterparty_name||"-",settlement:t.settlement,totalMinor:total,baseMinor:base,vatMinor:vat,taxState:t.tax_state,lines:items,storeAddress:profile?.company_address??null,storePhone:profile?.contact_phone??null,logoUrl:profile?.logo_url??null});
     chars+=receipt.length;if(chars>4000000)return fail(413,"เอกสารจำนวนมากเกินไป กรุณาลดช่วงวันที่");
     html.push(receipt);
    }

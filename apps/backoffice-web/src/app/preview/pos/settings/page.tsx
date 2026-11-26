@@ -69,7 +69,7 @@ export default async function PosLanguageSettingsPage() {
 
   return (
     <div className="h-full min-h-0 flex-1 bg-slate-50">
-      <PosSettingsWorkspace lang={lang} initialData={initialData} />
+      <PosSettingsWorkspace lang={lang} initialData={initialData} canManageReceiptLayout={canManageTableQr&&isCustom}/>
       {canManageTableQr ? <TableQrSettingsMenuPortal lang={lang} timelineEnabled={timelineEnabled} menuPolicy={settingsMenuPolicy} isCustom={isCustom} /> : null}
     </div>
   );

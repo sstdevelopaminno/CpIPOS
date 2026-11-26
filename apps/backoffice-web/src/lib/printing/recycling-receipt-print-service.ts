@@ -6,6 +6,8 @@ import { readEnv } from "@/lib/env";
 import { enqueuePrintJob, processPrintJob } from "@/lib/printing/print-service";
 import { resolvePrinterRoutes } from "@/lib/printing/printer-routing-service";
 import { loadReceiptStoreProfile } from "@/lib/services/store-profile-service";
+import {resolveCustomReceiptVisibility} from "@/lib/server/custom-receipt-layout-service";
+import {receiptDateText,type ReceiptVisibility} from "@/lib/printing/custom-receipt-layout";
 import { renderReceiptHtml } from "@/lib/printing/receipt-html-template";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 import { loadTaxSettings } from "@/lib/services/pos-settings-service";
@@ -31,6 +33,7 @@ const unitNames: Record<string,string> = { kg:"กก.",khid:"ขีด",g:"ก�
  * Only labels, weight units, settlement direction and VOID language differ. */
 export function renderRecyclingSharedReceipt(args: {
   width: 58 | 80;
+  visibility?:ReceiptVisibility;
   shop: string;
   branch: string;
   receiptNo: string;
@@ -71,6 +74,7 @@ export function renderRecyclingSharedReceipt(args: {
     : (isBuy ? "ใบเสร็จรับซื้อวัสดุรีไซเคิล" : "ใบเสร็จขายออกวัสดุรีไซเคิล");
   return renderReceiptHtml({
     paperWidthMm:args.width,
+    visibility:args.visibility,
     compactRecycling:true,
     centerThermalContent:args.centerOnPaper===true,
     thermalOffsetMm:args.thermalOffsetMm,
@@ -161,6 +165,7 @@ export async function queueRoutedRecyclingReceipt(args: {
   const date = new Intl.DateTimeFormat("th-TH",{
     timeZone:"Asia/Bangkok",dateStyle:"medium",timeStyle:"short"
   }).format(new Date(tx.data.created_at));
+  const visibility=await resolveCustomReceiptVisibility(args.auth.tenantId!,args.auth.branchId!,storeProfile?.metadata,"recycling");
   const routes = await resolvePrinterRoutes({
     auth:args.auth,purpose:"receipt",fallbackPurposes:["reprint"],
     runtimeDeviceCode:args.runtimeDeviceCode,legacyRole:"receipt"
@@ -193,7 +198,7 @@ export async function queueRoutedRecyclingReceipt(args: {
         Number.isFinite(rawPrintable) && rawPrintable>=56 && rawPrintable<=70
           ? rawPrintable : undefined;
       const html=renderRecyclingSharedReceipt({
-        width:route.printer.paper_width_mm,shop,branch:branchName,
+        width:route.printer.paper_width_mm,shop,branch:branchName,visibility,
         centerOnPaper,thermalOffsetMm,thermalPrintableWidthMm,
         receiptNo:tx.data.receipt_no,direction:tx.data.direction,
         status:tx.data.status,voidReason:tx.data.void_reason,
@@ -207,7 +212,8 @@ export async function queueRoutedRecyclingReceipt(args: {
         logoUrl:storeProfile?.logo_url??null,
         taxNotice
       });
-      const textReceipt = [shop,branchName,tx.data.receipt_no,date,
+      const when=visibility?receiptDateText(tx.data.created_at,visibility):date;
+      const textReceipt = [...(visibility?.shop===false?[]:[shop]),...(visibility?.branch===false?[]:[branchName]),...(visibility?.number===false?[]:[tx.data.receipt_no]),...(when?[when]:[]),
         ...(tx.data.status==="voided"
           ? ["ยกเลิก VOID — ห้ามใช้ยืนยันธุรกรรมที่ยังมีผล",tx.data.void_reason??""] : []),
         tx.data.direction==="buy"?"รับซื้อวัสดุรีไซเคิล":"ขายออกวัสดุรีไซเคิล",

@@ -6,6 +6,7 @@ import type { ReactNode } from "react";
 import { PosBackButton } from "@/components/pos-preview/pos-back-button";
 import type { Language } from "@/lib/i18n";
 import { LAO_RECEIPT_COPY } from "@/lib/printing/receipt-history-lao";
+import {receiptDateText,type ReceiptVisibility} from "@/lib/printing/custom-receipt-layout";
 import { parsePosItemNotes } from "@/lib/pos-item-notes";
 import type { OfficePaperSize } from "@/lib/printing/office-document-html";
 
@@ -67,7 +68,7 @@ type ReceiptRecord = {
 };
 
 type ReceiptPayload = {
-  branch: { id: string; name: string; store_profile?: ReceiptStoreProfile | null };
+  branch: { id: string; name: string; store_profile?: ReceiptStoreProfile | null; receipt_visibility?:ReceiptVisibility };
   range: { label: string };
   records: ReceiptRecord[];
   currencyCode: "THB" | "LAK" | "USD";
@@ -272,6 +273,7 @@ function buildReceiptPrintHtml(args: {
   record: ReceiptRecord;
   branchName: string;
   storeProfile?: ReceiptStoreProfile | null;
+  visibility?:ReceiptVisibility;
   lang: Language;
   autoPrint?: boolean;
   paperWidthMm?: 58 | 80;
@@ -281,6 +283,8 @@ function buildReceiptPrintHtml(args: {
   const formatMoneyPlain = (value: number) => new Intl.NumberFormat("en-US", { minimumFractionDigits: record.currencyCode === "LAK" ? 0 : 2, maximumFractionDigits: record.currencyCode === "LAK" ? 0 : 2 }).format(value);
   const formatSignedMoneyPlain = (amount: number) => `${amount < 0 ? "-" : "+"}${currencySymbol}${formatMoneyPlain(Math.abs(amount))}`;
   const storeProfile = args.storeProfile ?? null;
+  const v=args.visibility;
+  const when=v?receiptDateText(record.createdAt,v,lang):formatDateTime(record.createdAt,lang);
   const storeName = String(storeProfile?.display_name ?? storeProfile?.name ?? "").trim() || (lang === "th" ? "ร้านค้า" : "Store");
   const storeAddress = String(storeProfile?.company_address ?? "").trim();
   const storePhone = String(storeProfile?.contact_phone ?? "").trim();
@@ -420,19 +424,19 @@ function buildReceiptPrintHtml(args: {
 </head>
 <body>
   <main class="receipt58">
-    <div class="logo-wrap"><img src="${escapeHtml(logoUrl)}" alt="receipt logo" /></div>
-    <div class="head-title">${escapeHtml(storeName)}</div>
-    ${storeAddressLine}
-    ${storePhoneLine}
-    <div class="muted">${escapeHtml(branchName)}</div>
+    ${v?.logo===false?"":`<div class="logo-wrap"><img src="${escapeHtml(logoUrl)}" alt="receipt logo" /></div>`}
+    ${v?.shop===false?"":`<div class="head-title">${escapeHtml(storeName)}</div>`}
+    ${v?.address===false?"":storeAddressLine}
+    ${v?.phone===false?"":storePhoneLine}
+    ${v?.branch===false?"":`<div class="muted">${escapeHtml(branchName)}</div>`}
     <div class="hr"></div>
-    <div class="meta-line"><span>${escapeHtml(labels.seller)}</span><span>${escapeHtml(record.sellerName)}</span></div>
+    ${v?.seller===false?"":`<div class="meta-line"><span>${escapeHtml(labels.seller)}</span><span>${escapeHtml(record.sellerName)}</span></div>`}
     <div class="meta-line"><span>${escapeHtml(labels.shift)}</span><span>${escapeHtml(statusLabel(record.status, lang))}</span></div>
-    <div class="meta-line"><span>${escapeHtml(labels.mode)}</span><span>${escapeHtml(orderTypeLabel(record.orderType, lang))}</span></div>
-    <div class="meta-line"><span>${escapeHtml(labels.billNo)}</span><span>${escapeHtml(record.orderNo)}</span></div>
+    ${v?.mode===false?"":`<div class="meta-line"><span>${escapeHtml(labels.mode)}</span><span>${escapeHtml(orderTypeLabel(record.orderType, lang))}</span></div>`}
+    ${v?.number===false?"":`<div class="meta-line"><span>${escapeHtml(labels.billNo)}</span><span>${escapeHtml(record.orderNo)}</span></div>`}
     ${externalOrderCodeMeta}
     ${receiptMemberMeta}
-    <div class="meta-line"><span>${escapeHtml(labels.date)}</span><span>${escapeHtml(formatDateTime(record.createdAt, lang))}</span></div>
+    ${when?`<div class="meta-line"><span>${escapeHtml(v?.date===false?(lang==="th"?"เวลา":lang==="lo"?"ເວລາ":"Time"):labels.date)}</span><span>${escapeHtml(when)}</span></div>`:""}
     ${record.currencyCode==="UNKNOWN"?`<p style="font-size:10px;font-weight:bold;border:1px dashed #a16207;padding:4px">${escapeHtml(lang==="lo"?"ບິນເກົ່າ: ບໍ່ລະບຸສະກຸນເງິນ":lang==="th"?"บิลเก่า: ยังไม่ยืนยันสกุลเงิน":"Historical bill: currency not recorded")}</p>`:""}
     <div class="hr"></div>
     <table><tbody>${itemRows}</tbody></table>
@@ -443,7 +447,7 @@ function buildReceiptPrintHtml(args: {
     <div class="summary-line grand"><span>${escapeHtml(labels.totalDue)}</span><strong>${currencySymbol}${escapeHtml(formatMoneyPlain(record.totalAmount))}</strong></div>
     ${cashSummaryLines}
     <div class="hr"></div>
-    <div class="foot">CpIPOS</div>
+    ${v?.footer===false?"":`<div class="foot">CpIPOS</div>`}
   </main>
   ${autoPrintScript}
 </body>
@@ -653,6 +657,7 @@ export function PosReceiptsWorkspace({ lang, opticalMode = false }: { lang: Lang
       record,
       branchName: payload?.branch.name ?? "-",
       storeProfile: payload?.branch.store_profile ?? null,
+        visibility: payload?.branch.receipt_visibility,
       lang,
       paperWidthMm: width,
       autoPrint: true
@@ -686,6 +691,7 @@ export function PosReceiptsWorkspace({ lang, opticalMode = false }: { lang: Lang
         record: reprint.order,
         branchName: payload?.branch.name ?? "-",
         storeProfile: payload?.branch.store_profile ?? null,
+        visibility: payload?.branch.receipt_visibility,
         lang,
         paperWidthMm: reprint.paper === "80" ? 80 : 58
       });
@@ -963,6 +969,7 @@ export function PosReceiptsWorkspace({ lang, opticalMode = false }: { lang: Lang
                     record: selected,
                     branchName: payload?.branch.name ?? "-",
                     storeProfile: payload?.branch.store_profile ?? null,
+        visibility: payload?.branch.receipt_visibility,
                     lang
                   })}
                   className="h-[min(68dvh,660px)] w-[58mm] max-w-full border-0 bg-white"
