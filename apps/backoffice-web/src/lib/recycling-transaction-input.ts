@@ -1,3 +1,4 @@
+import {isCustomRecyclingUnit} from "@/lib/recycling-price-units";
 type TxLine = {
   product_id: string;
   unit: string;
@@ -13,7 +14,7 @@ export function readLine(value: unknown): TxLine | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const line = value as Record<string, unknown>;
   if (typeof line.product_id !== "string" || !UUID.test(line.product_id) ||
-      typeof line.unit !== "string" || !VALID_UNITS.has(line.unit)) return null;
+      typeof line.unit !== "string" || (!VALID_UNITS.has(line.unit)&&!isCustomRecyclingUnit(line.unit))) return null;
   // Do not coerce null, booleans, arrays, objects, or non-decimal strings.
   const qty = readDecimal(line.quantity, /^\d{1,10}(\.\d{1,6})?$/);
   const price = readDecimal(line.expected_price, MONEY_PATTERN);

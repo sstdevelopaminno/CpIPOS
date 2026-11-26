@@ -1,3 +1,4 @@
+import {priceUnitLabel} from "@/lib/recycling-price-units";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { RecyclingPrintReceiptButton } from "@/components/pos/recycling-print-receipt-button";
@@ -113,11 +114,11 @@ export default async function RecyclingReceiptPage({
           <td className="py-2">
             <div className="font-bold">{line.name_snapshot}</div>
             <div className="text-[10px]">รหัส {line.sku_snapshot}</div>
-            <div>{quantity(Number(line.original_quantity))} {units[line.original_unit] ?? line.original_unit}</div>
+            <div>{quantity(Number(line.original_quantity))} {units[line.original_unit] ?? priceUnitLabel(line.original_unit)}</div>
           </td>
           <td className="py-2 text-right">
             {money(Math.round(Number(line.price_per_base)*100))}
-            <div className="text-[10px]">/{line.base_unit === "kg" ? "กก." : ({piece:"ชิ้น",stem:"ต้น",carton:"ลัง",vehicle:"คัน",set:"ชุด",unit:"ตัว",machine:"เครื่อง",cabinet:"ตู้"} as Record<string,string>)[line.original_unit] ?? line.original_unit}</div>
+            <div className="text-[10px]">/{line.base_unit === "kg" ? "กก." : units[line.original_unit] ?? priceUnitLabel(line.original_unit)}</div>
           </td>
           <td className="py-2 text-right font-semibold">{money(Number(line.amount_minor))}</td>
         </tr>)}</tbody>

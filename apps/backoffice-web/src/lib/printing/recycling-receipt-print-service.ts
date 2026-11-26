@@ -1,3 +1,4 @@
+import {priceUnitLabel} from "@/lib/recycling-price-units";
 import "server-only";
 
 import type { AuthContext } from "@/lib/auth-context";
@@ -91,9 +92,9 @@ export function renderRecyclingSharedReceipt(args: {
       name:line.name_snapshot,
       sku:line.sku_snapshot,
       quantity:Number(line.original_quantity),
-      quantityDisplay:`${line.original_quantity} ${unitNames[line.original_unit] ?? line.original_unit}`,
+      quantityDisplay:`${line.original_quantity} ${(unitNames[line.original_unit]??priceUnitLabel(line.original_unit))}`,
       unitPrice:Number(line.price_per_base),
-      unitPriceSuffix:`/${line.base_unit === "kg" ? "กก." : unitNames[line.original_unit] ?? line.original_unit}`,
+      unitPriceSuffix:`/${line.base_unit === "kg" ? "กก." : (unitNames[line.original_unit]??priceUnitLabel(line.original_unit))}`,
       lineTotal:Number(line.amount_minor) / 100
     })),
     discountAmount:0,
@@ -213,7 +214,7 @@ export async function queueRoutedRecyclingReceipt(args: {
         tx.data.settlement==="credit"
           ? "เครดิต/ค้างชำระ — ยังไม่มีการรับหรือจ่ายเงินจริง"
           : tx.data.settlement==="cash" ? "วิธีชำระเงิน: เงินสด" : "วิธีชำระเงิน: โอนเงิน (ตรวจสอบหลักฐาน)",
-        ...lines.data.map(l=>`${l.name_snapshot} ${l.original_quantity} ${unitNames[l.original_unit]??l.original_unit} ${thaiMoney(Number(l.amount_minor))}`),
+        ...lines.data.map(l=>`${l.name_snapshot} ${l.original_quantity} ${(unitNames[l.original_unit]??priceUnitLabel(l.original_unit))} ${thaiMoney(Number(l.amount_minor))}`),
         ...(tx.data.tax_state==="vat_recorded"?[
           `ยอดก่อน VAT ${thaiMoney(base)} บาท`,
           `VAT 7% ${thaiMoney(vat)} บาท`

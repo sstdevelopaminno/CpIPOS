@@ -1,3 +1,4 @@
+import {isCustomRecyclingUnit,type RecyclingPriceUnit} from "@/lib/recycling-price-units";
 /**
  * Local, cashier-only held Recycling carts. Never mixes with ordinary POS held
  * bills, order tables or accounting. Each storage key is scoped by tenant,
@@ -5,7 +6,7 @@
  */
 export type HeldRecyclingLine={
   productId:string;
-  unit:"kg"|"khid"|"g"|"ton"|"piece"|"stem"|"carton"|"vehicle"|"set"|"unit"|"machine"|"cabinet";
+  unit:RecyclingPriceUnit|"ton"|"stem";
   quantity:number;
   unitPrice:number;
 };
@@ -37,7 +38,7 @@ export function parseRecyclingHeldBills(value:string|null,shiftId:string):HeldRe
         Array.isArray(v.lines)&&v.lines.length>0&&v.lines.length<=100&&
         v.lines.every(line=>line&&typeof line==="object"&&
           typeof line.productId==="string"&&uuid.test(line.productId)&&
-          validUnits.has(line.unit)&&Number.isFinite(line.quantity)&&line.quantity>0&&
+          (validUnits.has(line.unit)||isCustomRecyclingUnit(line.unit))&&Number.isFinite(line.quantity)&&line.quantity>0&&
           Number.isFinite(line.unitPrice)&&line.unitPrice>=0);
     }).slice(0,30);
   }catch{return [];}

@@ -1,3 +1,4 @@
+import {priceUnitLabel} from "@/lib/recycling-price-units";
 import { RecyclingSummaryPrintButton } from "@/components/pos/recycling-summary-print-button";
 import { formatRecyclingMoney } from "@/lib/recycling-money-display";
 import { RecyclingSummaryWorkspace } from "@/components/pos/recycling-summary-workspace";
@@ -94,8 +95,8 @@ export async function RecyclingHistoryReports({scope,kind,search}:{
        return <tr key={l.id} className="border-t border-slate-100">
          <td className="px-3 py-3">{when(t.created_at)}</td><td className="px-3 py-3">{t.receipt_no}</td>
          <td className="px-3 py-3">{l.name_snapshot}<span className="block text-xs text-slate-500">{l.sku_snapshot}</span></td>
-         <td className="px-3 py-3">{Number(l.original_quantity).toLocaleString("th-TH",{maximumFractionDigits:6})} {unitNames[l.original_unit]??l.original_unit}</td>
-         <td className="px-3 py-3">{formatRecyclingMoney(l.price_per_base)} บาท/{l.base_unit==="piece"?(unitNames[l.original_unit]??l.original_unit):(unitNames[l.base_unit]??l.base_unit)}</td>
+         <td className="px-3 py-3">{Number(l.original_quantity).toLocaleString("th-TH",{maximumFractionDigits:6})} {(unitNames[l.original_unit]??priceUnitLabel(l.original_unit))}</td>
+         <td className="px-3 py-3">{formatRecyclingMoney(l.price_per_base)} บาท/{l.base_unit==="piece"?((unitNames[l.original_unit]??priceUnitLabel(l.original_unit))):((unitNames[l.base_unit]??priceUnitLabel(l.base_unit)))}</td>
          <td className="px-3 py-3">{minor(Number(l.amount_minor))}</td><td className="px-3 py-3">{branchNames.get(t.branch_id)}</td>
          <td className="px-3 py-3">{t.status==="voided"?"VOID":"ขายออก"}</td>
          <td className="px-3 py-3">{t.branch_id===report.sessionBranchId
