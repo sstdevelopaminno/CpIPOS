@@ -11,6 +11,8 @@ import type {
 import type { AuthContext } from "@/lib/auth-context";
 import { appendAuditLog } from "@/lib/audit-log";
 import { readEnv } from "@/lib/env";
+import {resolveCustomReceiptVisibility} from "@/lib/server/custom-receipt-layout-service";
+import {receiptDateText,type ReceiptVisibility} from "@/lib/printing/custom-receipt-layout";
 import { renderReceiptHtml } from "@/lib/printing/receipt-html-template";
 import { formatPosItemNotesForDisplay } from "@/lib/pos-item-notes";
 import { loadReceiptStoreProfile, type ReceiptStoreProfile } from "@/lib/services/store-profile-service";
@@ -277,7 +279,7 @@ function row(left: string, right: string, width: number): string {
   return `${safeLeft}${spaces}${right}`;
 }
 
-export function renderReceiptTemplate(template: ReceiptTemplate, paperWidthMm: 58 | 80): string {
+export function renderReceiptTemplate(template: ReceiptTemplate, paperWidthMm: 58 | 80, visibility?:ReceiptVisibility): string {
   const width = paperWidthMm === 58 ? 32 : 42;
   const header = receiptStoreHeader(template);
   const storeName = header.storeName;
@@ -288,19 +290,20 @@ export function renderReceiptTemplate(template: ReceiptTemplate, paperWidthMm: 5
   const paidAtText = Number.isNaN(paidAt.getTime())
     ? template.paid_at_iso.slice(0, 16).replace("T", " ")
     : new Intl.DateTimeFormat("th-TH", { dateStyle: "short", timeStyle: "medium", timeZone: "Asia/Bangkok" }).format(paidAt);
+  const when=visibility?receiptDateText(template.paid_at_iso,visibility,"th",true,true):paidAtText;
   const paymentLabel = template.payment_method === "cash" ? "\u0e40\u0e07\u0e34\u0e19\u0e2a\u0e14" : "\u0e42\u0e2d\u0e19\u0e40\u0e07\u0e34\u0e19";
   const modeLabel = normalizeText(template.mode_label) ?? "\u0e2b\u0e19\u0e49\u0e32\u0e23\u0e49\u0e32\u0e19";
   const memberLabel = normalizeText(template.member_label) ?? "0 \u0e04\u0e19 / 0 \u0e04\u0e30\u0e41\u0e19\u0e19";
   const lines = [
-    center(storeName, width),
-    ...(storePhone ? [center(storePhone, width)] : []),
-    ...(storeAddress ? [center(storeAddress.slice(0, width * 2), width)] : []),
+    ...(visibility?.shop===false?[]:[center(storeName, width)]),
+    ...(storePhone && visibility?.phone!==false ? [center(storePhone, width)] : []),
+    ...(storeAddress && visibility?.address!==false ? [center(storeAddress.slice(0, width * 2), width)] : []),
     line("-", width),
-    row("\u0e2a\u0e32\u0e02\u0e32", template.branch_name, width),
-    row("\u0e43\u0e1a\u0e40\u0e2a\u0e23\u0e47\u0e08\u0e40\u0e25\u0e02\u0e17\u0e35\u0e48", template.order_no, width),
-    row("\u0e27\u0e31\u0e19\u0e17\u0e35\u0e48", paidAtText, width),
-    row("ผู้ขาย", sellerName, width),
-    row("\u0e1b\u0e23\u0e30\u0e40\u0e20\u0e17", modeLabel, width),
+    ...(visibility?.branch===false?[]:[row("\u0e2a\u0e32\u0e02\u0e32", template.branch_name, width)]),
+    ...(visibility?.number===false?[]:[row("\u0e43\u0e1a\u0e40\u0e2a\u0e23\u0e47\u0e08\u0e40\u0e25\u0e02\u0e17\u0e35\u0e48", template.order_no, width)]),
+    ...(when?[row(visibility?.date===false?"เวลา":"วันที่",when,width)]:[]),
+    ...(visibility?.seller===false?[]:[row("ผู้ขาย", sellerName, width)]),
+    ...(visibility?.mode===false?[]:[row("\u0e1b\u0e23\u0e30\u0e40\u0e20\u0e17", modeLabel, width)]),
     row("\u0e2a\u0e21\u0e32\u0e0a\u0e34\u0e01", memberLabel, width),
     line("-", width)
   ];
@@ -331,7 +334,7 @@ export function renderReceiptTemplate(template: ReceiptTemplate, paperWidthMm: 5
     lines.push(template.note.slice(0, width));
   }
   lines.push(line("-", width));
-  lines.push(center("\u0e02\u0e2d\u0e1a\u0e04\u0e38\u0e13\u0e17\u0e35\u0e48\u0e43\u0e0a\u0e49\u0e1a\u0e23\u0e34\u0e01\u0e32\u0e23", width));
+  if(visibility?.footer!==false)lines.push(center("\u0e02\u0e2d\u0e1a\u0e04\u0e38\u0e13\u0e17\u0e35\u0e48\u0e43\u0e0a\u0e49\u0e1a\u0e23\u0e34\u0e01\u0e32\u0e23", width));
   lines.push("");
   return lines.join("\n");
 }
@@ -1217,6 +1220,7 @@ export async function enqueueOrderPrintJobs(args: {
   const { auth, orderId, orderNo, paymentMethod, input, includeKitchenTicket = false } = args;
   const queuedJobs: PrintJobRow[] = [];
   const storeProfile = await loadReceiptStoreProfile(auth.tenantId!);
+  const visibility=await resolveCustomReceiptVisibility(auth.tenantId!,auth.branchId!,storeProfile?.metadata,"shared");
   const branchName = await loadReceiptBranchName(auth, storeProfile?.display_name ?? storeProfile?.name);
   const sellerName = await loadReceiptSellerName(auth);
   const receiptPrinters = await getEnabledPrintersByRole(auth, "receipt");
@@ -1245,7 +1249,7 @@ export async function enqueueOrderPrintJobs(args: {
           payment_method: paymentMethod,
           note: input.notes
         },
-        printer.paper_width_mm
+        printer.paper_width_mm,visibility
       );
 
       const job = await enqueuePrintJob({
@@ -1282,7 +1286,7 @@ export async function enqueueOrderPrintJobs(args: {
             note: item.notes
           }))
         },
-        printer.paper_width_mm
+        printer.paper_width_mm,visibility
       );
 
       const job = await enqueuePrintJob({
@@ -1305,6 +1309,7 @@ export async function reprintOrderReceipt(auth: AuthContext, orderId: string, de
   const processJob = deps.processJob ?? processPrintJob;
   const supabase = getSupabaseServiceClient();
   const storeProfile = await loadReceiptStoreProfile(auth.tenantId!);
+  const visibility=await resolveCustomReceiptVisibility(auth.tenantId!,auth.branchId!,storeProfile?.metadata,"shared");
   const { data: failedRows, error: failedError } = await supabase
     .from("print_jobs")
     .select(
@@ -1429,7 +1434,7 @@ export async function reprintOrderReceipt(auth: AuthContext, orderId: string, de
         payment_method: paymentMethod as PaymentMethod,
         note: `Reprint for order ${orderRow.order_no}`
       },
-      printer.paper_width_mm
+      printer.paper_width_mm,visibility
     );
 
     const job = await enqueuePrintJob({
@@ -1444,6 +1449,7 @@ export async function reprintOrderReceipt(auth: AuthContext, orderId: string, de
         ...receiptStorePayload(storeProfile),
         payload_format: "receipt_html_v1",
         payload_html: renderReceiptHtml({
+          visibility,
           paperWidthMm: printer.paper_width_mm,
           currencyCode: "THB",
           languageCode: "th",
@@ -1501,6 +1507,7 @@ export async function enqueuePrintJobsForOrderSnapshot(args: {
   const { auth, order, items, paymentMethod, includeKitchenTicket } = args;
   const queuedJobs: PrintJobRow[] = [];
   const storeProfile = await loadReceiptStoreProfile(auth.tenantId!);
+  const visibility=await resolveCustomReceiptVisibility(auth.tenantId!,auth.branchId!,storeProfile?.metadata,"shared");
   const branchName = await loadReceiptBranchName(auth, storeProfile?.display_name ?? storeProfile?.name);
   const sellerName = await loadReceiptSellerName(auth);
   const receiptPrinters = await getEnabledPrintersByRole(auth, "receipt");
@@ -1528,7 +1535,7 @@ export async function enqueuePrintJobsForOrderSnapshot(args: {
         payment_method: paymentMethod,
         note: order.notes ?? undefined
       },
-      printer.paper_width_mm
+      printer.paper_width_mm,visibility
     );
 
     const job = await enqueuePrintJob({
@@ -1541,6 +1548,7 @@ export async function enqueuePrintJobsForOrderSnapshot(args: {
       metadata: {
         payload_format: "receipt_html_v1",
         payload_html: renderReceiptHtml({
+          visibility,
           paperWidthMm: printer.paper_width_mm,
           currencyCode: "THB",
           languageCode: "th",
@@ -1590,7 +1598,7 @@ export async function enqueuePrintJobsForOrderSnapshot(args: {
             note: item.note ?? undefined
           }))
         },
-        printer.paper_width_mm
+        printer.paper_width_mm,visibility
       );
 
       const job = await enqueuePrintJob({
@@ -1637,7 +1645,7 @@ export async function enqueueKitchenTicketForOrderSnapshot(args: {
           note: item.note ?? undefined
         }))
       },
-      printer.paper_width_mm
+      printer.paper_width_mm,visibility
     );
     const job = await enqueuePrintJob({
       auth,
