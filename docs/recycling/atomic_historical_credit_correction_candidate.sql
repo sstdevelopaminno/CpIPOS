@@ -15,7 +15,7 @@ create table public.recycling_tax_adjustment_notes(
  invoice_id uuid not null references public.recycling_tax_invoices(id),
  request_id uuid not null unique,note_no text not null,kind text not null check(kind in ('credit_note','debit_note')),
  issued_at timestamptz not null default clock_timestamp(),issued_by uuid not null,reason text not null,evidence_reference text not null,
- original_invoice_no text not null,seller_snapshot jsonb not null,buyer_snapshot jsonb not null,amount_snapshot jsonb not null,
+ original_invoice_no text not null,original_invoice_date date not null,note_date date not null,seller_snapshot jsonb not null,buyer_snapshot jsonb not null,amount_snapshot jsonb not null,
  unique(tenant_id,note_no)
 );
 create table public.recycling_tax_note_sequences(tenant_id uuid primary key,last_value bigint not null check(last_value>0));
@@ -112,16 +112,29 @@ begin
  end loop;
  if vat is not null and vat->>'type'<>'none' then
   insert into public.recycling_tax_note_sequences(tenant_id,last_value) values(p_tenant,1) on conflict(tenant_id) do update set last_value=public.recycling_tax_note_sequences.last_value+1 returning last_value into seq;
-  insert into public.recycling_tax_adjustment_notes(tenant_id,branch_id,invoice_id,request_id,note_no,kind,issued_by,reason,evidence_reference,original_invoice_no,seller_snapshot,buyer_snapshot,amount_snapshot)
-  values(p_tenant,p_branch,inv.id,p_request,(case when vat->>'type'='credit_note' then 'RCN-' else 'RDN-' end)||lpad(seq::text,8,'0'),vat->>'type',p_actor,btrim(p_reason),btrim(p_evidence),inv.invoice_no,inv.seller_snapshot,inv.buyer_snapshot,vat-'draft_only') returning id into note;
+  insert into public.recycling_tax_adjustment_notes(tenant_id,branch_id,invoice_id,request_id,note_no,kind,issued_by,reason,evidence_reference,original_invoice_no,original_invoice_date,note_date,seller_snapshot,buyer_snapshot,amount_snapshot)
+  values(p_tenant,p_branch,inv.id,p_request,(case when vat->>'type'='credit_note' then 'RCN-' else 'RDN-' end)||lpad(seq::text,8,'0'),vat->>'type',p_actor,btrim(p_reason),btrim(p_evidence),inv.invoice_no,(inv.issued_at at time zone 'Asia/Bangkok')::date,day,inv.seller_snapshot,inv.buyer_snapshot,vat-'draft_only') returning id into note;
  end if;
  update public.recycling_stock_balances set quantity_base=(replay->>'new_qty')::numeric,carrying_cost_minor=(replay->>'new_cost_minor')::bigint,updated_at=clock_timestamp()
  where tenant_id=p_tenant and branch_id=p_branch and product_id=l.product_id;
- outcome:=jsonb_build_object('applied',true,'idempotent',false,'original_id',p_tx,'new_total_minor',gross,'new_base_minor',base,'new_vat_minor',tax,'new_cogs_minor',cogs,'stock_replay',replay,'reversal_journal_id',reversal->>'journal_id','corrected_journal_id',j,'later_journals',adjustments,'tax_note_id',note);
+ outcome:=jsonb_build_object('applied',true,'idempotent',false,'original_id',p_tx,'new_total_minor',gross,'new_base_minor',base,'new_vat_minor',tax,'new_cogs_minor',cogs,'new_qty_base',p_new_qty,'new_price_per_base',p_new_price,'stock_replay',replay,'reversal_journal_id',reversal->>'journal_id','corrected_journal_id',j,'later_journals',adjustments,'tax_note_id',note);
  insert into public.recycling_historical_corrections(request_id,tenant_id,branch_id,transaction_id,product_id,actor_id,payload,result) values(p_request,p_tenant,p_branch,p_tx,l.product_id,p_actor,payload,outcome);
  return outcome;
 end;
 $fn$;
 -- No externally callable write path until effective readers, replay chain and settlement integration are complete.
 revoke all on function public.recycling_apply_historical_credit_correction(uuid,uuid,uuid,uuid,uuid,bigint,numeric,numeric,text,text,boolean) from public,anon,authenticated,service_role;
+-- Read-only scoped reconciliation projection for subsequent integration. No API grant.
+create view public.recycling_effective_historical_amounts with (security_invoker=true) as
+select t.tenant_id,t.branch_id,t.id,t.receipt_no,t.direction,t.status,t.effective_document_at,
+ coalesce((h.result->>'new_total_minor')::bigint,t.total_minor) total_minor,
+ coalesce((h.result->>'new_base_minor')::bigint,t.base_minor) base_minor,
+ coalesce((h.result->>'new_vat_minor')::bigint,t.vat_minor) vat_minor,
+ coalesce((h.result->>'new_cogs_minor')::bigint,t.cogs_minor)+coalesce(d.delta,0) cogs_minor,
+ h.request_id correction_request_id
+from public.recycling_transactions t
+left join public.recycling_historical_corrections h on h.tenant_id=t.tenant_id and h.branch_id=t.branch_id and h.transaction_id=t.id
+left join lateral (select sum((x->>'delta_minor')::bigint)::bigint delta from public.recycling_historical_corrections q cross join lateral jsonb_array_elements(q.result->'later_journals') x
+ where q.tenant_id=t.tenant_id and q.branch_id=t.branch_id and x->>'transaction_id'=t.id::text) d on true;
+revoke all on public.recycling_effective_historical_amounts from public,anon,authenticated,service_role;
 commit;
