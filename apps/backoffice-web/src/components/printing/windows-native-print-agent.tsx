@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 import { withWindowsAgentDeadline } from "@/lib/printing/windows-agent-request";
+import { confirmWindowsSpoolAck } from "@/lib/printing/windows-spool-ack-recovery";
 import { hasLocalWindowsPrintBridge, openWindowsCashDrawerJob, prewarmWindowsHtmlRenderer, printWindowsReceiptHtml } from "@/lib/printing/windows-local-printer-test";
 
 type Job = {
@@ -140,10 +141,13 @@ export function WindowsNativePrintAgent() {
                     })
                   : (() => { throw new Error("windows_job_payload_invalid"); })();
               spoolAccepted = true;
-              const acknowledgement = await command({
+              const ackPayload = {
                 action: "ack", job_id: job.id, agent_attempt_id: job.agent_attempt_id,
                 provider_job_id: spool.spoolJobId
-              }, abort.signal);
+              };
+              const acknowledgement = await confirmWindowsSpoolAck(
+                () => command(ackPayload, abort.signal), abort.signal
+              );
               if (acknowledgement.status !== "printed") throw new Error("windows_agent_ack_unconfirmed");
               if (job.kind === "html" && job.sale_receipt && job.order_no) {
                 window.dispatchEvent(new CustomEvent("cpi-windows-print-agent-result", {
