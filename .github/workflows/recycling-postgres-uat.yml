@@ -190,5 +190,12 @@ jobs:
           set -euo pipefail
           docker exec -i "$PG_CONTAINER" psql -U postgres -d recycling_uat -v ON_ERROR_STOP=1 < docs/recycling/manual_document_time_candidate.sql
           docker exec -i "$PG_CONTAINER" psql -U postgres -d recycling_uat -v ON_ERROR_STOP=1 < tests/recycling/ephemeral_pg_manual_document_time_acceptance.sql
+      - name: Verify shared POS Finance document corrections on disposable PostgreSQL
+        env:
+          PG_CONTAINER: ${{ job.services.postgres.id }}
+        run: |
+          set -euo pipefail
+          docker exec -i "$PG_CONTAINER" psql -U postgres -d recycling_uat -v ON_ERROR_STOP=1 < docs/recycling/shared_document_correction_candidate.sql
+          docker exec -i "$PG_CONTAINER" psql -U postgres -d recycling_uat -v ON_ERROR_STOP=1 < tests/recycling/ephemeral_pg_shared_document_correction_acceptance.sql
       # No production secrets, URLs or accounts are provided to this job.
       # Successful CI is necessary but not sufficient for a Supabase release.
