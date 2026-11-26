@@ -1,3 +1,4 @@
+import {RecyclingFinanceTaxRegister} from "@/components/finance/recycling-finance-tax-register";
 import {RecyclingFinanceExpenseWorkspace} from "@/components/finance/recycling-finance-expense-workspace";
 import {RecyclingFinanceIncomeWorkspace} from "@/components/finance/recycling-finance-income-workspace";
 import { isAuthorizedRecyclingTenant } from "@/lib/server/recycling-pos-service";
@@ -57,14 +58,14 @@ export default async function FinanceModulePage({ params }: {
       {slug === "tax-reports" && (
         <>
           <div className="border-b border-slate-200 bg-[#f6f9fc] px-5 py-3">
-            <h2 className="text-sm font-bold text-[#234c78]">ทะเบียนใบกำกับภาษีจาก POS</h2>
+            <h2 className="text-sm font-bold text-[#234c78]">{recyclingTax?"ทะเบียนภาษีขาย Recycling":"ทะเบียนใบกำกับภาษีจาก POS"}</h2>
             <p className="mt-1 text-xs leading-5 text-slate-600">
-              แสดงเฉพาะเอกสารต้นทางตามสิทธิ์และสถานะ VAT ที่ตรวจสอบแล้ว
+              {recyclingTax?"แสดงใบกำกับภาษีที่ออกจริงและบิลขายที่บันทึก VAT แยกจากกัน":"แสดงเฉพาะเอกสารต้นทางตามสิทธิ์และสถานะ VAT ที่ตรวจสอบแล้ว"}
               ไม่ใช่แบบ ภ.พ.30 หรือ ภ.ง.ด.3/53 พร้อมยื่น
             </p>
           </div>
           {recyclingTax&&(recyclingBranches?.error?<p role="alert" className="p-4 text-amber-900">ยังโหลดสาขาสำหรับตั้งค่า VAT Recycling ไม่สำเร็จ</p>:<RecyclingFinanceVatWorkspace branches={(recyclingBranches?.data??[]).map(b=>({id:String(b.id),name:String(b.name)}))}/>)}
-          <FinanceDocumentWorkspace kind="tax" />
+          {recyclingTax?<RecyclingFinanceTaxRegister/>:<FinanceDocumentWorkspace kind="tax" />}
         </>
       )}
     </section>

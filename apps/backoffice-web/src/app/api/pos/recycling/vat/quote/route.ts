@@ -3,11 +3,9 @@ import { requirePermission, requirePosSession } from "@/lib/pos-session-guard";
 import { isAuthorizedRecyclingTenant } from "@/lib/server/recycling-pos-service";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 
-import { recyclingVatBlockers } from "@/lib/recycling-vat-readiness";
+import { recyclingVatBlockers,validVatRule } from "@/lib/recycling-vat-readiness";
 
 export const dynamic="force-dynamic";
-type VatLine={label?:unknown;mode?:unknown;rate_pct?:unknown;is_active?:unknown};
-type RawSettings={lines?:VatLine[]};
 
 export async function GET(){
   try{
@@ -38,12 +36,7 @@ export async function GET(){
       blockers:["recycling_vat_schema_not_ready"]
     });
     const configured=settings.data?.is_enabled===true;
-    const lines=Array.isArray((settings.data?.settings as RawSettings|null)?.lines)?
-      (settings.data?.settings as RawSettings).lines!:[];
-    const active=lines.filter(line=>line.is_active===true&&Number(line.rate_pct)>0);
-    const ruleValid=active.length===1&&Number(active[0].rate_pct)===7&&
-      active[0].mode==="add_to_bill"&&
-      /VAT|ภาษีมูลค่าเพิ่ม/i.test(String(active[0].label??""));
+    const ruleValid=validVatRule(settings.data?.settings);
     const issuerData=issuer.data;
     const today=new Intl.DateTimeFormat("en-CA",{
       timeZone:"Asia/Bangkok",year:"numeric",month:"2-digit",day:"2-digit"
