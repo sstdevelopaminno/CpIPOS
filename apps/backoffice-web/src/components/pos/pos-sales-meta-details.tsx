@@ -26,7 +26,7 @@ export const THAI_POS_SALES_META_LABELS: PosSalesMetaLabels = {
 };
 
 export function PosSalesMetaDetails({
-  sellerName, shiftStatus, branchName, deviceCode, labels, language = "th"
+  sellerName, shiftStatus, branchName, deviceCode, labels, language = "th", fixedDocumentTime
 }: {
   sellerName: string;
   shiftStatus: string;
@@ -34,6 +34,7 @@ export function PosSalesMetaDetails({
   deviceCode: string | null;
   labels: PosSalesMetaLabels;
   language?: "th" | "en";
+  fixedDocumentTime?: string | null;
 }) {
   return <div className="posui-sales-meta-columns" data-testid="shared-pos-sales-metadata">
     <dl className="posui-sales-meta-list posui-sales-meta-list--left">
@@ -42,7 +43,7 @@ export function PosSalesMetaDetails({
       <div className="posui-sales-meta-row"><dt>{labels.branch}</dt><dd>{branchName}</dd></div>
     </dl>
     <dl className="posui-sales-meta-list posui-sales-meta-list--right">
-      <PosRealtimeClock lang={language} dateLabel={labels.date} timeLabel={labels.time} />
+      <PosRealtimeClock lang={language} dateLabel={labels.date} timeLabel={labels.time} fixedDocumentTime={fixedDocumentTime}/>
       <div className="posui-sales-meta-row"><dt>{labels.device}</dt><dd>{deviceCode || "—"}</dd></div>
     </dl>
   </div>;
