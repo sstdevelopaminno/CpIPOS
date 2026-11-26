@@ -26,6 +26,7 @@ export async function POST(request:Request,{params}:{params:Promise<{id:string}>
    return fail("recycling_date_request_role_denied","Supervisor or accountant required",403);
   if(!await isAuthorizedRecyclingTenant(scope.session.tenant_id))
    return fail("recycling_date_request_mode_denied","CUSTOM Recycling required",403);
+  if(process.env.RECYCLING_DIRECT_DATE_EDIT_ENABLED==="1")return fail("recycling_date_request_retired","กรุณารีเฟรชหน้าจอและบันทึกวันเวลาโดยตรง",410);
   const raw=await request.json().catch(()=>null) as Record<string,unknown>|null;
   const requestId=typeof raw?.request_id==="string"?raw.request_id:"";
   const requestedDate=typeof raw?.requested_date==="string"?raw.requested_date:"";
