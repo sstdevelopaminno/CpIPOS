@@ -77,6 +77,8 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
 export function FinanceOtherIncomeRegister({recycling=false}:{recycling?:boolean}={}) {
   const [branches, setBranches] = useState<Branch[]>([]);
   const [branch, setBranch] = useState("");
+  const [filterFrom,setFilterFrom]=useState(()=>recycling?bangkokToday().slice(0,7)+"-01":"");
+  const [filterTo,setFilterTo]=useState(()=>recycling?bangkokToday():"");
   const [items, setItems] = useState<OtherIncomeRow[]>([]);
   const [hasMore, setHasMore] = useState(false);
   const [ready, setReady] = useState(false);
@@ -108,9 +110,11 @@ export function FinanceOtherIncomeRegister({recycling=false}:{recycling?:boolean
       const branchResult = await request<{ branches: Branch[] }>("/api/finance/accounting?view=branches");
       setBranches(branchResult.branches);
       const validBranch = branch && branchResult.branches.some(item => item.id === branch) ? branch : "";
-      const income = await request<{ rows: OtherIncomeRow[]; hasMore: boolean }>(
-        apiPath + (validBranch ? "?branchId=" + encodeURIComponent(validBranch) : "")
-      );
+      const params=new URLSearchParams();
+      if(validBranch)params.set("branchId",validBranch);
+      if(filterFrom)params.set("from",filterFrom);
+      if(filterTo)params.set("to",filterTo);
+      const income = await request<{ rows: OtherIncomeRow[]; hasMore: boolean }>(apiPath+"?"+params);
       setItems(income.rows);
       setHasMore(income.hasMore);
       setReady(true);
@@ -121,7 +125,7 @@ export function FinanceOtherIncomeRegister({recycling=false}:{recycling?:boolean
     } finally {
       setLoading(false);
     }
-  }, [branch]);
+  }, [branch,filterFrom,filterTo]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -278,6 +282,7 @@ export function FinanceOtherIncomeRegister({recycling=false}:{recycling?:boolean
             </option>)}
           </select>
         </div>
+        {recycling&&<><label className="grid gap-1 text-xs font-bold text-slate-600">จากวันที่<input type="date" className={field} value={filterFrom} max={filterTo||undefined} onChange={e=>setFilterFrom(e.target.value)}/></label><label className="grid gap-1 text-xs font-bold text-slate-600">ถึงวันที่<input type="date" className={field} value={filterTo} min={filterFrom||undefined} onChange={e=>setFilterTo(e.target.value)}/></label></>}
         <p className="pb-2 text-xs text-slate-500">แสดงสูงสุด 100 รายการล่าสุด · เลขเอกสารออกจากระบบ</p>
       </div>
 
@@ -285,7 +290,7 @@ export function FinanceOtherIncomeRegister({recycling=false}:{recycling?:boolean
         <div className="flex flex-wrap gap-6 border-b border-slate-200 px-5 py-3">
           {totals.map(([unit, total]) => (
             <div key={unit}>
-              <p className="text-[11px] text-slate-500">รวมเอกสารที่แสดง ไม่รวม VOID ({unit})</p>
+              <p className="text-[11px] text-slate-500">รวมเอกสารที่แสดง รวมแบบร่าง ไม่รวม VOID ({unit})</p>
               <p className="mt-0.5 text-lg font-extrabold tabular-nums text-[#164d87]">{cash(total, unit)}</p>
             </div>
           ))}
@@ -335,7 +340,7 @@ export function FinanceOtherIncomeRegister({recycling=false}:{recycling?:boolean
         {!loading && ready && !items.length ?
           <p className="px-5 py-10 text-center text-sm text-slate-500">ยังไม่มีรายการรายรับอื่น ๆ ที่บันทึกไว้</p> : null}
       </div>
-      {hasMore ? <p className="border-t border-slate-200 px-5 py-3 text-xs text-amber-800">มีรายการมากกว่า 100 รายการ โปรดเลือกสาขาเพื่อจำกัดผลลัพธ์</p> : null}
+      {hasMore ? <p className="border-t border-slate-200 px-5 py-3 text-xs text-amber-800">มีรายการมากกว่า 100 รายการ โปรดจำกัดช่วงวันที่หรือสาขาเพื่อดูรายการที่เหลือ</p> : null}
 
       <FinanceDialog open={createOpen} busy={busy} onClose={() => { setCreateOpen(false); setError(""); }}
         title="เพิ่มรายรับอื่น ๆ" description="ระบบคำนวณยอดและรันเลขบิลให้อัตโนมัติหลังบันทึก · ไม่สร้างรายการ POS">
