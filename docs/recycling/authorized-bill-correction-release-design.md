@@ -1,5 +1,5 @@
 # CUSTOM Recycling: authorized transaction correction (release design)
-Status: draft, not production-ready. This branch implements only an isolated candidate for direct supervisor VOID; date/time and amount editing, shared Finance action and production migration are outstanding.
+Status: draft, not production-ready. The branch now includes isolated supervisor VOID and shared date/time correction SQL candidates, gated POS and Finance correction endpoints, common date/time editor, effective document time in POS document registers, Finance income/expense registers and non-tax receipt rendering. Original created_at and shift chronology remain intact. Both features are disabled in production; do not enable until migration, period/VAT and end-to-end UAT are complete. Amount/quantity corrections, posted GL adjustment, historical stock valuation, VAT adjustments, and production migration are still outstanding. The date correction candidate refuses posted GL and VAT documents; the Finance overview/cash reconciliation continues to use actual posting chronology.
 
 ## Verified current behavior
 - POS sales list row actions submit only date-correction-request, recording pending_accountant_review without applying the date.
