@@ -32,7 +32,7 @@ export async function GET(request:Request){
     db.from("recycling_transaction_lines").select("transaction_id,branch_id,line_no,sku_snapshot,name_snapshot,original_quantity,original_unit,base_unit,price_per_base,amount_minor",{count:"exact"}).eq("tenant_id",tenantId).in("branch_id",branchIds).in("transaction_id",ids).order("line_no").limit(800),
     db.from("recycling_transactions").select("id,branch_id,status,void_reason,total_minor,base_minor,vat_minor,tax_state,created_at").eq("tenant_id",tenantId).in("branch_id",branchIds).in("id",ids)
    ]);
-   if(lines.error||current.error||lines.count===null||lines.count!==lines.data?.length||current.data?.length!==batch.length)return fail(409,"อ่านข้อมูลบิลไม่ครบ กรุณาลองใหม่");
+   if(lines.error||current.error||!lines.data||!current.data||lines.count===null||lines.count!==lines.data.length||current.data.length!==batch.length)return fail(409,"อ่านข้อมูลบิลไม่ครบ กรุณาลองใหม่");
    lineCount+=lines.data.length;if(lineCount>12000)return fail(413,"รายการวัสดุมากเกินไป กรุณาลดช่วงวันที่");
    for(const t of batch){
     const fresh=current.data.find(x=>x.id===t.id&&x.branch_id===t.branch_id);
