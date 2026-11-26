@@ -69,6 +69,7 @@ begin
  result:=public.recycling_apply_historical_credit_correction(t,b,buy,m,r,10000,8,15,'Synthetic purchase quantity correction','UAT proof only',true);
  if (result->>'new_total_minor')::bigint<>12000 or (result->'later_journals'->0->>'delta_minor')::bigint<>2000 then raise exception 'ATOMIC_REPLAY_WRONG: %',result; end if;
  if not exists(select 1 from public.recycling_stock_balances where tenant_id=t and branch_id=b and product_id=p and quantity_base=4 and carrying_cost_minor=6000) then raise exception 'ATOMIC_STOCK_WRONG'; end if;
+ if not exists(select 1 from public.recycling_effective_historical_amounts where id=buy and total_minor=12000) or not exists(select 1 from public.recycling_effective_historical_amounts where id=sale and cogs_minor=6000) then raise exception 'ATOMIC_EFFECTIVE_TOTALS_WRONG'; end if;
  retry:=public.recycling_apply_historical_credit_correction(t,b,buy,m,r,10000,8,15,'Synthetic purchase quantity correction','UAT proof only',true);
  if retry->>'idempotent'<>'true' or retry->>'corrected_journal_id'<>result->>'corrected_journal_id' then raise exception 'ATOMIC_RETRY_WRONG'; end if;
  -- Two independent VAT documents: one credit note, one debit note.
