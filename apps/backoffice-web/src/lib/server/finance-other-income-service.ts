@@ -63,16 +63,21 @@ export type OtherIncomeRow = {
 };
 
 export async function listOtherIncome(
-  identity: FinanceIdentity, branchId: string | null
+  identity: FinanceIdentity, branchId: string | null, dates?: {from:string|null;to:string|null}
 ): Promise<{ rows: OtherIncomeRow[]; hasMore: boolean }> {
   const branch = branchScope(identity, branchId);
   const db = getPrimarySupabaseServiceClient();
-  const query = db.from("finance_accounting_documents")
+  let query = db.from("finance_accounting_documents")
     .select("id,branch_id,document_no,document_date,created_at,payment_method,remarks,counterparty_name,status,version,currency,amount_minor,posted_journal_id,prepared_by,approved_by")
     .eq("tenant_id", identity.tenantId)
     .in("branch_id", branch ? [branch] : identity.branchIds)
     .eq("document_kind", "other_income")
-    .order("created_at", { ascending: false }).limit(101);
+    .order("created_at", { ascending: false }).order("id",{ascending:false}).limit(101);
+  const validDate=(s:string)=>/^\d{4}-\d{2}-\d{2}$/.test(s)&&Number.isFinite(Date.parse(s))&&new Date(s).toISOString().slice(0,10)===s;
+  const from=dates?.from,to=dates?.to;
+  if((from&&!validDate(from))||(to&&!validDate(to))||(from&&to&&from>to))throw new FinanceAccountingError("finance_accounting_date_invalid",422);
+  if(from)query=query.gte("document_date",from);
+  if(to)query=query.lte("document_date",to);
   const result = await query;
   dbError(result.error);
   const docs = (result.data ?? []).slice(0, 100);

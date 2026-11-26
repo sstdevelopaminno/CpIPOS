@@ -22,7 +22,7 @@ export async function GET(request: Request) {
   try {
     const identity = await accountingIdentity("finance.income");
     const params = new URL(request.url).searchParams;
-    return privateResponse(ok(await listOtherIncome(identity, params.get("branchId"))));
+    return privateResponse(ok(await listOtherIncome(identity, params.get("branchId"),{from:params.get("from"),to:params.get("to")})));
   } catch (error) { return respondError(error); }
 }
 

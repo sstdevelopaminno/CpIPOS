@@ -1,3 +1,4 @@
+import {RecyclingFinanceIncomeWorkspace} from "@/components/finance/recycling-finance-income-workspace";
 import { isAuthorizedRecyclingTenant } from "@/lib/server/recycling-pos-service";
 import { RecyclingFinanceVatWorkspace } from "@/components/finance/recycling-finance-vat-workspace";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
@@ -32,14 +33,15 @@ export default async function FinanceModulePage({ params }: {
   const item = accountantFinanceModule(slug);
   if (!item) notFound();
   const identity = await requireAccountantPage(item.key);
+  const recyclingIncome=slug==="income"&&await isAuthorizedRecyclingTenant(identity.tenantId);
   const recyclingTax=slug==="tax-reports"&&await isAuthorizedRecyclingTenant(identity.tenantId);
   const recyclingBranches=recyclingTax?await getSupabaseServiceClient().from("branches").select("id,name").eq("tenant_id",identity.tenantId).in("id",identity.branchIds).order("name"):null;
   return (
     <section className="finance-secondary-workbench w-full min-w-0 bg-white text-slate-900">
       <FinanceSectionHeader title={item.label}
-        subtitle={subtitles[slug] + ` · ${identity.branchIds.length} สาขาที่ได้รับสิทธิ์`} />
+        subtitle={(recyclingIncome?"ทะเบียนรายรับจากการขายส่ง และรายรับอื่น ๆ":subtitles[slug]) + ` · ${identity.branchIds.length} สาขาที่ได้รับสิทธิ์`} />
 
-      {slug === "income" && <FinanceIncomeWorkspace />}
+      {slug === "income" && (recyclingIncome?<RecyclingFinanceIncomeWorkspace/>:<FinanceIncomeWorkspace />)}
       {slug === "expenses" && <FinanceAccountingRegister module="expenses" />}
 
       {slug === "sales-receivables" && <FinanceAccountingRegister module="sales-receivables" />}
