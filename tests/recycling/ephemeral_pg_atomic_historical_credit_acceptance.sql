@@ -43,7 +43,7 @@ values('d4000000-0000-4000-8000-000000000001','11111111-1111-4111-8111-111111111
 
 insert into public.products(id,tenant_id,branch_id,sku,name,category,price,sell_unit,metadata)
 select id::uuid,'11111111-1111-4111-8111-111111111111','22222222-2222-4222-8222-222222222222',sku,'Synthetic material','UAT',20,'kg','{"business_mode":"recycling","recycling_price_basis":"kg","recycling_buy_price":10}'
-from (values ('d5000000-0000-4000-8000-000000000001','SYN-CREDIT'),('d5000000-0000-4000-8000-000000000002','SYN-DEBIT')) v(id,sku);
+from (values ('d5000000-0000-4000-8000-000000000001','SYN-CREDIT'),('d5000000-0000-4000-8000-000000000002','SYN-DEBIT'),('d5000000-0000-4000-8000-000000000003','SYN-VOID-GUARD')) v(id,sku);
 do $uat$
 declare
  t uuid:='11111111-1111-4111-8111-111111111111'; b uuid:='22222222-2222-4222-8222-222222222222';
@@ -72,6 +72,18 @@ begin
  if not exists(select 1 from public.recycling_effective_historical_amounts where id=buy and total_minor=12000) or not exists(select 1 from public.recycling_effective_historical_amounts where id=sale and cogs_minor=6000) then raise exception 'ATOMIC_EFFECTIVE_TOTALS_WRONG'; end if;
  retry:=public.recycling_apply_historical_credit_correction(t,b,buy,m,r,10000,8,15,'Synthetic purchase quantity correction','UAT proof only',true);
  if retry->>'idempotent'<>'true' or retry->>'corrected_journal_id'<>result->>'corrected_journal_id' then raise exception 'ATOMIC_RETRY_WRONG'; end if;
+ -- A later unposted purchase has the same last movement marker even
+ -- after a historical correction; restoring its old snapshot is unsafe.
+ p:='d5000000-0000-4000-8000-000000000003';
+ buy:=(public.recycling_post_transaction_vat(t,b,s,u,gen_random_uuid(),'buy','credit','Synthetic supplier',jsonb_build_array(jsonb_build_object('product_id',p,'unit','kg','quantity',10,'expected_price',10)))->>'id')::uuid;
+ sale:=(public.recycling_post_transaction_vat(t,b,s,u,gen_random_uuid(),'buy','credit','Synthetic supplier',jsonb_build_array(jsonb_build_object('product_id',p,'unit','kg','quantity',2,'expected_price',10)))->>'id')::uuid;
+ perform public.recycling_finance_post_transaction(t,b,buy,a);
+ perform public.recycling_apply_historical_credit_correction(t,b,buy,m,gen_random_uuid(),10000,8,15,'Synthetic old purchase correction','UAT evidence only',true);
+ begin
+  perform public.recycling_void_unposted_transaction(t,b,sale,m,gen_random_uuid(),'Reject outdated stock snapshot',true,false);
+  raise exception 'ATOMIC_STALE_VOID_ACCEPTED';
+ exception when others then if sqlerrm not like '%recycling_void_historical_replay_required%' then raise; end if; end;
+ if not exists(select 1 from public.recycling_stock_balances where tenant_id=t and branch_id=b and product_id=p and quantity_base=10 and carrying_cost_minor=14000 and last_transaction_id=sale) then raise exception 'ATOMIC_STALE_VOID_CHANGED_STOCK'; end if;
  -- Two independent VAT documents: one credit note, one debit note.
  foreach p in array array[p2,p3] loop
   buy:=(public.recycling_post_transaction_vat(t,b,s,u,gen_random_uuid(),'buy','credit','Synthetic supplier',jsonb_build_array(jsonb_build_object('product_id',p,'unit','kg','quantity',10,'expected_price',10)))->>'id')::uuid;
