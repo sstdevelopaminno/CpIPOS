@@ -17,7 +17,7 @@ type Job = {
   text?: string | null;
   drawer?: { kickPin: 0 | 1; pulseOnMs: number; pulseOffMs: number } | null;
 };
-type Reply = { data?: { jobs?: Job[]; prewarm_fast_html?: boolean }; error?: { code?: string; message?: string } };
+type Reply = { data?: { jobs?: Job[]; prewarm_fast_html?: boolean; status?: string }; error?: { code?: string; message?: string } };
 const PRINTED_ATTEMPTS_LEDGER = "cpi_windows_native_agent_attempted_v1";
 const AGENT_ENDPOINT = "/api/pos/windows-print/agent";
 
@@ -80,7 +80,7 @@ export function WindowsNativePrintAgent() {
     // only accelerate during a short, recently active cashier window.
     let fastPollingActiveUntil = 0;
     let nextPollAt = 0;
-    let consecutiveFailures = 0;
+
     const abort = new AbortController();
 
     async function poll() {
@@ -94,7 +94,6 @@ export function WindowsNativePrintAgent() {
         const data = await command({ action: "claim" }, abort.signal);
         const response = data as { jobs?: Job[]; prewarm_fast_html?: boolean; fast_idle_poll_ms?: number | null };
         if (!Array.isArray(response.jobs)) throw new Error("windows_agent_invalid_claim");
-        consecutiveFailures = 0;
         enrolledFastPrinter = response.prewarm_fast_html === true;
         authenticatedFastIdlePollMs = response.fast_idle_poll_ms === 5000 ? 5000 : null;
         // Only prewarm when the authenticated claim identifies a printer
@@ -141,10 +140,11 @@ export function WindowsNativePrintAgent() {
                     })
                   : (() => { throw new Error("windows_job_payload_invalid"); })();
               spoolAccepted = true;
-              await command({
+              const acknowledgement = await command({
                 action: "ack", job_id: job.id, agent_attempt_id: job.agent_attempt_id,
                 provider_job_id: spool.spoolJobId
               }, abort.signal);
+              if (acknowledgement.status !== "printed") throw new Error("windows_agent_ack_unconfirmed");
               if (job.kind === "html" && job.sale_receipt && job.order_no) {
                 window.dispatchEvent(new CustomEvent("cpi-windows-print-agent-result", {
                   detail: { orderNo: job.order_no, status: "spooled" }
@@ -174,12 +174,11 @@ export function WindowsNativePrintAgent() {
         // No automatic retries of a claimed print; a later poll only claims a
         // different fresh job. On disconnect, the lease expires and server
         // rejects jobs too old for safe automatic printing.
-        if (!stopped && !(error instanceof DOMException && error.name === "AbortError")) {
+        if (!stopped) {
           console.warn("[windows-print-agent] unavailable", error instanceof Error ? error.message : "unknown");
         }
-        consecutiveFailures += 1;
         priorityPollUntil = 0;
-        nextMs = Math.min(15_000, 2_000 * 2 ** Math.min(consecutiveFailures - 1, 3));
+        nextMs = 15_000;
       } finally {
         inFlight = false;
         if (!stopped) {
