@@ -1,3 +1,4 @@
+import {validVatRule} from "@/lib/recycling-vat-readiness";
 import { fail,ok } from "@/lib/http";
 import { requireFinanceSession } from "@/lib/server/finance-session";
 import { getTenantPosMenuOverrides } from "@/lib/server/pos-menu-policy-service";
@@ -10,11 +11,6 @@ import { appendAuditLog } from "@/lib/audit-log";
 
 export const dynamic="force-dynamic";
 const todayBangkok=()=>new Intl.DateTimeFormat("en-CA",{timeZone:"Asia/Bangkok",year:"numeric",month:"2-digit",day:"2-digit"}).format(new Date());
-function validVatRule(settings:unknown){
-  const lines=(settings as {lines?:{is_active?:unknown;rate_pct?:unknown;mode?:unknown;label?:unknown}[]}|null)?.lines;
-  const active=Array.isArray(lines)?lines.filter(l=>l.is_active===true&&Number(l.rate_pct)>0):[];
-  return active.length===1&&Number(active[0].rate_pct)===7&&active[0].mode==="add_to_bill"&&/VAT|ภาษีมูลค่าเพิ่ม/i.test(String(active[0].label??""));
-}
 async function scopeForVat(request:Request){
   const params=new URL(request.url).searchParams;
   if(params.get("finance")==="1"){

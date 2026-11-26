@@ -1,5 +1,5 @@
 import { describe,expect,it } from "vitest";
-import { recyclingVatBlockers,recyclingVatBlockerMessage } from "../../src/lib/recycling-vat-readiness";
+import { recyclingVatBlockers,recyclingVatBlockerMessage,validVatRule } from "../../src/lib/recycling-vat-readiness";
 describe("Recycling VAT release readiness",()=>{
   it("reports every independent blocker instead of masking missing registration and chart",()=>{
     const blockers=recyclingVatBlockers({configured:true,rollout:false,ruleValid:true,verified:false,accountReady:false});
@@ -11,4 +11,12 @@ describe("Recycling VAT release readiness",()=>{
     expect(recyclingVatBlockers({configured:true,rollout:false,ruleValid:true,verified:true,accountReady:true})).toEqual([]);
     expect(recyclingVatBlockers({configured:true,rollout:true,ruleValid:false,verified:true,accountReady:true})).toEqual(["recycling_vat_settings_unsupported"]);
   });
+});
+
+it("recognizes only the supported configured VAT rule",()=>{
+ const line={label:"VAT",mode:"add_to_bill",rate_pct:7,is_active:true};
+ expect(validVatRule({lines:[line]})).toBe(true);
+ expect(validVatRule({lines:[line,{...line}]})).toBe(false);
+ expect(validVatRule({lines:[{...line,mode:"included"}]})).toBe(false);
+ expect(validVatRule(null)).toBe(false);
 });

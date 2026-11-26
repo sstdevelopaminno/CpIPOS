@@ -29,8 +29,9 @@ export function RecyclingVatSetup({endpoint="/api/pos/recycling/vat/setup",compa
       const body=await response.json();
       if(!response.ok)throw Error(body.error?.message??"บันทึกไม่สำเร็จ");
       setNotice("บันทึกแล้ว กรุณาตรวจสอบสถานะก่อนกลับไปหน้าขาย");
+      await refresh();
     }catch(e){setError(e instanceof Error?e.message:"ยังไม่ยืนยันผลการบันทึก");}
-    finally{await refresh();locked.current=false;setBusy(false);}
+    finally{locked.current=false;setBusy(false);}
   }
   return <section className={compact?"space-y-3 rounded-lg border border-slate-200 bg-white p-3":"space-y-4 rounded-xl border border-slate-200 bg-white p-4"} data-testid="recycling-vat-setup">
     <div><h2 className={compact?"text-sm font-extrabold text-[#164d87]":"text-lg font-extrabold"}>ตั้งค่าภาษีขาย Recycling</h2><p className="text-sm text-slate-600">ฝ่ายบัญชียืนยันทะเบียน VAT และผังบัญชีของร้าน ไม่ใช่หน้าที่ฝ่าย IT</p></div>

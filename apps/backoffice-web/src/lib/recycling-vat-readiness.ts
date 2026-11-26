@@ -29,3 +29,9 @@ export function recyclingVatBlockerMessage(code:string):string {
     ? messages[code as RecyclingVatBlocker]
     : "ยังตรวจสอบความพร้อมของภาษีไม่ได้ กรุณาติดต่อฝ่ายบัญชี";
 }
+
+export function validVatRule(settings:unknown){
+  const lines=(settings as {lines?:{is_active?:unknown;rate_pct?:unknown;mode?:unknown;label?:unknown}[]}|null)?.lines;
+  const active=Array.isArray(lines)?lines.filter(l=>l.is_active===true&&Number(l.rate_pct)>0):[];
+  return active.length===1&&Number(active[0].rate_pct)===7&&active[0].mode==="add_to_bill"&&/VAT|ภาษีมูลค่าเพิ่ม/i.test(String(active[0].label??""));
+}

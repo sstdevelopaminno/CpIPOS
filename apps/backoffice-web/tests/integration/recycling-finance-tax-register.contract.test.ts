@@ -26,7 +26,8 @@ describe("Recycling Finance tax register",()=>{
  it("checks the configured tax rule and same-origin mutations",()=>{
   const route=read("app/api/pos/recycling/vat/setup/route.ts");
   expect(route).toContain('request.headers.get("origin")');
-  expect(route).toContain('active[0].mode==="add_to_bill"');
+  expect(read("lib/recycling-vat-readiness.ts")).toContain('active[0].mode==="add_to_bill"');
+  expect(read("app/api/pos/recycling/vat/quote/route.ts")).toContain("validVatRule(settings.data?.settings)");
   expect(route).toContain("validVatRule(tax.data.settings)");
  });
 });
