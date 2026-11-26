@@ -1,3 +1,4 @@
+import {receiptDateText,type ReceiptVisibility} from "@/lib/printing/custom-receipt-layout";
 import { parsePosItemNotes } from "@/lib/pos-item-notes";
 
 export type ReceiptHtmlItem = {
@@ -14,6 +15,7 @@ export type ReceiptHtmlItem = {
 
 export type ReceiptHtmlInput = {
   paperWidthMm: 58 | 80;
+  visibility?:ReceiptVisibility;
   currencyCode?: "THB" | "LAK";
   languageCode?: "th" | "en" | "lo";
   storeName: string;
@@ -112,6 +114,8 @@ export function renderReceiptHtml(input: ReceiptHtmlInput) {
   const languageCode = input.languageCode ?? "th";
   const L = (thai: string, english: string, lao: string) => languageCode === "lo" ? lao : languageCode === "en" ? english : thai;
   const paper = input.paperWidthMm;
+  const v=input.visibility;
+  const when=v?receiptDateText(input.paidAtIso,v,languageCode):dateTime(input.paidAtIso,languageCode);
   const regularLayout = paper === 58
     ? { printableMm: 45, basePx: 12.75, titlePx: 16.5, mutedPx: 11.75, metaPx: 12.5, unitPx: 10.75, summaryPx: 12, grandPx: 15.5, footerPx: 11, logoMaxWidthMm: 30, logoMaxHeightMm: 11, qtyMm: 8.5, totalMm: 16.5 }
     : { printableMm: 56, basePx: 13.5, titlePx: 19, mutedPx: 12.5, metaPx: 13.25, unitPx: 11.5, summaryPx: 12.75, grandPx: 17.5, footerPx: 11.75, logoMaxWidthMm: 42, logoMaxHeightMm: 13, qtyMm: 11, totalMm: 22 };
@@ -201,7 +205,7 @@ export function renderReceiptHtml(input: ReceiptHtmlInput) {
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>${escapeHtml(storeName)} - ${escapeHtml(input.orderNo)}</title>
+  <title>${v?.shop===false?"":escapeHtml(storeName)}${v?.number===false?"":" - "+escapeHtml(input.orderNo)}</title>
   <style>
     @page { size: ${paper}mm auto; margin: 0; }
     html, body { margin: 0; padding: 0; width: ${paper}mm; background: #fff; color: #000; font-family: "Noto Sans Lao", "Noto Sans Thai", "Tahoma", "Segoe UI", sans-serif; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
@@ -264,19 +268,19 @@ export function renderReceiptHtml(input: ReceiptHtmlInput) {
 </head>
 <body>
   <main class="receipt${input.compactRecycling ? " receipt-compact" : ""}">
-    ${logo}
-    <div class="head-title">${escapeHtml(storeName)}</div>
-    ${address}${phone}
-    ${branchName ? `<div class="muted">${escapeHtml(branchName)}</div>` : ""}
+    ${v?.logo===false?"":logo}
+    ${v?.shop===false?"":`<div class="head-title">${escapeHtml(storeName)}</div>`}
+    ${v?.address===false?"":address}${v?.phone===false?"":phone}
+    ${branchName && v?.branch!==false ? `<div class="muted">${escapeHtml(branchName)}</div>` : ""}
     ${reprintLine}
     ${input.documentHeading?.trim() ? `<div class="head-title document-heading">${escapeHtml(input.documentHeading)}</div>` : ""}
     ${input.voidWarning?.trim() ? `<div class="reprint" style="border:2px solid #111;padding:2mm;font-weight:900;">${escapeHtml(input.voidWarning)}</div>` : ""}
     ${input.documentNotice?.trim() ? `<div class="muted">${escapeHtml(input.documentNotice)}</div>` : ""}
     <div class="hr"></div>
-    <div class="meta-line"><span>${escapeHtml(input.sellerLabel ?? L("ผู้ขาย","Seller","ຜູ້ຂາຍ"))}</span><span>${escapeHtml(input.sellerName)}</span></div>
-    <div class="meta-line"><span>${L("โหมด","Mode","ໂໝດ")}</span><span>${escapeHtml(modeLabel)}</span></div>
-    <div class="meta-line receipt-id-line"><span>${L("เลขที่บิล","Bill no.","ເລກໃບບິນ")}</span><span>${escapeHtml(input.orderNo)}</span></div>
-    <div class="meta-line"><span>${L("วันที่","Date","ວັນທີ")}</span><span>${escapeHtml(dateTime(input.paidAtIso, languageCode))}</span></div>
+    ${v?.seller===false?"":`<div class="meta-line"><span>${escapeHtml(input.sellerLabel ?? L("ผู้ขาย","Seller","ຜູ້ຂາຍ"))}</span><span>${escapeHtml(input.sellerName)}</span></div>`}
+    ${v?.mode===false?"":`<div class="meta-line"><span>${L("โหมด","Mode","ໂໝດ")}</span><span>${escapeHtml(modeLabel)}</span></div>`}
+    ${v?.number===false?"":`<div class="meta-line receipt-id-line"><span>${L("เลขที่บิล","Bill no.","ເລກໃບບິນ")}</span><span>${escapeHtml(input.orderNo)}</span></div>`}
+    ${when?`<div class="meta-line"><span>${v?.date===false?L("เวลา","Time","ເວລາ"):L("วันที่","Date","ວັນທີ")}</span><span>${escapeHtml(when)}</span></div>`:""}
     <div class="hr"></div>
     <table><tbody>${itemRows}</tbody></table>
     <div class="hr"></div>
@@ -287,7 +291,7 @@ export function renderReceiptHtml(input: ReceiptHtmlInput) {
     ${cashLines}
     ${note}
     <div class="hr"></div>
-    <div class="foot">${escapeHtml(input.footerText ?? L("ขอบคุณที่ใช้บริการ","Thank you for your purchase","ຂອບໃຈທີ່ໃຊ້ບໍລິການ"))}</div>
+    ${v?.footer===false&&input.paymentMethod!=="credit"?"":`<div class="foot">${escapeHtml(input.footerText ?? L("ขอบคุณที่ใช้บริการ","Thank you for your purchase","ຂອບໃຈທີ່ໃຊ້ບໍລິການ"))}</div>`}
   </main>
 </body>
 </html>`;
