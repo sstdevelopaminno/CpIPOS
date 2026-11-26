@@ -24,7 +24,7 @@ type MaterialLine = {
 const thaiMoney = (minor: number) => (minor / 100).toLocaleString("th-TH", {
   minimumFractionDigits: 2, maximumFractionDigits: 2
 });
-const unitNames: Record<string,string> = { kg:"กก.",khid:"ขีด",g:"กรัม",ton:"ตัน",stem:"ต้น",piece:"ชิ้น",carton:"ลัง" };
+const unitNames: Record<string,string> = { kg:"กก.",khid:"ขีด",g:"กรัม",ton:"ตัน",stem:"ต้น",piece:"ชิ้น",carton:"ลัง",vehicle:"คัน",set:"ชุด",unit:"ตัว",machine:"เครื่อง",cabinet:"ตู้" };
 
 /** The same 58/80mm thermal template as every standard CpiPOS checkout.
  * Only labels, weight units, settlement direction and VOID language differ. */
@@ -93,7 +93,7 @@ export function renderRecyclingSharedReceipt(args: {
       quantity:Number(line.original_quantity),
       quantityDisplay:`${line.original_quantity} ${unitNames[line.original_unit] ?? line.original_unit}`,
       unitPrice:Number(line.price_per_base),
-      unitPriceSuffix:`/${line.base_unit === "kg" ? "กก." : line.original_unit === "carton" ? "ลัง" : "ชิ้น"}`,
+      unitPriceSuffix:`/${line.base_unit === "kg" ? "กก." : unitNames[line.original_unit] ?? line.original_unit}`,
       lineTotal:Number(line.amount_minor) / 100
     })),
     discountAmount:0,

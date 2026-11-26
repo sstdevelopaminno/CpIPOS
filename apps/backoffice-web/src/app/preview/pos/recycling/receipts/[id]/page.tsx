@@ -26,7 +26,7 @@ const quantity = (value: number) =>
   new Intl.NumberFormat("th-TH", { maximumFractionDigits: 6 }).format(value);
 const units: Record<string,string> = {
   kg: "กก.", khid: "ขีด", g: "กรัม",
-  ton: "ตัน", piece: "ชิ้น", stem: "ต้น", carton: "ลัง"
+  ton: "ตัน", piece: "ชิ้น", stem: "ต้น", carton: "ลัง", vehicle:"คัน",set:"ชุด",unit:"ตัว",machine:"เครื่อง",cabinet:"ตู้"
 };
 const paymentLabels: Record<string,string> = {
   cash: "เงินสด", bank_transfer: "เงินโอน",
@@ -117,7 +117,7 @@ export default async function RecyclingReceiptPage({
           </td>
           <td className="py-2 text-right">
             {money(Math.round(Number(line.price_per_base)*100))}
-            <div className="text-[10px]">/{line.base_unit === "kg" ? "กก." : line.original_unit === "carton" ? "ลัง" : "ชิ้น"}</div>
+            <div className="text-[10px]">/{line.base_unit === "kg" ? "กก." : ({piece:"ชิ้น",stem:"ต้น",carton:"ลัง",vehicle:"คัน",set:"ชุด",unit:"ตัว",machine:"เครื่อง",cabinet:"ตู้"} as Record<string,string>)[line.original_unit] ?? line.original_unit}</div>
           </td>
           <td className="py-2 text-right font-semibold">{money(Number(line.amount_minor))}</td>
         </tr>)}</tbody>
