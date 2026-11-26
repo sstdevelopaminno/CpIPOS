@@ -10,6 +10,11 @@ import { appendAuditLog } from "@/lib/audit-log";
 
 export const dynamic="force-dynamic";
 const todayBangkok=()=>new Intl.DateTimeFormat("en-CA",{timeZone:"Asia/Bangkok",year:"numeric",month:"2-digit",day:"2-digit"}).format(new Date());
+function validVatRule(settings:unknown){
+  const lines=(settings as {lines?:{is_active?:unknown;rate_pct?:unknown;mode?:unknown;label?:unknown}[]}|null)?.lines;
+  const active=Array.isArray(lines)?lines.filter(l=>l.is_active===true&&Number(l.rate_pct)>0):[];
+  return active.length===1&&Number(active[0].rate_pct)===7&&active[0].mode==="add_to_bill"&&/VAT|ภาษีมูลค่าเพิ่ม/i.test(String(active[0].label??""));
+}
 async function scopeForVat(request:Request){
   const params=new URL(request.url).searchParams;
   if(params.get("finance")==="1"){
@@ -33,17 +38,19 @@ export async function GET(request:Request){
     const [issuer,chart,tax]=await Promise.all([
       db.from("recycling_vat_issuers").select("active,verified_at,verified_from,verified_until").eq("tenant_id",tenant_id).eq("branch_id",branch_id).maybeSingle(),
       db.from("finance_accounting_chart").select("account_code,account_name,account_type").eq("tenant_id",tenant_id).eq("account_code","2200").maybeSingle(),
-      db.from("tenant_tax_settings").select("is_enabled").eq("tenant_id",tenant_id).eq("branch_id",branch_id).maybeSingle()
+      db.from("tenant_tax_settings").select("is_enabled,settings").eq("tenant_id",tenant_id).eq("branch_id",branch_id).maybeSingle()
     ]);
     if(issuer.error||chart.error||tax.error)return fail("vat_setup_unavailable","ไม่สามารถตรวจสอบข้อมูลภาษีได้",503);
     const today=todayBangkok();
     const i=issuer.data;
-    return ok({configured:tax.data?.is_enabled===true,verified:Boolean(i?.active&&i.verified_at&&i.verified_from<=today&&(!i.verified_until||i.verified_until>=today)),chart:chart.data??null,can_edit:scope.session.role==="accountant"});
+    const rule_valid=validVatRule(tax.data?.settings);
+    return ok({rule_valid,configured:tax.data?.is_enabled===true,verified:Boolean(i?.active&&i.verified_at&&i.verified_from<=today&&(!i.verified_until||i.verified_until>=today)),chart:chart.data??null,can_edit:scope.session.role==="accountant"});
   }catch(error){if(error instanceof PosGuardError)return fail(error.code,error.message,error.status);
     return fail("vat_setup_unavailable","ไม่สามารถตรวจสอบข้อมูลภาษีได้",503);}
 }
 export async function POST(request:Request){
   try{
+    if(request.headers.get("origin")!==new URL(request.url).origin||!request.headers.get("content-type")?.toLowerCase().startsWith("application/json"))return fail("vat_origin_forbidden","ต้องส่งคำขอจากระบบเดียวกัน",403);
     const scope=await scopeForVat(request);
     if(!scope||scope.session.role!=="accountant")return fail("accountant_only","เฉพาะฝ่ายบัญชีของสาขาเท่านั้น",403);
     const {tenant_id,branch_id,user_id}=scope.session;
@@ -69,6 +76,7 @@ export async function POST(request:Request){
     if(!parsed)return fail("invalid_vat_registration","กรุณากรอกข้อมูลตามหลักฐาน VAT จริง วันที่มีผลถูกต้อง และยืนยันการตรวจสอบ",422);
     const tax=await db.from("tenant_tax_settings").select("is_enabled").eq("tenant_id",tenant_id).eq("branch_id",branch_id).maybeSingle();
     if(tax.error||tax.data?.is_enabled!==true)return fail("vat_not_configured","กรุณาตรวจสอบการตั้งค่า VAT ของสาขาก่อน",409);
+    if(!validVatRule(tax.data.settings))return fail("vat_rule_unsupported","กรุณาตรวจสอบ VAT 7% แบบบวกเพิ่มของสาขา",409);
     const result=await db.from("recycling_vat_issuers").upsert({...parsed,tenant_id,branch_id,verified_by:user_id,verified_at:new Date().toISOString(),active:true,updated_at:new Date().toISOString()},{onConflict:"tenant_id,branch_id"});
     if(result.error)return fail("vat_registration_write_failed","บันทึกการยืนยันทะเบียนไม่สำเร็จ",503);
     await appendAuditLog({tenantId:tenant_id,branchId:branch_id,actorUserId:user_id,actorRole:"accountant",action:"recycling_vat_registration_attested",targetTable:"recycling_vat_issuers",metadata:{verified_from:parsed.verified_from,verified_until:parsed.verified_until}});
