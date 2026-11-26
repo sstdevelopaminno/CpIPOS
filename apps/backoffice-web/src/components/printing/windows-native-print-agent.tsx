@@ -177,6 +177,12 @@ export function WindowsNativePrintAgent() {
         if (!stopped) {
           console.warn("[windows-print-agent] unavailable", error instanceof Error ? error.message : "unknown");
         }
+        // The server's 180s device-health authorization is independent of the
+        // print-agent heartbeat. Ask the existing sender to refresh actual
+        // loopback health rather than bypassing the printer/session check.
+        if (!stopped && error instanceof Error && error.message === "windows_agent_offline") {
+          window.dispatchEvent(new Event("cpi-windows-print-health-recovery"));
+        }
         priorityPollUntil = 0;
         nextMs = 15_000;
       } finally {

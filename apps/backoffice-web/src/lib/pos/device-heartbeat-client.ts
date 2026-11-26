@@ -1,3 +1,4 @@
+import { withWindowsAgentDeadline } from "@/lib/printing/windows-agent-request";
 import type {
   DeviceMdmConnectivity,
   DeviceMdmOfflineSaleHealth,
@@ -171,14 +172,16 @@ export function resolveDeviceCode(surface: DeviceHeartbeatSurface, sessionDevice
 async function readBridgeHealth(url: string | undefined): Promise<BridgeHealthResponse | null> {
   if (!url) return null;
   try {
-    const response = await fetch(url, { cache: "no-store" });
-    if (!response.ok) return null;
-    // Windows native LocalPrintBridge returns { ok: true, data: {...health} }.
-    // Do not treat the envelope's "ok" as a valid printer; unwrap its data.
-    const body = (await response.json()) as BridgeHealthResponse & { data?: BridgeHealthResponse };
-    if (body.ok !== true) return null;
-    const data = body.data && typeof body.data === "object" ? body.data : body;
-    return { ...data, ok: true };
+    return await withWindowsAgentDeadline(async (signal) => {
+      const response = await fetch(url, { cache: "no-store", signal });
+      if (!response.ok) return null;
+      // Windows native LocalPrintBridge returns { ok: true, data: {...health} }.
+      // Do not treat the envelope's "ok" as a valid printer; unwrap its data.
+      const body = (await response.json()) as BridgeHealthResponse & { data?: BridgeHealthResponse };
+      if (body.ok !== true) return null;
+      const data = body.data && typeof body.data === "object" ? body.data : body;
+      return { ...data, ok: true };
+    }, undefined, 5_000);
   } catch {
     return null;
   }
@@ -203,14 +206,16 @@ async function readInstalledWindowsPrinters(runtime: WindowsRuntimeGlobal): Prom
   const url = fixedBridgeEndpoint(runtime, "/printers");
   if (!url) return [];
   try {
-    const response = await fetch(url, { headers: { "X-CpIPOS-Bridge-Token": runtime.bridge_token! }, cache: "no-store" });
-    if (!response.ok) return [];
-    const envelope = (await response.json()) as { ok?: boolean; data?: { printers?: Array<{ name?: unknown; is_valid?: boolean }> } };
-    if (envelope.ok !== true || !Array.isArray(envelope.data?.printers)) return [];
-    return envelope.data.printers
-      .filter((printer) => printer && printer.is_valid === true && typeof printer.name === "string" && printer.name.trim().length > 0 && printer.name.length <= 128)
-      .map((printer) => String(printer.name))
-      .slice(0, 32);
+    return await withWindowsAgentDeadline(async (signal) => {
+      const response = await fetch(url, { headers: { "X-CpIPOS-Bridge-Token": runtime.bridge_token! }, cache: "no-store", signal });
+      if (!response.ok) return [];
+      const envelope = (await response.json()) as { ok?: boolean; data?: { printers?: Array<{ name?: unknown; is_valid?: boolean }> } };
+      if (envelope.ok !== true || !Array.isArray(envelope.data?.printers)) return [];
+      return envelope.data.printers
+        .filter((printer) => printer && printer.is_valid === true && typeof printer.name === "string" && printer.name.trim().length > 0 && printer.name.length <= 128)
+        .map((printer) => String(printer.name))
+        .slice(0, 32);
+    }, undefined, 5_000);
   } catch {
     return [];
   }
@@ -324,16 +329,22 @@ type DeviceHeartbeatResponse = {
 
 export async function sendDeviceHeartbeat(payload: DeviceHeartbeatPayload): Promise<PendingDeviceAction[]> {
   try {
-    const response = await fetch("/api/pos/device-heartbeat", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      credentials: "include",
-      cache: "no-store",
-      body: JSON.stringify(payload)
-    });
-    if (!response.ok) return [];
-    const body = (await response.json().catch(() => null)) as DeviceHeartbeatResponse | null;
-    return body?.data?.pending_actions ?? [];
+    const send = async (signal?: AbortSignal): Promise<PendingDeviceAction[]> => {
+      const response = await fetch("/api/pos/device-heartbeat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        cache: "no-store",
+        body: JSON.stringify(payload),
+        signal
+      });
+      if (!response.ok) return [];
+      const body = (await response.json().catch(() => null)) as DeviceHeartbeatResponse | null;
+      return body?.data?.pending_actions ?? [];
+    };
+    return payload.metadata.telemetry_profile === "windows_runtime"
+      ? await withWindowsAgentDeadline(send)
+      : await send();
   } catch {
     return [];
   }
