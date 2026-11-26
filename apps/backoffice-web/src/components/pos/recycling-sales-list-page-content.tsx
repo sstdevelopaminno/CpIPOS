@@ -3,6 +3,7 @@ import type { PosSessionScope } from "@/lib/pos-session-guard";
 import { loadRecyclingHistoryReport, type RecyclingReportQuery } from "@/lib/server/recycling-history-reports";
 import { sumRecyclingReportMoney } from "@/lib/recycling-report-calculation";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
+import { RecyclingBatchPrint } from "@/components/pos/recycling-batch-print";
 import { RecyclingSalesListExport } from "@/components/pos/recycling-sales-list-export";
 import { RecyclingSalesListRowActions } from "@/components/pos/recycling-sales-list-row-actions";
 
@@ -137,6 +138,7 @@ export async function RecyclingSalesListPageContent({scope,search={}}:{
             {quick("year","รายปี")}
           </div>
           <RecyclingSalesListExport rows={exportRows} from={report.from} to={report.to}/>
+          <RecyclingBatchPrint key={href({})} filters={new URLSearchParams({period:report.period,date:report.date,from:report.from,to:report.to,branch:report.branch,direction,status,q:report.q}).toString()} count={filtered.length}/>
         </div>
       </header>
 
