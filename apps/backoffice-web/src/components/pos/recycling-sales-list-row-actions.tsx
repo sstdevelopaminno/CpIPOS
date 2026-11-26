@@ -1,5 +1,7 @@
 "use client";
 
+import {useRouter} from "next/navigation";
+import {RecyclingDocumentTimeEditor} from "@/components/pos/recycling-document-time-editor";
 import { useEffect, useRef, useState } from "react";
 import { RecyclingReceiptDialog } from "@/components/pos/recycling-receipt-dialog";
 import { RecyclingVoidTransaction } from "@/components/pos/recycling-void-transaction";
@@ -13,15 +15,16 @@ function bangkokDocumentDate(iso:string){
  return [pick("year"),pick("month"),pick("day")].join("-");
 }
 export function RecyclingSalesListRowActions({
-  receiptId,receiptNo,createdAt,direction,settlement,status,amountMinor,canManage,voidEnabled
+  receiptId,receiptNo,createdAt,direction,settlement,status,amountMinor,canManage,voidEnabled,directDateEnabled=false
 }:{
   receiptId:string;receiptNo:string;createdAt:string;
   direction:"buy"|"sell";
   settlement:"cash"|"bank_transfer"|"credit";
   status:"posted"|"voided";
   amountMinor:number;
-  canManage:boolean;voidEnabled:boolean;
+  canManage:boolean;voidEnabled:boolean;directDateEnabled?:boolean;
 }){
+  const router=useRouter();
   const [mode,setMode]=useState<Mode|null>(null);
   const [returnFocus,setReturnFocus]=useState<Mode>("receipt");
   const [requestedDate,setRequestedDate]=useState("");
@@ -92,7 +95,8 @@ export function RecyclingSalesListRowActions({
         className="min-h-9 whitespace-nowrap rounded-md border border-blue-200 bg-white px-2.5 text-xs font-bold text-blue-700 hover:bg-blue-50">
         ดู / พิมพ์
       </button>
-      {canManage&&<button type="button" ref={editRef} disabled={status!=="posted"}
+      {directDateEnabled&&status==="posted"&&<RecyclingDocumentTimeEditor id={receiptId} currentAt={createdAt} source="pos" onSaved={()=>router.refresh()}/>}
+      {canManage&&!directDateEnabled&&<button type="button" ref={editRef} disabled={status!=="posted"}
         onClick={()=>show("edit")}
         className="min-h-9 whitespace-nowrap rounded-md border border-amber-200 bg-white px-2.5 text-xs font-bold text-amber-900 disabled:opacity-40">
         แก้ไขบิล
