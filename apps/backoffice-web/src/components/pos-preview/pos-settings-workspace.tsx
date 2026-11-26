@@ -3520,7 +3520,7 @@ function MainMenuPlacementPopup({
   );
 }
 
-export function PosSettingsWorkspace({ lang, initialData }: { lang: Language; initialData: PosSettingsSnapshot }) {
+export function PosSettingsWorkspace({ lang, initialData, canManageReceiptLayout=false }: { lang: Language; initialData: PosSettingsSnapshot; canManageReceiptLayout?:boolean }) {
   const labels = lang === "en" ? TEXT.en : lang === "lo" ? { ...TEXT.en, ...settingsLaoLabels } : TEXT.th;
   const [view, setView] = useState<SettingsView>("menu");
   const [store, setStore] = useState(initialData.store);
@@ -3603,7 +3603,7 @@ export function PosSettingsWorkspace({ lang, initialData }: { lang: Language; in
   }
 
   function openSettingsView(viewKey: Exclude<SettingsView, "menu">) {
-    if(viewKey==="receipt_layout"){if(isCustom&&canManage&&menuVisible("settings.printers"))setView(viewKey);return;}
+    if(viewKey==="receipt_layout"){if(isCustom&&canManageReceiptLayout&&menuVisible("settings.printers"))setView(viewKey);return;}
     if (!menuVisible("settings." + viewKey)) {
       setItLockedMenu(lang === "th" ? "เมนูตั้งค่า" : "Settings");
       return;
@@ -3642,7 +3642,7 @@ export function PosSettingsWorkspace({ lang, initialData }: { lang: Language; in
               onClick={() => openSettingsView("printers")}
                menuEnabled={!isCustom || isCustomPosMenuVisible("settings.printers", menuPolicy, true)} locked={isSettingLocked("printers") || !menuVisible("settings.printers")}
             />
-            {isCustom&&canManage&&menuVisible("settings.printers")&&<MenuButton icon="receipt" title="รูปแบบใบเสร็จ / บิล" desc="เลือกข้อมูลที่แสดงบนหัวบิล" onClick={()=>openSettingsView("receipt_layout")} menuEnabled locked={false}/>}
+            {isCustom&&canManageReceiptLayout&&menuVisible("settings.printers")&&<MenuButton icon="receipt" title="รูปแบบใบเสร็จ / บิล" desc="เลือกข้อมูลที่แสดงบนหัวบิล" onClick={()=>openSettingsView("receipt_layout")} menuEnabled locked={false}/>}
             {!isStoreSpecificSettingHidden("activity") ? <MenuButton icon="activity" title={labels.activityAudit} desc={labels.activityAuditDesc} onClick={() => openSettingsView("activity")}  menuEnabled={!isCustom || isCustomPosMenuVisible("settings.activity", menuPolicy, true)} locked={isSettingLocked("activity") || !menuVisible("settings.activity")} /> : null}
             <MenuButton icon="payment" title={labels.payments} desc={labels.paymentsDesc} onClick={() => openSettingsView("payments")}  menuEnabled={!isCustom || isCustomPosMenuVisible("settings.payments", menuPolicy, true)} locked={isSettingLocked("payments") || !menuVisible("settings.payments")} compact />
             <MenuButton
@@ -3688,7 +3688,7 @@ export function PosSettingsWorkspace({ lang, initialData }: { lang: Language; in
           </div>
         ) : null}
 
-        {view === "receipt_layout" && isCustom && canManage && menuVisible("settings.printers") ? <CustomReceiptLayoutSettings onBack={()=>setView("menu")}/> : null}
+        {view === "receipt_layout" && isCustom && canManageReceiptLayout && menuVisible("settings.printers") ? <CustomReceiptLayoutSettings onBack={()=>setView("menu")}/> : null}
         {view === "branding" && isCustom && canManage && menuVisible("settings.branding") ? <CustomBrandingSettings lang={lang} onBack={()=>setView("menu")}/> : null}
         {view === "store" ? (
           <StorePanel labels={labels} store={store} setStore={setStore} onBack={() => setView("menu")} canManage={canManage} reportStatus={reportStatus} />
