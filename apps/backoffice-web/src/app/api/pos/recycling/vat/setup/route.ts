@@ -70,7 +70,7 @@ export async function POST(request:Request){
     if(raw?.action!=="verify_registration")return fail("invalid_action","ไม่รองรับคำสั่งนี้",422);
     const parsed=parseVatRegistration(raw,todayBangkok());
     if(!parsed)return fail("invalid_vat_registration","กรุณากรอกข้อมูลตามหลักฐาน VAT จริง วันที่มีผลถูกต้อง และยืนยันการตรวจสอบ",422);
-    const tax=await db.from("tenant_tax_settings").select("is_enabled").eq("tenant_id",tenant_id).eq("branch_id",branch_id).maybeSingle();
+    const tax=await db.from("tenant_tax_settings").select("is_enabled,settings").eq("tenant_id",tenant_id).eq("branch_id",branch_id).maybeSingle();
     if(tax.error||tax.data?.is_enabled!==true)return fail("vat_not_configured","กรุณาตรวจสอบการตั้งค่า VAT ของสาขาก่อน",409);
     if(!validVatRule(tax.data.settings))return fail("vat_rule_unsupported","กรุณาตรวจสอบ VAT 7% แบบบวกเพิ่มของสาขา",409);
     const result=await db.from("recycling_vat_issuers").upsert({...parsed,tenant_id,branch_id,verified_by:user_id,verified_at:new Date().toISOString(),active:true,updated_at:new Date().toISOString()},{onConflict:"tenant_id,branch_id"});
