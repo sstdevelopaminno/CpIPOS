@@ -332,7 +332,7 @@ export function RecyclingStockWorkspace({ items, branches, branchId, branchName,
               <td className="px-3 py-2 text-right font-bold tabular-nums text-emerald-700">{item.sellPrice === null ? "ยังไม่กำหนด" : formatRecyclingUnitPriceDisplay(item.sellPrice,item.priceUnit)}</td>
               <td className="px-3 py-2 text-slate-600">บาท/{RECYCLING_PRICE_UNIT_LABELS[item.priceUnit]} <small className="block text-[11px] text-slate-400">สต๊อกฐาน: {item.priceBasis === "kg" ? "กก." : RECYCLING_PRICE_UNIT_LABELS[item.priceUnit]}</small></td>
               <td className="px-3 py-2 text-right font-semibold tabular-nums text-slate-800">
-                {item.quantityBase === null ? "รอยืนยันสต๊อก" : item.quantityBase.toLocaleString("th-TH", {maximumFractionDigits:6}) + (item.priceBasis === "kg" ? " กก." : " ชิ้น")}
+                {item.quantityBase === null ? "รอยืนยันสต๊อก" : item.quantityBase.toLocaleString("th-TH", {maximumFractionDigits:6}) + (item.priceBasis === "kg" ? " กก." : " "+RECYCLING_PRICE_UNIT_LABELS[item.priceUnit])}
               </td>
               {canManage && <td className="px-3 py-2 text-center">
                 <div className="flex items-center justify-center gap-2">
@@ -463,7 +463,7 @@ export function RecyclingStockWorkspace({ items, branches, branchId, branchName,
                 </select>
               </label>
             </div>
-            <p className="text-xs font-medium text-slate-600">สามารถสลับหน่วย กก. / ขีด / กรัม โดยแปลงราคาอ้างอิงอย่างแม่นยำ · ยอดสต๊อกใช้กิโลกรัมเหมือนเดิม {editing.id ? "· ห้ามเปลี่ยนระหว่างหน่วยน้ำหนักกับหน่วยชิ้นหลังบันทึกทะเบียน" : ""}</p>
+            <p className="text-xs font-medium text-slate-600">สามารถสลับหน่วย กก. / ขีด / กรัม โดยแปลงราคาอ้างอิงอย่างแม่นยำ · ยอดสต๊อกใช้กิโลกรัมเหมือนเดิม {editing.id ? "· ห้ามเปลี่ยนหน่วยนับของ SKU เดิมหลังบันทึกทะเบียน" : ""}</p>
           </fieldset>
 
           <fieldset className="space-y-3 border-t border-slate-200 pt-4">
