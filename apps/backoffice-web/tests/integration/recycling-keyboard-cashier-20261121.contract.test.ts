@@ -24,8 +24,9 @@ describe("Recycling physical keyboard acceptance and cashier safety",()=>{
     expect(cashier).toContain('data-testid="recycling-configured-unit"');
     expect(cashier).not.toContain('เลือกหน่วยจากผลชั่งภายนอก');
     expect(cashier).not.toContain("units.map(value");
-    expect(cashier).toContain('onKeyDown={event => { if (event.key === "Enter") { event.preventDefault(); addToCart(); } }}');
-    expect(cashier).toContain('calculateRecyclingLine(Number(quantity), unit, selectedPrice, pending.priceBasis)');
+    expect(cashier).toContain('if(event.key==="Enter")');
+    expect(cashier).toContain('if(!event.repeat)addToCart(event.currentTarget.value)');
+    expect(cashier).toContain('calculateRecyclingLine(resolvedQuantity,unit,selectedPrice,pending.priceBasis)');
   });
   it("binds Shift tap, Delete, keypad +/- to safe cashier actions only when no modal",()=>{
     expect(cashier).toContain('onKeyDown={onWorkspaceKeyDown} onKeyUp={onWorkspaceKeyUp}');

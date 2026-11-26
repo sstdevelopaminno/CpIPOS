@@ -9,6 +9,7 @@ import { normalizeRecyclingBarcodeInput, physicalRecyclingBarcodeKey } from "@/l
 import { recyclingCashierShortcutFromCode, RECYCLING_SHORTCUT_DELAY_MS, type RecyclingCashierShortcut } from "@/lib/recycling-cashier-shortcuts";
 import { parseRecyclingHeldBills, recyclingHeldKey, type HeldRecyclingBill } from "@/lib/recycling-held-bills";
 import { calculateRecyclingLine, recyclingUnitLabel } from "@/lib/recycling-calculation";
+import { MAX_RECYCLING_WEIGHT_EXPRESSION_LENGTH, parseRecyclingWeightExpression } from "@/lib/recycling-weight-expression";
 import { recyclingVatMinor } from "@/lib/recycling-tax-invoice";
 import { priceUnitLabel } from "@/lib/recycling-price-units";
 import { formatRecyclingUnitPriceDisplay } from "@/lib/recycling-money-display";
@@ -111,6 +112,8 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
   const [pending, setPending] = useState<RecyclingCatalogItem | null>(null);
   const [unit, setUnit] = useState<RecyclingUnit>("kg");
   const [quantity, setQuantity] = useState("1");
+  const quantityInputRef=useRef<HTMLInputElement>(null);
+  const quantityCommittedRef=useRef(false);
   const [lines, setLines] = useState<CartLine[]>([]);
   const [heldBills,setHeldBills]=useState<HeldRecyclingBill[]>([]);
   const [heldOpen,setHeldOpen]=useState(false);
@@ -277,8 +280,11 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
   const storageKey=useMemo(()=>recyclingHeldKey(tenantId,branchId,deviceCode,shiftId),
     [tenantId,branchId,deviceCode,shiftId]);
   const selectedPrice = pending ? (direction === "buy" ? pending.buyPrice : pending.sellPrice) : null;
-  const preview = pending && selectedPrice !== null && quantity.trim()
-    ? calculateRecyclingLine(Number(quantity), unit, selectedPrice, pending.priceBasis) : null;
+  const weightedQuantity=pending?.priceBasis==="kg";
+  const weightTotal=weightedQuantity?parseRecyclingWeightExpression(quantity,unit):null;
+  const resolvedQuantity=weightedQuantity?weightTotal?.quantity??null:quantity.trim()?Number(quantity):null;
+  const preview=pending&&selectedPrice!==null&&resolvedQuantity!==null
+    ?calculateRecyclingLine(resolvedQuantity,unit,selectedPrice,pending.priceBasis):null;
 
   function openQuantityPopup(item: RecyclingCatalogItem) {
     if (posting || checkoutOpen) return;
@@ -289,6 +295,7 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
       return;
     }
     setError("");
+    quantityCommittedRef.current=false;
     setPending(item);
     // Material catalogue config is authoritative: no discretionary unit
     // switching in the cashier, avoiding wrong kg/khid/g amounts.
@@ -370,9 +377,28 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
     }
   }
 
-  function addToCart() {
-    if (posting || checkoutOpen || !pending || !preview || selectedPrice === null) return;
-    addLineToCart(pending, unit, Number(quantity), selectedPrice);
+  function calculateWeightInPlace(raw=quantity){
+    if(!weightedQuantity)return;
+    const result=parseRecyclingWeightExpression(raw,unit);
+    if(result)setQuantity(result.display);
+    window.requestAnimationFrame(()=>quantityInputRef.current?.focus());
+  }
+  function appendWeightPlus(){
+    if(!weightedQuantity)return;
+    const raw=quantity.trim();
+    const result=parseRecyclingWeightExpression(raw,unit);
+    const next=raw.endsWith("=")?result?.display??"":raw;
+    if(next&&result&&next.length<MAX_RECYCLING_WEIGHT_EXPRESSION_LENGTH)setQuantity(next+"+");
+    window.requestAnimationFrame(()=>quantityInputRef.current?.focus());
+  }
+  function addToCart(raw=quantity) {
+    if(posting||checkoutOpen||!pending||selectedPrice===null||quantityCommittedRef.current)return;
+    const resolved=pending.priceBasis==="kg"
+      ?parseRecyclingWeightExpression(raw,unit)?.quantity??null
+      :raw.trim()?Number(raw):null;
+    if(resolved===null||!calculateRecyclingLine(resolved,unit,selectedPrice,pending.priceBasis))return;
+    quantityCommittedRef.current=true;
+    addLineToCart(pending,unit,resolved,selectedPrice);
     setPending(null);
     setQuantity("");
     updateScannerSearch("");
@@ -1282,9 +1308,38 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
         <label className="mt-4 block text-sm font-semibold text-slate-700" htmlFor="recycling-quantity">
           จำนวนที่ชั่ง / นับ ({recyclingUnitLabel(unit)})
         </label>
-        <input id="recycling-quantity" autoFocus type="number" min="0.001" step="any" value={quantity}
-          onChange={event => setQuantity(event.target.value)} onKeyDown={event => { if (event.key === "Enter") { event.preventDefault(); addToCart(); } }}
-          className="mt-1 w-full rounded-lg border-2 border-blue-300 px-3 py-3 text-xl font-bold text-slate-900 focus:border-blue-700 focus:outline-none" />
+        <div className="mt-1 flex items-stretch gap-2">
+          <input id="recycling-quantity" ref={quantityInputRef} autoFocus
+            type={weightedQuantity?"text":"number"} inputMode="decimal" min={weightedQuantity?undefined:"0.001"} step={weightedQuantity?undefined:"any"}
+            maxLength={weightedQuantity?MAX_RECYCLING_WEIGHT_EXPRESSION_LENGTH:undefined}
+            value={quantity} autoComplete="off" spellCheck={false}
+            placeholder={weightedQuantity?"30+30+56":undefined}
+            aria-describedby={weightedQuantity?"recycling-weight-help":undefined}
+            onChange={event=>setQuantity(event.target.value)}
+            onKeyDown={event=>{
+              if(event.nativeEvent.isComposing||event.ctrlKey||event.altKey||event.metaKey)return;
+              if(event.key==="Enter"){
+                event.preventDefault();event.stopPropagation();
+                if(!event.repeat)addToCart(event.currentTarget.value);
+              }else if(weightedQuantity&&(event.key==="="||event.code==="NumpadEqual")){
+                event.preventDefault();event.stopPropagation();
+                if(!event.repeat)calculateWeightInPlace(event.currentTarget.value);
+              }
+            }}
+            className="min-w-0 flex-1 rounded-lg border-2 border-blue-300 px-3 py-3 text-xl font-bold tabular-nums text-slate-900 focus:border-blue-700 focus:outline-none"/>
+          {weightedQuantity&&<>
+            <button type="button" aria-label="บวกน้ำหนักครั้งถัดไป" onClick={appendWeightPlus}
+              className="w-12 shrink-0 rounded-lg border border-blue-300 bg-blue-50 text-xl font-extrabold text-blue-800 hover:bg-blue-100">+</button>
+            <button type="button" aria-label="คำนวณน้ำหนักรวมในช่อง" disabled={!weightTotal} onClick={()=>calculateWeightInPlace()}
+              className="w-12 shrink-0 rounded-lg bg-blue-700 text-xl font-extrabold text-white disabled:opacity-40">=</button>
+          </>}
+        </div>
+        {weightedQuantity&&<div id="recycling-weight-help" className="mt-2 space-y-1 text-xs text-slate-600">
+          <p>พิมพ์น้ำหนักหลายครั้ง เช่น 30+30+56 แล้วกด = เพื่อรวมในช่อง หรือกด Enter เพื่อเพิ่มลงตะกร้าทันที</p>
+          {quantity.includes("+")&&<p role="status" className="rounded-md bg-blue-50 px-3 py-2 text-sm font-bold text-blue-900">
+            น้ำหนักรวม: {weightTotal?weightTotal.display+" "+recyclingUnitLabel(unit):"กรอกจำนวนให้ครบก่อนยืนยัน"}
+          </p>}
+        </div>}
         <div className="mt-4 rounded-lg bg-slate-50 p-3 text-sm">
           <div className="flex justify-between gap-2"><span>ราคาฐานที่ใช้คำนวณ</span>
             <strong>{selectedPrice === null ? "—" : formatMoney(selectedPrice)} ฿ /{pending.priceBasis === "kg" ? "กก." : priceUnitLabel(pending.priceUnit)}</strong></div>
@@ -1302,7 +1357,7 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
         <div className="mt-4 grid grid-cols-2 gap-2">
           <button type="button" onClick={() => { setPending(null); scannerRef.current?.focus(); }}
             className="rounded-lg border border-slate-200 px-4 py-3 font-bold text-slate-700">ยกเลิก</button>
-          <button type="button" disabled={!preview} onClick={addToCart}
+          <button type="button" disabled={!preview} onClick={()=>addToCart()}
             className="rounded-lg bg-blue-700 px-4 py-3 font-bold text-white disabled:cursor-not-allowed disabled:opacity-50">
             เพิ่มลงตะกร้า (Enter)
           </button>
