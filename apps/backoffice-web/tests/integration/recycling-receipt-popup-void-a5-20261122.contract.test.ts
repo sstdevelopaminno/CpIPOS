@@ -110,7 +110,7 @@ describe("CUSTOM Recycling invoice corrections / VOID through sales-list modal",
     expect(actions).toContain('แก้ไขบิล');
     expect(actions).toContain('ยกเลิก (VOID)');
     expect(actions).toContain('data-testid="recycling-document-action-modal"');
-    expect(actions).toContain('data-testid="recycling-safe-bill-correction"');
+    expect(actions).toContain('<RecyclingDocumentTimeEditor');
     expect(actions).toContain('<RecyclingVoidTransaction');
     expect(actions).toContain('startExpanded={true}');
     expect(actions).toContain('<RecyclingReceiptDialog');
@@ -118,11 +118,10 @@ describe("CUSTOM Recycling invoice corrections / VOID through sales-list modal",
     expect(actions).not.toContain('window.location.href');
   });
   it("does not directly edit posted prices/weights/stock without audited reversal",()=>{
-    expect(actions).toContain("ไม่อนุญาตให้แก้ยอดเงิน น้ำหนัก ราคาหรือคู่ค้าในเอกสารเดิมโดยตรง");
-    expect(actions).toContain("แล้วใช้คำสั่ง VOID ตามสิทธิ์");
-    expect(actions).toContain("จากนั้นจึงออกบิลใหม่");
-    expect(actions).toContain("ส่งคำขอให้ฝ่ายบัญชี");
-    expect(actions).not.toContain("/api/pos/recycling/transactions/"+'"+receiptId+"/edit');
+    expect(actions).toContain("directDateEnabled");
+    expect(actions).not.toContain("RecyclingAmountCorrectionEditor");
+    expect(actions).not.toContain("ส่งคำขอให้ฝ่ายบัญชี");
+    expect(actions).not.toContain("date-correction-request");
     expect(actions).not.toContain(".update(");
     expect(voidRoute).toContain('process.env.RECYCLING_VOID_ENABLED!=="1"');
     expect(voidRoute).toContain('recycling_void_self_approval_forbidden');
