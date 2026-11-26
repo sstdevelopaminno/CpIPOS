@@ -1,8 +1,8 @@
-name: CpIPOS Windows WebPOS 0.2.6 Fast Thermal QA (isolated)
+name: CpIPOS Windows WebPOS 0.2.7 Print Watchdog QA (isolated)
 
 on:
   push:
-    branches: ["fix/windows-xp80-fast-html-offset-calibration-20261123"]
+    branches: ["fix/windows-native-watchdog-qa-20261126"]
     paths:
       - ".github/workflows/build-windows-webpos-026-fast-thermal-qa.yml"
       - "apps/windows-runtime-native/**"
@@ -28,7 +28,7 @@ env:
   WINDOWS_RUNTIME_SETUP_ASSET_NAME: CpIPOS-WindowsRuntime-Setup.exe
   WINDOWS_WEB_POS_SETUP_ASSET_NAME: CpIPOS-WindowsWebPOS-Setup.exe
   WINDOWS_RUNTIME_ZIP_ASSET_NAME: CpIPOS-WindowsRuntime-win-x64.zip
-  WINDOWS_RUNTIME_VERSION: 0.2.6
+  WINDOWS_RUNTIME_VERSION: 0.2.7
 
 jobs:
   build-windows-runtime:
@@ -275,7 +275,7 @@ jobs:
       - name: Upload workflow artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: CpIPOS-WindowsWebPOS-v0.2.6-FastThermal-QA
+          name: CpIPOS-WindowsWebPOS-v0.2.7-PrintWatchdog-QA
           retention-days: 7
           path: |
             ${{ env.WINDOWS_RUNTIME_SETUP }}
