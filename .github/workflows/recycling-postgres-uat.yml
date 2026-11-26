@@ -81,6 +81,13 @@ jobs:
         run: |
           set -euo pipefail
           docker exec -i "$PG_CONTAINER" psql -U postgres -d recycling_uat -v ON_ERROR_STOP=1 < tests/recycling/ephemeral_pg_void_acceptance.sql
+      - name: Exercise direct supervisor VOID candidate (isolated only)
+        env:
+          PG_CONTAINER: ${{ job.services.postgres.id }}
+        run: |
+          set -euo pipefail
+          docker exec -i "$PG_CONTAINER" psql -U postgres -d recycling_uat -v ON_ERROR_STOP=1 < docs/recycling/authorized_supervisor_void_candidate.sql
+          docker exec -i "$PG_CONTAINER" psql -U postgres -d recycling_uat -v ON_ERROR_STOP=1 < tests/recycling/ephemeral_pg_authorized_supervisor_void_candidate.sql
       - name: Install Recycling midnight close migration on disposable PG
         env:
           PG_CONTAINER: ${{ job.services.postgres.id }}
