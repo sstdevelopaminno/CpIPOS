@@ -240,6 +240,11 @@ export function PosSubscriptionCenter({ initial, isOwner, showContactActions = t
       parent.append(node);
       return node;
     };
+    const logo = doc.createElement("img");
+    logo.alt = "CpiPOS";
+    logo.style.width = "128px";
+    logo.style.height = "auto";
+    doc.body.append(logo);
     append("h1", "CpiPOS CUSTOM | ร่างสัญญาให้บริการ");
     append("p", "ฉบับร่างเพื่อพิจารณาเท่านั้น — ยังไม่ใช่หลักฐานสัญญาที่มีผล");
     agreementDetails.forEach(([label, value]) => append("p", label + ": " + value));
@@ -247,8 +252,10 @@ export function PosSubscriptionCenter({ initial, isOwner, showContactActions = t
     const list = append("ol", "");
     agreementClauses.forEach(clause => append("li", clause, list));
     append("footer", "ลงนามกรรมการผู้มีอำนาจ: ________________________");
-    popup.focus();
-    popup.print();
+    const print = () => { popup.focus(); popup.print(); };
+    logo.addEventListener("load", print, { once: true });
+    logo.addEventListener("error", print, { once: true });
+    logo.src = new URL("/brand/cpipos-logo.png", window.location.origin).href;
   }
   const statusLabel = demo ? ui("บัญชีทดสอบภายใน") :
     ui(LABELS[snapshot.contract.status] || snapshot.contract.status);
@@ -1232,7 +1239,7 @@ export function PosSubscriptionCenter({ initial, isOwner, showContactActions = t
       {agreementOpen && customAgreementAvailable ? <div className="fixed inset-0 z-[470] grid place-items-center bg-slate-950/45 p-3">
         <section role="dialog" aria-modal="true" aria-label="ร่างสัญญา CUSTOM" className="flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
           <header className="flex items-center justify-between gap-3 border-b p-4">
-            <div><h2 className="text-xl font-black text-slate-900">สัญญาการใช้บริการ CpiPOS CUSTOM</h2>
+            <div><Image src="/brand/cpipos-logo.png" width={128} height={48} alt="CpiPOS" className="mb-2 h-auto w-28" /><h2 className="text-xl font-black text-slate-900">สัญญาการใช้บริการ CpiPOS CUSTOM</h2>
               <p className="text-xs text-slate-500">ฉบับร่างเพื่อพิจารณา · ยังไม่ใช่หลักฐานสัญญาที่มีผล</p></div>
             <button type="button" onClick={() => setAgreementOpen(false)} aria-label="ปิด" className="rounded-xl border px-3 py-2">×</button>
           </header>
