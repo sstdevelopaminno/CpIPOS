@@ -88,7 +88,7 @@ const outline="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm fon
 type LineInput = {description:string;quantity:string;unit:string};
 function inputLine():LineInput{return {description:"",quantity:"1",unit:"0"};}
 
-export function FinanceAccountingRegister({module}:{module:Module}) {
+export function FinanceAccountingRegister({module,recyclingExpenses=false}:{module:Module;recyclingExpenses?:boolean}) {
  const [enabled,setEnabled]=useState(true);
  const [error,setError]=useState<string|null>(null);
  const [notice,setNotice]=useState<string|null>(null);
@@ -250,14 +250,14 @@ export function FinanceAccountingRegister({module}:{module:Module}) {
   <div className="w-full min-w-0 border-b border-slate-200 bg-white">
    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 px-5 py-3">
     <div className="min-w-0">
-     <h2 className="text-sm font-bold text-slate-800">{module==="ledger"?"ผังบัญชี":module==="banking"?"ทะเบียนโอนเงินระหว่างบัญชี":"ทะเบียนเอกสารธุรกิจ"}</h2>
+     <h2 className="text-sm font-bold text-slate-800">{module==="ledger"?"ผังบัญชี":module==="banking"?"ทะเบียนโอนเงินระหว่างบัญชี" :recyclingExpenses?"ทะเบียนรายจ่ายอื่น ๆ":"ทะเบียนเอกสารธุรกิจ"}</h2>
      <p className="mt-1 text-xs leading-5 text-slate-500">{monthNote}</p>
     </div>
     <div className="flex flex-wrap gap-2">
      <button className={outline} disabled={loading} onClick={()=>void refresh()}>โหลดใหม่</button>
      {module==="ledger"
       ?<button className={primary} disabled={!enabled} onClick={()=>setAccountOpen(true)}>เพิ่มบัญชี</button>
-      :<button className={primary} disabled={!enabled||!branch} onClick={openCreate}>{module==="expenses"?"+ เพิ่มรายจ่าย":module==="banking"?"+ เพิ่มรายการโอน":"+ เพิ่มเอกสาร"}</button>}
+      :<button className={primary} disabled={!enabled||!branch} onClick={openCreate}>{module==="expenses"?"+ เพิ่มรายจ่ายอื่น ๆ":module==="banking"?"+ เพิ่มรายการโอน":"+ เพิ่มเอกสาร"}</button>}
     </div>
    </div>
    {error&&<p role="alert" className="mx-5 my-3 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-900">{error}</p>}
@@ -303,13 +303,13 @@ export function FinanceAccountingRegister({module}:{module:Module}) {
      </div>)}
     </div>}
     <div className="overflow-x-auto">
-     <table className="w-full min-w-[950px] text-sm">
+     <table className={"w-full min-w-[950px] text-sm "+(recyclingExpenses?"border-collapse [&_th]:border-r [&_td]:border-r [&_th]:border-slate-300 [&_td]:border-slate-200 [&_tbody_tr:nth-child(even)]:bg-slate-50":"")}>
       <thead className="border-b border-slate-200 bg-slate-100 text-xs text-slate-600">
        <tr><th className="px-5 py-3 text-left">เลขที่เอกสาร</th>
        <th className="px-5 py-3 text-left">คู่ค้า</th><th className="px-5 py-3 text-left">วันที่</th>
        <th className="px-5 py-3 text-left">ครบกำหนด</th>
        <th className="px-5 py-3 text-right">จำนวนเงิน</th><th className="px-5 py-3 text-right">คงค้าง</th><th className="px-5 py-3 text-left">สถานะ</th>
-       <th className="px-5 py-3 text-right">รายละเอียด</th></tr>
+       <th className="px-5 py-3 text-right">รายละเอียด</th>{recyclingExpenses&&<th className="px-5 py-3 text-left">ใบสำคัญจ่าย</th>}</tr>
       </thead>
       <tbody>{docs.map(d=><tr key={d.id} className="border-b border-slate-100">
        <td className="px-5 py-3 font-semibold text-blue-800">{d.number}</td>
@@ -326,6 +326,7 @@ export function FinanceAccountingRegister({module}:{module:Module}) {
        <td className="px-5 py-3">{statusThai[d.status]??d.status}{d.postedJournalId?" · ลงบัญชีแล้ว":""}</td>
        <td className="px-5 py-3 text-right"><button className={outline}
         onClick={()=>void openDocument(d)}>ดู / ดำเนินการ</button></td>
+       {recyclingExpenses&&<td className="px-3 py-2">{d.status==="issued"&&d.kind==="expense_voucher"?<div className="flex flex-wrap gap-1">{(["A4","A5"] as const).map(size=><a key={size} className={outline} target="_blank" rel="noopener noreferrer" href={"/api/finance/expense-voucher/"+encodeURIComponent(d.id)+"?size="+size}>ใบสำคัญจ่าย {size}</a>)}</div>:<span className="text-xs text-slate-500">รอออกเอกสาร</span>}</td>}
       </tr>)}</tbody>
      </table>
      {docs.length===0&&!loading&&<p className="px-5 py-6 text-sm text-slate-500">ยังไม่มีเอกสารในหมวดนี้ ไม่สร้างยอดสมมติ</p>}
@@ -339,7 +340,7 @@ export function FinanceAccountingRegister({module}:{module:Module}) {
       <p className="mb-4 text-xs leading-6 text-slate-600">สร้างแบบร่างก่อน ต้องมีผู้ตรวจสอบอีกคนอนุมัติ เอกสารนี้ไม่สร้างบิล POS หรือภาษีใหม่</p>
       <div className="grid gap-3 sm:grid-cols-2">
        <div><label className={label}>เลขที่เอกสาร</label><input className={field} value={number} onChange={e=>setNumber(e.target.value)} maxLength={64} placeholder="เลขที่ตามทะเบียนของร้าน"/></div>
-       <div><label className={label}>คู่ค้า / ลูกค้า</label><input className={field} value={party} onChange={e=>setParty(e.target.value)} maxLength={240} placeholder="ชื่อที่ได้รับการยืนยัน"/></div>
+       <div><label className={label}>{recyclingExpenses?"ผู้รับเงิน":"คู่ค้า / ลูกค้า"}</label><input className={field} value={party} onChange={e=>setParty(e.target.value)} maxLength={240} placeholder="ชื่อที่ได้รับการยืนยัน"/></div>
        <div><label className={label}>วันที่เอกสาร</label><input className={field} type="date" value={date} onChange={e=>setDate(e.target.value)}/></div>
        <div><label className={label}>ครบกำหนดชำระ</label><input className={field} type="date" value={due} onChange={e=>setDue(e.target.value)}/></div>
        <div><label className={label}>สกุลเงิน</label><select className={field} value={currency} onChange={e=>setCurrency(e.target.value as FinanceCurrency)}>
@@ -395,7 +396,7 @@ export function FinanceAccountingRegister({module}:{module:Module}) {
      description={`${statusThai[selected.status]??selected.status} · Version ${selected.version}`}
      busy={busy} onClose={()=>{setSelected(null);setSelectedDetail(null);setError("");}}>
      <div className="space-y-3 text-sm">
-      <p>คู่ค้า: <b>{selected.party}</b></p><p>ยอดเงิน: <b>{money(selected.amountMinor,selected.currency)} {selected.currency}</b></p>
+      <p>{recyclingExpenses?"ผู้รับเงิน":"คู่ค้า"}: <b>{selected.party}</b></p><p>ยอดเงิน: <b>{money(selected.amountMinor,selected.currency)} {selected.currency}</b></p>
       {detailLoading&&<p className="text-xs text-slate-500">กำลังอ่านรายละเอียดจากทะเบียน...</p>}
       {selectedDetail&&<div className="overflow-x-auto border border-slate-200">
        <div className="border-b border-slate-200 bg-slate-100 px-3 py-2 text-xs font-bold">รายการในเอกสาร</div>
@@ -435,7 +436,7 @@ export function FinanceAccountingRegister({module}:{module:Module}) {
        <button className={outline} disabled={busy} onClick={()=>void transition("reject")}>ส่งกลับ</button>
        <button className={primary} disabled={busy} onClick={()=>void transition("approve")}>อนุมัติ</button>
       </>}
-      {selected.status==="approved"&&<button className={primary} disabled={busy} onClick={()=>void transition("issue")}>ออกเอกสาร</button>}
+      {selected.status==="approved"&&<button className={primary} disabled={busy} onClick={()=>void transition("issue")}>{recyclingExpenses?"ออกใบสำคัญจ่าย":"ออกเอกสาร"}</button>}
       {canPost&&<button className={primary} disabled={busy||!debit||!credit} onClick={()=>void post()}>ลงบัญชีเดบิต/เครดิต</button>}
       {selected.status==="issued"&&!selected.postedJournalId&&
        <button className={outline} disabled={busy||reason.trim().length<10} onClick={()=>void transition("void")}>ยกเลิกเอกสาร</button>}

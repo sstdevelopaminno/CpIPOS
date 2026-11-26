@@ -1,3 +1,4 @@
+import {RecyclingFinanceExpenseWorkspace} from "@/components/finance/recycling-finance-expense-workspace";
 import {RecyclingFinanceIncomeWorkspace} from "@/components/finance/recycling-finance-income-workspace";
 import { isAuthorizedRecyclingTenant } from "@/lib/server/recycling-pos-service";
 import { RecyclingFinanceVatWorkspace } from "@/components/finance/recycling-finance-vat-workspace";
@@ -34,15 +35,16 @@ export default async function FinanceModulePage({ params }: {
   if (!item) notFound();
   const identity = await requireAccountantPage(item.key);
   const recyclingIncome=slug==="income"&&await isAuthorizedRecyclingTenant(identity.tenantId);
+  const recyclingExpenses=slug==="expenses"&&await isAuthorizedRecyclingTenant(identity.tenantId);
   const recyclingTax=slug==="tax-reports"&&await isAuthorizedRecyclingTenant(identity.tenantId);
   const recyclingBranches=recyclingTax?await getSupabaseServiceClient().from("branches").select("id,name").eq("tenant_id",identity.tenantId).in("id",identity.branchIds).order("name"):null;
   return (
     <section className="finance-secondary-workbench w-full min-w-0 bg-white text-slate-900">
       <FinanceSectionHeader title={item.label}
-        subtitle={(recyclingIncome?"ทะเบียนรายรับจากการขายส่ง และรายรับอื่น ๆ":subtitles[slug]) + ` · ${identity.branchIds.length} สาขาที่ได้รับสิทธิ์`} />
+        subtitle={(recyclingIncome?"ทะเบียนรายรับจากการขายส่ง และรายรับอื่น ๆ":recyclingExpenses?"ทะเบียนรับซื้อจาก POS และรายจ่ายอื่น ๆ พร้อมใบสำคัญจ่าย":subtitles[slug]) + ` · ${identity.branchIds.length} สาขาที่ได้รับสิทธิ์`} />
 
       {slug === "income" && (recyclingIncome?<RecyclingFinanceIncomeWorkspace/>:<FinanceIncomeWorkspace />)}
-      {slug === "expenses" && <FinanceAccountingRegister module="expenses" />}
+      {slug === "expenses" && (recyclingExpenses?<RecyclingFinanceExpenseWorkspace/>:<FinanceAccountingRegister module="expenses" />)}
 
       {slug === "sales-receivables" && <FinanceAccountingRegister module="sales-receivables" />}
       {slug === "pos-receipts" && <FinanceDocumentWorkspace kind="receipt" />}
