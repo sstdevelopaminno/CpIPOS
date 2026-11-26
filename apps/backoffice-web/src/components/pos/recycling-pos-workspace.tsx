@@ -1339,7 +1339,7 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
           {quantity.includes("+")&&<p role="status" className="rounded-md bg-blue-50 px-3 py-2 text-sm font-bold text-blue-900">
             น้ำหนักรวม: {weightTotal?weightTotal.display+" "+recyclingUnitLabel(unit):"กรอกจำนวนให้ครบก่อนยืนยัน"}
           </p>}
-        </div>
+        </div>}
         <div className="mt-4 rounded-lg bg-slate-50 p-3 text-sm">
           <div className="flex justify-between gap-2"><span>ราคาฐานที่ใช้คำนวณ</span>
             <strong>{selectedPrice === null ? "—" : formatMoney(selectedPrice)} ฿ /{pending.priceBasis === "kg" ? "กก." : priceUnitLabel(pending.priceUnit)}</strong></div>
