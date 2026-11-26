@@ -15,6 +15,7 @@ export type HeldRecyclingBill={
   heldAt:string;
   direction:"buy"|"sell";
   shiftId:string;
+  documentTime?:string|null;
   lines:HeldRecyclingLine[];
 };
 const validUnits=new Set(["kg","khid","g","ton","piece","stem","carton","vehicle", "set", "unit", "machine", "cabinet"]);
@@ -35,6 +36,7 @@ export function parseRecyclingHeldBills(value:string|null,shiftId:string):HeldRe
       return typeof v.id==="string"&&uuid.test(v.id)&&v.shiftId===shiftId&&
         (v.direction==="buy"||v.direction==="sell")&&
         typeof v.heldAt==="string"&&Number.isFinite(Date.parse(v.heldAt))&&
+        (v.documentTime==null||(typeof v.documentTime==="string"&&Number.isFinite(Date.parse(v.documentTime))))&&
         Array.isArray(v.lines)&&v.lines.length>0&&v.lines.length<=100&&
         v.lines.every(line=>line&&typeof line==="object"&&
           typeof line.productId==="string"&&uuid.test(line.productId)&&
