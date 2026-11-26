@@ -55,7 +55,8 @@ export function RecyclingVoidTransaction({
       }|null;
       if (!response.ok || body?.data?.voided?.status!=="voided") {
         const codes:Record<string,string>={
-          recycling_void_self_approval_forbidden:"ต้องให้ผู้อนุมัติคนละคนกับพนักงานที่บันทึกรายการเดิม",
+          recycling_void_self_approval_forbidden:"บัญชีผู้ใช้ไม่มีสิทธิ์ยกเลิกบิลนี้โดยตรง",
+          recycling_void_historical_replay_required:"บิลนี้เกี่ยวข้องกับการปรับต้นทุนย้อนหลัง ไม่สามารถคืนยอดสต๊อกเดิมได้",
           recycling_void_material_has_later_movement:"วัสดุมีการเคลื่อนไหวสต๊อกเพิ่มเติมแล้ว กรุณาทำเอกสารปรับปรุงแทน",
           recycling_void_finance_already_posted:"รายการนี้โพสต์เข้าบัญชีแล้ว ต้องจัดทำเอกสารกลับรายการทางบัญชี",
           recycling_void_shift_already_closed:"กะนี้ปิดแล้ว ไม่อนุญาตให้แก้รายการย้อนหลัง",
@@ -78,8 +79,8 @@ export function RecyclingVoidTransaction({
     }
   }
   return <section className="rounded-xl border border-rose-200 bg-rose-50 p-4 print:hidden">
-    <h2 className="font-bold text-rose-900">ขอยกเลิกเอกสารรับซื้อ–ขายออก (VOID)</h2>
-    <p className="mt-1 text-xs text-rose-800">ต้องมีผู้อนุมัติคนละคนกับผู้บันทึกเดิม และต้องเป็นกะที่ยังเปิดโดยไม่มีการโพสต์บัญชีหลักหรือเคลื่อนไหวสต๊อกต่อจากบิลนี้</p>
+    <h2 className="font-bold text-rose-900">ยกเลิกเอกสารรับซื้อ–ขายออก (VOID)</h2>
+    <p className="mt-1 text-xs text-rose-800">ผู้มีสิทธิ์ยืนยันการยกเลิกได้สำหรับกะที่ยังเปิด และบิลที่ยังไม่มีการโพสต์ GL หรือการเคลื่อนไหวสต๊อกภายหลัง</p>
     {!enabled && <p className="mt-2 text-xs font-bold text-amber-900">
       ปิดการยกเลิกจริงระหว่างตรวจความถูกต้องของระบบบัญชีและสต๊อก
     </p>}
