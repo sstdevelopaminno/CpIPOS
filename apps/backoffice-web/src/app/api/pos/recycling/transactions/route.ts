@@ -100,7 +100,7 @@ export async function POST(request: Request) {
       p_counterparty_name: counterparty,
       p_lines: lines
     };
-    const { data, error } = documentTime
+    const { data, error } = process.env.RECYCLING_MANUAL_DOCUMENT_TIME_ENABLED==="1"
       ? await db.rpc("recycling_post_transaction_with_document_time",{...rpcArgs,p_document_at:documentTime})
       : await db.rpc("recycling_post_transaction_vat",rpcArgs);
     if (error) {
