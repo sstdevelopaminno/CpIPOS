@@ -22,6 +22,10 @@ internal sealed class MainForm : Form
     private string? _customerDisplayMonitor;
     private bool _syncingCustomerDisplay;
     private readonly System.Windows.Forms.Timer _displaySyncTimer = new() { Interval = 12000 };
+    private readonly System.Windows.Forms.Timer _printWatchdogTimer = new() { Interval = 15000 };
+    private Task<string>? _printWatchdogProbe;
+    private bool _checkingPrintWatchdog;
+    private long _lastPrintWatchdogTick;
 
     public MainForm(RuntimeOptions options, LocalPrintBridge bridge)
     {
@@ -61,10 +65,14 @@ internal sealed class MainForm : Form
         Shown += async (_, _) => await InitializeWebViewAsync();
         KeyDown += HandleKeyDown;
         _displaySyncTimer.Tick += async (_, _) => await SyncCustomerDisplayAsync();
+        _printWatchdogTimer.Tick += async (_, _) => await CheckPrintWatchdogAsync();
+        Activated += async (_, _) => await CheckPrintWatchdogAsync();
         FormClosed += (_, _) =>
         {
             _displaySyncTimer.Stop();
             _displaySyncTimer.Dispose();
+            _printWatchdogTimer.Stop();
+            _printWatchdogTimer.Dispose();
             _customerDisplayWindow?.Close();
             _customerDisplayWindow = null;
         };
@@ -132,6 +140,7 @@ internal sealed class MainForm : Form
             _sharedWebEnvironment = environment;
             await SyncCustomerDisplayAsync();
             _displaySyncTimer.Start();
+            _printWatchdogTimer.Start();
         }
         catch (TimeoutException)
         {
@@ -181,6 +190,14 @@ internal sealed class MainForm : Form
             }
         };
 
+        _webView.CoreWebView2.ProcessFailed += (_, eventArgs) =>
+        {
+            // Never automatically navigate/restart a cashier page: it may
+            // contain an uncommitted payment or an unknown print outcome.
+            if (!IsDisposed)
+                System.Diagnostics.Debug.WriteLine("POS WebView2 process failure: " + eventArgs.ProcessFailedKind);
+        };
+
         _webView.CoreWebView2.NavigationCompleted += (_, eventArgs) =>
         {
             if (!eventArgs.IsSuccess)
@@ -191,6 +208,51 @@ internal sealed class MainForm : Form
 
         await _webView.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(BuildRuntimeBootstrapScript());
         NavigateToApp();
+    }
+
+    private async Task CheckPrintWatchdogAsync()
+    {
+        if (IsDisposed || Disposing || _checkingPrintWatchdog || !_bridge.IsRunning) return;
+        // A timed-out ExecuteScriptAsync may still complete later. Do not queue
+        // additional scripts behind a stuck renderer or reset the cashier UI.
+        if (_printWatchdogProbe is { IsCompleted: false }) return;
+        var now = Environment.TickCount64;
+        if (_lastPrintWatchdogTick != 0 && now - _lastPrintWatchdogTick < 10000) return;
+        _checkingPrintWatchdog = true;
+        try
+        {
+            var core = _webView.CoreWebView2;
+            if (core == null ||
+                !Uri.TryCreate(_options.AppUrl, UriKind.Absolute, out var configured) ||
+                !Uri.TryCreate(core.Source, UriKind.Absolute, out var source) ||
+                !string.Equals(configured.GetLeftPart(UriPartial.Authority),
+                    source.GetLeftPart(UriPartial.Authority), StringComparison.OrdinalIgnoreCase) ||
+                !(source.AbsolutePath == "/preview/pos" ||
+                  source.AbsolutePath.StartsWith("/preview/pos/", StringComparison.Ordinal)))
+                return;
+
+            _lastPrintWatchdogTick = now;
+            var origin = JsonSerializer.Serialize(configured.GetLeftPart(UriPartial.Authority));
+            // Recheck the origin/path inside the page to cover navigation races.
+            // This signal is local only. No cookie/token access, print commands,
+            // network requests, or reloads are performed by the native watchdog.
+            var script = "(function(){if(location.origin!==" + origin +
+                "||!(location.pathname==='/preview/pos'||location.pathname.startsWith('/preview/pos/')))return false;" +
+                "window.dispatchEvent(new Event('cpi-windows-native-watchdog'));return true;})()";
+            _printWatchdogProbe = core.ExecuteScriptAsync(script);
+            await WithTimeoutAsync(_printWatchdogProbe, 5000);
+            if (!IsDisposed && Text == "CpIPOS - Print Agent connection delayed")
+                Text = "CpIPOS";
+        }
+        catch (Exception error)
+        {
+            // A renderer that cannot execute JavaScript cannot be safely
+            // recovered without a cashier-approved reload. Signal locally.
+            if (!IsDisposed && !Disposing)
+                Text = "CpIPOS - Print Agent connection delayed";
+            System.Diagnostics.Debug.WriteLine("Print watchdog probe unavailable: " + error.GetType().Name);
+        }
+        finally { _checkingPrintWatchdog = false; }
     }
 
     private async Task SyncCustomerDisplayAsync()
@@ -368,7 +430,7 @@ internal sealed class MainForm : Form
             identity_anchor = "store_code",
             store_code = _options.StoreCode,
             app_url = _options.AppUrl,
-            native_app_version = "0.2.6",
+            native_app_version = "0.2.7",
             native_bridge_version = _bridge.Version,
             native_bridge_available = _bridge.IsRunning,
             bridge_health_url = _options.BridgeHealthUrl,
