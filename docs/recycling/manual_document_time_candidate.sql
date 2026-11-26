@@ -10,7 +10,7 @@ declare
   v_result jsonb;
   v_tx public.recycling_transactions%rowtype;
 begin
-  if p_document_at is null or not pg_catalog.isfinite(p_document_at) or p_document_at>clock_timestamp() then
+  if p_document_at is not null and (not pg_catalog.isfinite(p_document_at) or p_document_at>clock_timestamp()) then
     raise exception 'recycling_document_time_invalid';
   end if;
   -- Same canonical RPC and same transaction: all inventory, cash, ledger
@@ -25,9 +25,10 @@ begin
   end if;
   -- Candidate deliberately refuses VAT sales until historical tax periods
   -- and rate/issuer snapshots are reconciled. Entire posting rolls back.
-  if coalesce(v_tx.vat_minor,0)<>0 or v_tx.tax_state='vat_recorded' then
+  if p_document_at is not null and (coalesce(v_tx.vat_minor,0)<>0 or v_tx.tax_state='vat_recorded') then
     raise exception 'recycling_document_time_vat_unsupported';
   end if;
+  if p_document_at is null then return v_result; end if;
   update public.recycling_transactions set document_at=p_document_at
     where id=v_tx.id and tenant_id=p_tenant_id and branch_id=p_branch_id;
   return v_result||jsonb_build_object('document_at',p_document_at);
