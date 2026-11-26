@@ -43,26 +43,27 @@ describe("isolated Recycling Windows thermal, cashier layout and controlled docu
   expect(menu).toContain("labelFor(item, lang)");
   expect(menu).toContain('"/preview/pos/sales-list"');
  });
- it("only allows authenticated supervisor's scoped correction REQUEST; original financial records remain immutable",()=>{
-  const api=read("src/app/api/pos/recycling/transactions/[id]/date-correction-request/route.ts");
+ it("uses a scoped direct date correction RPC without an accounting approval queue",()=>{
+  const api=read("src/app/api/pos/recycling/transactions/[id]/document-time/route.ts");
+  const service=read("src/lib/server/recycling-document-correction-service.ts");
   const page=read("src/components/pos/recycling-sales-list-page-content.tsx");
   const ui=read("src/components/pos/recycling-sales-list-row-actions.tsx");
+  const editor=read("src/components/pos/recycling-document-time-editor.tsx");
   expect(api).toContain("requirePosSession()");
   expect(api).toContain('requirePermission(scope,"sales:list:view")');
-  expect(api).toContain('["owner","manager","accountant"].includes(scope.session.role)');
-  expect(api).toContain("isAuthorizedRecyclingTenant(scope.session.tenant_id)");
-  expect(api).toContain('.eq("branch_id",scope.session.branch_id)');
-  expect(api).toContain('.eq("tenant_id",scope.session.tenant_id)');
-  expect(api).toContain('action:"recycling_document_date_correction_requested"');
-  expect(api).toContain('approval_status:"pending_accountant_review"');
-  expect(api).toContain('no_stock_cash_tax_mutation:true');
-  expect(api).not.toContain('.from("recycling_transactions").update(');
-  expect(api).not.toContain('.from("recycling_transactions").delete(');
-  expect(api).not.toContain('.from("recycling_stock_balances").update(');
+  expect(api).toContain('["owner","manager"].includes(scope.session.role)');
+  expect(api).toContain("branchId:scope.session.branch_id");
+  expect(api).toContain("tenantId:scope.session.tenant_id");
+  expect(service).toContain("isAuthorizedRecyclingTenant(actor.tenantId)");
+  expect(service).toContain('rpc("recycling_correct_document_time"');
+  expect(service).toContain("p_expected_at:expected");
+  expect(service).not.toMatch(/\.(update|delete|insert)\(/);
   expect(page).toContain('createdAt={t.created_at}');
-  expect(ui).toContain("requestReason");
-  expect(ui).toContain('type="date" required');
-  expect(ui).toContain("ส่งคำขอให้ฝ่ายบัญชี");
+  expect(ui).not.toContain("date-correction-request");
+  expect(ui).not.toContain("ส่งคำขอให้ฝ่ายบัญชี");
+  expect(editor).toContain('type="datetime-local"');
+  expect(editor).toContain("บันทึกการแก้ไข");
+  expect(editor).toContain("result?.data?.applied!==true");
   expect(ui).toContain("VOID");
  });
  it("primes Windows only if the server returned a dedicated enrolled 5s print policy",()=>{

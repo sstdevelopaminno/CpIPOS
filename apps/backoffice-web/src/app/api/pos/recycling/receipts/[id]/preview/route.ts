@@ -44,7 +44,7 @@ export async function GET(request:Request,{params}:{params:Promise<{id:string}>}
       branchRole:role==="owner"||role==="manager"||role==="accountant"?role:"staff"};
     const [tx,lines,tenant,branch,profile,taxSettings]=await Promise.all([
       db.from("recycling_transactions")
-        .select("id,receipt_no,direction,settlement,counterparty_name,total_minor,base_minor,vat_minor,tax_state,status,void_reason,created_at")
+        .select(process.env.RECYCLING_DIRECT_DATE_EDIT_ENABLED==="1"?"id,receipt_no,direction,settlement,counterparty_name,total_minor,base_minor,vat_minor,tax_state,status,void_reason,created_at:effective_document_at":"id,receipt_no,direction,settlement,counterparty_name,total_minor,base_minor,vat_minor,tax_state,status,void_reason,created_at")
         .eq("id",id).eq("tenant_id",tenantId).eq("branch_id",branchId).maybeSingle(),
       db.from("recycling_transaction_lines")
         .select("line_no,sku_snapshot,name_snapshot,original_quantity,original_unit,base_unit,price_per_base,amount_minor")

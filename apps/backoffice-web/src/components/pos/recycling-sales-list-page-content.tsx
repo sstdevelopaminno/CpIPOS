@@ -253,7 +253,8 @@ export async function RecyclingSalesListPageContent({scope,search={}}:{
                     receiptId={t.id} receiptNo={t.receipt_no} createdAt={t.created_at}
                     direction={t.direction} settlement={t.settlement} status={t.status}
                     amountMinor={Number(t.total_minor)}
-                    canManage={["owner","manager","accountant"].includes(scope.session.role)}
+                    canManage={["owner","manager"].includes(scope.session.role)&&scope.permissions.includes("sales:list:view")}
+                    directDateEnabled={process.env.RECYCLING_DIRECT_DATE_EDIT_ENABLED==="1"}
                     voidEnabled={process.env.RECYCLING_VOID_ENABLED==="1"}/>:<span className="text-xs text-amber-700">เข้าสาขาต้นทางเพื่อเปิดเอกสาร</span>}
                 </td>
               </tr>;
