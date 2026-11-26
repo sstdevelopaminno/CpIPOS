@@ -9,6 +9,7 @@ import { PosUsersModule } from "@/components/pos/pos-users-module";
 import { InetNopsSettingsPanel } from "@/components/pos-preview/inet-nops-settings-panel";
 import { PackageLockDialog } from "@/components/pos-preview/package-lock-dialog";
 import { ItMenuLockDialog } from "@/components/pos-preview/it-menu-lock-dialog";
+import {CustomReceiptLayoutSettings} from "@/components/pos-preview/custom-receipt-layout-settings";
 import {CustomBrandingSettings} from "@/components/pos-preview/custom-branding-settings";
 import {settingsLaoLabels} from "@/lib/lao-pos-ui";
 import { PosSupportPushSettingsModal } from "@/components/pos-preview/pos-support-push-control";
@@ -28,7 +29,7 @@ import type {
 import type { ActivityAuditItem, ActivityAuditPeriod } from "@/lib/services/activity-audit-service";
 import type { Language } from "@/lib/i18n";
 
-type SettingsView = "menu" | "branding" | "store" | "branches" | "devices" | "printers" | "activity" | "payments" | "inet_nops" | "taxes" | "notifications" | "users";
+type SettingsView = "receipt_layout" | "menu" | "branding" | "store" | "branches" | "devices" | "printers" | "activity" | "payments" | "inet_nops" | "taxes" | "notifications" | "users";
 type MenuIconName = "store" | "branch" | "payment" | "tax" | "users" | "display" | "terminal" | "activity" | "bell" | "support" | "tables" | "language" | "stock" | "summary" | "receipt" | "members" | "back" | "edit" | "trash" | "plus";
 type MainMenuPlacement = "left" | "top" | "bottom";
 const POS_TAX_SETTINGS_UPDATED_EVENT = "pos:tax-settings-updated";
@@ -3602,6 +3603,7 @@ export function PosSettingsWorkspace({ lang, initialData }: { lang: Language; in
   }
 
   function openSettingsView(viewKey: Exclude<SettingsView, "menu">) {
+    if(viewKey==="receipt_layout"){if(isCustom&&canManage&&menuVisible("settings.printers"))setView(viewKey);return;}
     if (!menuVisible("settings." + viewKey)) {
       setItLockedMenu(lang === "th" ? "เมนูตั้งค่า" : "Settings");
       return;
@@ -3640,6 +3642,7 @@ export function PosSettingsWorkspace({ lang, initialData }: { lang: Language; in
               onClick={() => openSettingsView("printers")}
                menuEnabled={!isCustom || isCustomPosMenuVisible("settings.printers", menuPolicy, true)} locked={isSettingLocked("printers") || !menuVisible("settings.printers")}
             />
+            {isCustom&&canManage&&menuVisible("settings.printers")&&<MenuButton icon="receipt" title="รูปแบบใบเสร็จ / บิล" desc="เลือกข้อมูลที่แสดงบนหัวบิล" onClick={()=>openSettingsView("receipt_layout")} menuEnabled locked={false}/>}
             {!isStoreSpecificSettingHidden("activity") ? <MenuButton icon="activity" title={labels.activityAudit} desc={labels.activityAuditDesc} onClick={() => openSettingsView("activity")}  menuEnabled={!isCustom || isCustomPosMenuVisible("settings.activity", menuPolicy, true)} locked={isSettingLocked("activity") || !menuVisible("settings.activity")} /> : null}
             <MenuButton icon="payment" title={labels.payments} desc={labels.paymentsDesc} onClick={() => openSettingsView("payments")}  menuEnabled={!isCustom || isCustomPosMenuVisible("settings.payments", menuPolicy, true)} locked={isSettingLocked("payments") || !menuVisible("settings.payments")} compact />
             <MenuButton
@@ -3685,6 +3688,7 @@ export function PosSettingsWorkspace({ lang, initialData }: { lang: Language; in
           </div>
         ) : null}
 
+        {view === "receipt_layout" && isCustom && canManage && menuVisible("settings.printers") ? <CustomReceiptLayoutSettings onBack={()=>setView("menu")}/> : null}
         {view === "branding" && isCustom && canManage && menuVisible("settings.branding") ? <CustomBrandingSettings lang={lang} onBack={()=>setView("menu")}/> : null}
         {view === "store" ? (
           <StorePanel labels={labels} store={store} setStore={setStore} onBack={() => setView("menu")} canManage={canManage} reportStatus={reportStatus} />
