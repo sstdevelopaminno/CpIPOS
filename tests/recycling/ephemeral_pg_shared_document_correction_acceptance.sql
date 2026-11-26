@@ -27,6 +27,14 @@ begin
   raise exception 'CORRECTION_STAFF_ACCEPTED';
  exception when others then if sqlerrm not like '%recycling_correction_forbidden%' then raise; end if; end;
  update public.user_branch_roles set role='owner' where tenant_id=t and branch_id=b and user_id=u;
+ insert into public.finance_accounting_periods(tenant_id,branch_id,period_month,locked_at,locked_by)
+ values(t,b,date_trunc('month',d1 at time zone 'Asia/Bangkok')::date,now(),a)
+ on conflict(tenant_id,branch_id,period_month) do update set locked_at=excluded.locked_at,locked_by=excluded.locked_by;
+ begin
+  perform public.recycling_correct_document_time(t,b,txid,u,gen_random_uuid(),actual_at,d1,'Locked period must stay unchanged','pos');
+  raise exception 'CORRECTION_LOCKED_PERIOD_ACCEPTED';
+ exception when others then if sqlerrm not like '%recycling_correction_period_locked%' then raise; end if; end;
+ update public.finance_accounting_periods set locked_at=null,locked_by=null where tenant_id=t and branch_id=b and period_month=date_trunc('month',d1 at time zone 'Asia/Bangkok')::date;
  result:=public.recycling_correct_document_time(t,b,txid,u,r,actual_at,d1,'Owner corrects document date','pos');
  if result->>'applied'<>'true' then raise exception 'CORRECTION_POS_FAILED'; end if;
  result:=public.recycling_correct_document_time(t,b,txid,u,r,actual_at,d1,'Owner corrects document date','pos');
