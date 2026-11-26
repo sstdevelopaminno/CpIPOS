@@ -74,7 +74,7 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
   return body.data;
 }
 
-export function FinanceOtherIncomeRegister() {
+export function FinanceOtherIncomeRegister({recycling=false}:{recycling?:boolean}={}) {
   const [branches, setBranches] = useState<Branch[]>([]);
   const [branch, setBranch] = useState("");
   const [items, setItems] = useState<OtherIncomeRow[]>([]);
@@ -257,7 +257,7 @@ export function FinanceOtherIncomeRegister() {
         <div className="flex flex-wrap gap-2">
           <button type="button" className={action} disabled={loading} onClick={() => void load()}>รีเฟรช</button>
           <button type="button" className={primary} disabled={!ready || loading || !branches.length} onClick={openCreate}>
-            <span aria-hidden="true" className="text-lg leading-none">+</span> เพิ่มรายรับ
+            <span aria-hidden="true" className="text-lg leading-none">+</span> {recycling?"เพิ่มรายรับอื่น ๆ":"เพิ่มรายรับ"}
           </button>
         </div>
       </header>
@@ -285,7 +285,7 @@ export function FinanceOtherIncomeRegister() {
         <div className="flex flex-wrap gap-6 border-b border-slate-200 px-5 py-3">
           {totals.map(([unit, total]) => (
             <div key={unit}>
-              <p className="text-[11px] text-slate-500">รวมรายการที่แสดง ({unit})</p>
+              <p className="text-[11px] text-slate-500">รวมเอกสารที่แสดง ไม่รวม VOID ({unit})</p>
               <p className="mt-0.5 text-lg font-extrabold tabular-nums text-[#164d87]">{cash(total, unit)}</p>
             </div>
           ))}
@@ -293,7 +293,7 @@ export function FinanceOtherIncomeRegister() {
       ) : null}
 
       <div className="w-full overflow-x-auto">
-        <table className="w-full min-w-[1450px] border-collapse text-xs">
+        <table className={"w-full min-w-[1450px] border-collapse text-xs "+(recycling?"[&_th]:border-r [&_td]:border-r [&_th]:border-slate-300 [&_td]:border-slate-200 [&_tbody_tr:nth-child(even)]:bg-slate-50":"")}>
           <thead className="border-b border-[#ccdae9] bg-[#eaf1fa] text-[#244466]">
             <tr>
               {["ลำดับ", "วันที่", "เวลา", "เลขที่บิล", "รายการ", "ราคา/หน่วย", "จำนวน",
