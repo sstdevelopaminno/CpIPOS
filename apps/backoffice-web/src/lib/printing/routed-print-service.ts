@@ -752,7 +752,7 @@ export async function queueRoutedShiftReport(args: {
   const supabase = getSupabaseServiceClient();
   const { data: shift, error: shiftError } = await supabase
     .from("shifts")
-    .select("id,status,opening_cash,expected_cash,actual_cash,opened_at,closed_at,metadata")
+    .select("id,status,opening_cash,expected_cash,actual_cash,opened_at,closed_at,metadata,updated_at")
     .eq("tenant_id", args.auth.tenantId!)
     .eq("branch_id", args.auth.branchId!)
     .eq("id", args.shiftId)
@@ -841,7 +841,8 @@ export async function queueRoutedShiftReport(args: {
       payloadText: payload,
       payloadJson: {
         shift_id: args.shiftId,
-        document_type: "shift_report"
+        document_type: "shift_report",
+        ...(isRecyclingDaily ? {recycling_shift_version:shift.updated_at} : {})
       },
       metadata: {
         request_source: "shift_close",

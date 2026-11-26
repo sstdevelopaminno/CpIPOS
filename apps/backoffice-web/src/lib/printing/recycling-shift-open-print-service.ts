@@ -10,7 +10,7 @@ const esc=(value:unknown)=>String(value??"")
 
 type ShiftRecord={
  id:string;status:string;opened_at:string;opening_cash:number|null;
- device_code:string|null;metadata:Record<string,unknown>|null
+ device_code:string|null;metadata:Record<string,unknown>|null;updated_at:string
 };
 
 /** Read-only source of truth: print only a confirmed, open Recycling shift.
@@ -23,7 +23,7 @@ export async function queueRoutedRecyclingShiftOpenSlip(args:{
  if(!tenantId||!branchId||!code)throw new Error("recycling_shift_open_device_scope_required");
  const db=getSupabaseServiceClient();
  const shift=await db.from("shifts")
-  .select("id,status,opened_at,opening_cash,device_code,metadata")
+  .select("id,status,opened_at,opening_cash,device_code,metadata,updated_at")
   .eq("id",args.shiftId).eq("tenant_id",tenantId).eq("branch_id",branchId)
   .eq("device_code",code).maybeSingle<ShiftRecord>();
  if(shift.error||!shift.data||shift.data.status!=="open"||
@@ -97,7 +97,7 @@ export async function queueRoutedRecyclingShiftOpenSlip(args:{
    idempotencyKey,
    payloadText:"เปิดกะ CUSTOM Recycling\n"+branchName+"\n"+opened+
     "\nเงินสดต้นกะ "+cash+" บาท\nไม่ใช่ใบเสร็จหรือใบกำกับภาษี",
-   payloadJson:{shift_id:shift.data.id,document_type:"recycling_shift_open_slip"},
+   payloadJson:{shift_id:shift.data.id,document_type:"recycling_shift_open_slip",recycling_shift_version:shift.data.updated_at},
    metadata:{
     request_source:"recycling_shift_open",
     routing_purpose:route.purpose,
