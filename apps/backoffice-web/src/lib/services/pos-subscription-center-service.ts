@@ -4,7 +4,7 @@ import { getPrimarySupabaseServiceClient } from "@/lib/supabase-admin";
 
 export const SUBSCRIPTION_SLIP_BUCKET = "subscription-payment-evidence";
 
-type Tenant = { id: string; code: string | null; name: string; display_name: string | null; package_id: string | null };
+type Tenant = { id: string; code: string | null; name: string; display_name: string | null; package_id: string | null; company_address: string | null };
 type Contract = { id: string; package_id: string; status: string; billing_interval: string; amount_per_cycle: number | null;
   currency: string; started_at: string | null; ended_at: string | null;
   max_branches: number | null; branch_limit: number | null; max_devices: number | null;
@@ -76,7 +76,7 @@ export async function loadPosSubscriptionCenter(tenantId: string) {
   // Commercial authority lives in CpiPOS-001, never in a trial tenant sales data plane.
   const db = getPrimarySupabaseServiceClient();
   const [tenantResult, contractResult, lifecycleResult, issuerResult, packagesResult, aiQuotaResult, requestResult, cycleResult, receiptResult, receiptAnnotationResult, dueResult, discountResult] = await Promise.all([
-    db.from("tenants").select("id,code,name,display_name,package_id")
+    db.from("tenants").select("id,code,name,display_name,package_id,company_address")
       .eq("id",tenantId).maybeSingle<Tenant>(),
     db.from("tenant_subscription_contracts")
       .select("id,package_id,status,billing_interval,amount_per_cycle,currency,started_at,ended_at,max_branches,branch_limit,max_devices,terminal_limit_per_branch,max_users")
@@ -154,7 +154,7 @@ export async function loadPosSubscriptionCenter(tenantId: string) {
   const receiptAnnotationById = new Map((receiptAnnotationResult.data ?? []).map((row)=>[row.receipt_id,row]));
   return {
     store: { id: tenant.id, code: tenant.code || tenant.id.slice(0,8).toUpperCase(),
-      name: tenant.display_name || tenant.name },
+      name: tenant.display_name || tenant.name, company_address: tenant.company_address ?? "" },
     contract: {
       id: contract?.id ?? null, package_id: pkg?.id ?? null, package_code: pkg?.code ?? null,
       package_name: pkg?.name ?? "ยังไม่กำหนดแพ็กเกจ",
