@@ -66,6 +66,7 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
   const gateInFlightRef=useRef(false);
   const lastDayRef=useRef(recyclingBusinessDayKey(new Date()));
   const postingRef=useRef(false);
+  const requestIdRef = useRef("");
   const rolloverWhilePostingRef=useRef(false);
   const [direction, setDirection] = useState<Direction>("buy");
   const [search, setSearch] = useState("");
@@ -96,13 +97,6 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
   const documentTimeButtonRef=useRef<HTMLButtonElement>(null);
   const documentTimeInputRef=useRef<HTMLInputElement>(null);
   useEffect(()=>{if(documentTimeOpen)window.requestAnimationFrame(()=>documentTimeInputRef.current?.focus());},[documentTimeOpen]);
-  function closeDocumentTime(){setDocumentTimeOpen(false);window.requestAnimationFrame(()=>documentTimeButtonRef.current?.focus());}
-  function applyDocumentTime(){
-    if(!manualDocumentTimeEnabled||postingRef.current||requestIdRef.current)return;
-    const parsed=parseRecyclingDocumentTime(documentTimeDraft,new Date());
-    if(!parsed){setDocumentTimeError("กรุณาระบุวันที่และเวลาที่ถูกต้อง ไม่เกินเวลาปัจจุบัน");return;}
-    setFixedDocumentTime(parsed);closeDocumentTime();
-  }
   const [searchMode,setSearchMode]=useState<"barcode"|"name">("barcode");
   const [searchPreferencesOpen,setSearchPreferencesOpen]=useState(false);
   const searchPreferencesButtonRef=useRef<HTMLButtonElement>(null);
@@ -153,7 +147,6 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
   const [vatQuoteLoading,setVatQuoteLoading]=useState(false);
   const [posted, setPosted] = useState<{ id: string; receipt_no?: string; total_minor: number; printRequestId: string } | null>(null);
   const [receiptDialogOpen,setReceiptDialogOpen]=useState(false);
-  const requestIdRef = useRef("");
   const nextKey = useRef(0);
   const scannerRef = useRef<HTMLInputElement>(null);
   const cashMethodRef=useRef<HTMLInputElement>(null);
@@ -457,6 +450,13 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
       setVatQuote(null);
       setPostError("ยังตรวจสอบ VAT ของสาขาไม่ได้ กรุณาตรวจสอบระบบก่อนยืนยันบิล");
     }finally{setVatQuoteLoading(false);}
+  }
+  function closeDocumentTime(){setDocumentTimeOpen(false);window.requestAnimationFrame(()=>documentTimeButtonRef.current?.focus());}
+  function applyDocumentTime(){
+    if(!manualDocumentTimeEnabled||postingRef.current||requestIdRef.current)return;
+    const parsed=parseRecyclingDocumentTime(documentTimeDraft,new Date());
+    if(!parsed){setDocumentTimeError("กรุณาระบุวันที่และเวลาที่ถูกต้อง ไม่เกินเวลาปัจจุบัน");return;}
+    setFixedDocumentTime(parsed);closeDocumentTime();
   }
   function openCheckout(){
     if(!canUseShift||posting||!visibleLines.length)return;
