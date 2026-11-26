@@ -116,7 +116,7 @@ export function RecyclingStockWorkspace({ items, branches, branchId, branchName,
   useEffect(() => {
     if (!editing) return;
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && !busy) {
+      if (event.key === "Escape" && !busy && !unitsOpen) {
         event.preventDefault();
         setEditing(null);
         setPhotoFile(null);
@@ -125,7 +125,7 @@ export function RecyclingStockWorkspace({ items, branches, branchId, branchName,
     };
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, [editing, busy]);
+  }, [editing, busy, unitsOpen]);
 
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -286,7 +286,7 @@ export function RecyclingStockWorkspace({ items, branches, branchId, branchName,
             className="inline-flex min-h-10 items-center rounded-lg border border-rose-300 bg-white px-3 text-sm font-bold text-rose-700 hover:bg-rose-50 disabled:opacity-50">
             ลบทั้งหมด
           </button>}
-          {canManage && <button type="button" onClick={()=>setUnitsOpen(true)} className="rounded-lg border border-blue-300 bg-white px-3 py-2 text-sm font-bold text-blue-800">+ เพิ่มหน่วยราคามาตรฐาน</button>}
+          {canManage && <button type="button" disabled={busy||Boolean(editing)||Boolean(deleteTarget)} onClick={()=>setUnitsOpen(true)} className="rounded-lg border border-blue-300 bg-white px-3 py-2 text-sm font-bold text-blue-800">+ เพิ่มหน่วยราคามาตรฐาน</button>}
           {canManage && <button ref={addButtonRef} type="button" onClick={() => edit()}
             className="inline-flex min-h-10 items-center rounded-lg bg-blue-700 px-4 text-sm font-extrabold text-white hover:bg-blue-800">
             + เพิ่มวัสดุ
