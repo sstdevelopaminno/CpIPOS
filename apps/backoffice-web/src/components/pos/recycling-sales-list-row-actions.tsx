@@ -1,5 +1,6 @@
 "use client";
 
+import {RecyclingAmountCorrectionEditor} from "@/components/pos/recycling-amount-correction-editor";
 import {useRouter} from "next/navigation";
 import {RecyclingDocumentTimeEditor} from "@/components/pos/recycling-document-time-editor";
 import { useEffect, useRef, useState } from "react";
@@ -15,14 +16,14 @@ function bangkokDocumentDate(iso:string){
  return [pick("year"),pick("month"),pick("day")].join("-");
 }
 export function RecyclingSalesListRowActions({
-  receiptId,receiptNo,createdAt,direction,settlement,status,amountMinor,canManage,voidEnabled,directDateEnabled=false
+  receiptId,receiptNo,createdAt,direction,settlement,status,amountMinor,canManage,voidEnabled,directDateEnabled=false,amountCorrectionEnabled=false
 }:{
   receiptId:string;receiptNo:string;createdAt:string;
   direction:"buy"|"sell";
   settlement:"cash"|"bank_transfer"|"credit";
   status:"posted"|"voided";
   amountMinor:number;
-  canManage:boolean;voidEnabled:boolean;directDateEnabled?:boolean;
+  canManage:boolean;voidEnabled:boolean;directDateEnabled?:boolean;amountCorrectionEnabled?:boolean;
 }){
   const router=useRouter();
   const [mode,setMode]=useState<Mode|null>(null);
@@ -95,6 +96,7 @@ export function RecyclingSalesListRowActions({
         className="min-h-9 whitespace-nowrap rounded-md border border-blue-200 bg-white px-2.5 text-xs font-bold text-blue-700 hover:bg-blue-50">
         ดู / พิมพ์
       </button>
+      {amountCorrectionEnabled&&status==="posted"&&<RecyclingAmountCorrectionEditor id={receiptId} source="pos" onSaved={()=>router.refresh()}/>}
       {directDateEnabled&&status==="posted"&&<RecyclingDocumentTimeEditor id={receiptId} currentAt={createdAt} source="pos" onSaved={()=>router.refresh()}/>}
       {canManage&&!directDateEnabled&&<button type="button" ref={editRef} disabled={status!=="posted"}
         onClick={()=>show("edit")}
