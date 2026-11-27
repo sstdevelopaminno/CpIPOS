@@ -9,6 +9,7 @@ import { PosUsersModule } from "@/components/pos/pos-users-module";
 import { InetNopsSettingsPanel } from "@/components/pos-preview/inet-nops-settings-panel";
 import { PackageLockDialog } from "@/components/pos-preview/package-lock-dialog";
 import { ItMenuLockDialog } from "@/components/pos-preview/it-menu-lock-dialog";
+import {RecyclingCashierDateSettings} from "@/components/pos-preview/recycling-cashier-date-settings";
 import {CustomReceiptLayoutSettings} from "@/components/pos-preview/custom-receipt-layout-settings";
 import {CustomBrandingSettings} from "@/components/pos-preview/custom-branding-settings";
 import {settingsLaoLabels} from "@/lib/lao-pos-ui";
@@ -29,7 +30,7 @@ import type {
 import type { ActivityAuditItem, ActivityAuditPeriod } from "@/lib/services/activity-audit-service";
 import type { Language } from "@/lib/i18n";
 
-type SettingsView = "receipt_layout" | "menu" | "branding" | "store" | "branches" | "devices" | "printers" | "activity" | "payments" | "inet_nops" | "taxes" | "notifications" | "users";
+type SettingsView = "recycling_cashier_date" | "receipt_layout" | "menu" | "branding" | "store" | "branches" | "devices" | "printers" | "activity" | "payments" | "inet_nops" | "taxes" | "notifications" | "users";
 type MenuIconName = "store" | "branch" | "payment" | "tax" | "users" | "display" | "terminal" | "activity" | "bell" | "support" | "tables" | "language" | "stock" | "summary" | "receipt" | "members" | "back" | "edit" | "trash" | "plus";
 type MainMenuPlacement = "left" | "top" | "bottom";
 const POS_TAX_SETTINGS_UPDATED_EVENT = "pos:tax-settings-updated";
@@ -3520,7 +3521,7 @@ function MainMenuPlacementPopup({
   );
 }
 
-export function PosSettingsWorkspace({ lang, initialData, canManageReceiptLayout=false }: { lang: Language; initialData: PosSettingsSnapshot; canManageReceiptLayout?:boolean }) {
+export function PosSettingsWorkspace({ lang, initialData, canManageReceiptLayout=false, canManageRecyclingCashierDate=false }: { lang: Language; initialData: PosSettingsSnapshot; canManageReceiptLayout?:boolean; canManageRecyclingCashierDate?:boolean }) {
   const labels = lang === "en" ? TEXT.en : lang === "lo" ? { ...TEXT.en, ...settingsLaoLabels } : TEXT.th;
   const [view, setView] = useState<SettingsView>("menu");
   const [store, setStore] = useState(initialData.store);
@@ -3603,6 +3604,7 @@ export function PosSettingsWorkspace({ lang, initialData, canManageReceiptLayout
   }
 
   function openSettingsView(viewKey: Exclude<SettingsView, "menu">) {
+    if(viewKey==="recycling_cashier_date"){if(isCustom&&canManageRecyclingCashierDate)setView(viewKey);return;}
     if(viewKey==="receipt_layout"){if(isCustom&&canManageReceiptLayout&&menuVisible("settings.printers"))setView(viewKey);return;}
     if (!menuVisible("settings." + viewKey)) {
       setItLockedMenu(lang === "th" ? "เมนูตั้งค่า" : "Settings");
@@ -3642,6 +3644,7 @@ export function PosSettingsWorkspace({ lang, initialData, canManageReceiptLayout
               onClick={() => openSettingsView("printers")}
                menuEnabled={!isCustom || isCustomPosMenuVisible("settings.printers", menuPolicy, true)} locked={isSettingLocked("printers") || !menuVisible("settings.printers")}
             />
+            {isCustom&&canManageRecyclingCashierDate&&<MenuButton icon="edit" title="ตั้งค่าวันเวลาเอกสาร (ร้านค้าของเก่า)" desc="เปิด–ปิดปุ่มเปลี่ยนวันเวลาเอกสารชั่วคราวเฉพาะสาขา" onClick={()=>openSettingsView("recycling_cashier_date")} menuEnabled locked={false}/>}
             {isCustom&&canManageReceiptLayout&&menuVisible("settings.printers")&&<MenuButton icon="receipt" title="รูปแบบใบเสร็จ / บิล" desc="เลือกข้อมูลที่แสดงบนหัวบิล" onClick={()=>openSettingsView("receipt_layout")} menuEnabled locked={false}/>}
             {!isStoreSpecificSettingHidden("activity") ? <MenuButton icon="activity" title={labels.activityAudit} desc={labels.activityAuditDesc} onClick={() => openSettingsView("activity")}  menuEnabled={!isCustom || isCustomPosMenuVisible("settings.activity", menuPolicy, true)} locked={isSettingLocked("activity") || !menuVisible("settings.activity")} /> : null}
             <MenuButton icon="payment" title={labels.payments} desc={labels.paymentsDesc} onClick={() => openSettingsView("payments")}  menuEnabled={!isCustom || isCustomPosMenuVisible("settings.payments", menuPolicy, true)} locked={isSettingLocked("payments") || !menuVisible("settings.payments")} compact />
@@ -3688,6 +3691,7 @@ export function PosSettingsWorkspace({ lang, initialData, canManageReceiptLayout
           </div>
         ) : null}
 
+        {view === "recycling_cashier_date" && isCustom && canManageRecyclingCashierDate ? <RecyclingCashierDateSettings onBack={()=>setView("menu")}/> : null}
         {view === "receipt_layout" && isCustom && canManageReceiptLayout && menuVisible("settings.printers") ? <CustomReceiptLayoutSettings onBack={()=>setView("menu")}/> : null}
         {view === "branding" && isCustom && canManage && menuVisible("settings.branding") ? <CustomBrandingSettings lang={lang} onBack={()=>setView("menu")}/> : null}
         {view === "store" ? (
