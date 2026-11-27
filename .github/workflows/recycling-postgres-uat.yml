@@ -18,6 +18,10 @@ on:
       - "tests/recycling/**"
       - "apps/backoffice-web/src/app/api/pos/recycling/**"
       - "apps/backoffice-web/src/lib/recycling-**"
+      - "apps/backoffice-web/src/lib/server/recycling-general-sale-entitlement.ts"
+      - "apps/backoffice-web/src/components/pos/recycling-sales-content.tsx"
+      - "apps/backoffice-web/src/app/preview/pos/page.tsx"
+      - "apps/backoffice-web/src/app/preview/pos/general/page.tsx"
       - ".github/workflows/recycling-postgres-uat.yml"
   workflow_dispatch:
 
