@@ -33,6 +33,17 @@ describe("isolated Recycling Windows thermal, cashier layout and controlled docu
   expect(ui).toContain("onKeyDown={onBarcodeKeyDown}");
   expect(ui).toContain("setCatalogPage(1)");
  });
+ it("pins manual document time across direction and successful posting until reset",()=>{
+  const ui=read("src/components/pos/recycling-pos-workspace.tsx");
+  const clock=read("src/components/pos/pos-realtime-clock.tsx");
+  expect(ui.indexOf('data-testid="recycling-cashier-date-button"')).toBeLessThan(ui.indexOf('data-testid="recycling-scanner-search-settings"'));
+  expect(ui.slice(ui.indexOf("function changeDirection"),ui.indexOf("function openHeldBills"))).not.toContain("setDocumentOverride(null)");
+  expect(ui.slice(ui.indexOf("const committedId ="),ui.indexOf("} catch {",ui.indexOf("const committedId =")))).not.toContain("setDocumentOverride(null)");
+  expect(ui).toContain("กลับเป็นอัตโนมัติ");
+  expect(ui).toContain("setDocumentOverride(bill.documentOverride??null)");
+  expect(clock).toContain("if (fixedDocumentTime) return;");
+  expect(clock).toContain("fixedDocumentTime ? new Date(fixedDocumentTime) : now");
+ });
  it("shows purchase/sale label ONLY for IT-granted Recycling CUSTOM mode",()=>{
   const side=read("src/components/pos-preview/pos-shell-sidebar.tsx");
   const menu=read("src/components/pos-preview/pos-staff-menu.tsx");

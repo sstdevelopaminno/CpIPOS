@@ -454,7 +454,6 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
 
   function changeDirection(next: Direction) {
     if (posting || checkoutOpen || next === direction) return;
-    setDocumentOverride(null);
     setDirection(next);
     updateScannerSearch("");
     setError("");
@@ -606,7 +605,6 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
         printRequestId: currentRequestId
       });
       requestIdRef.current = "";
-      setDocumentOverride(null);
       setCheckoutOpen(false);
       setReceiptDialogOpen(true);
       setLines(current => current.filter(line => line.direction !== direction));
@@ -673,7 +671,6 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
       }))
     };
     if(!saveHeldBills([draft,...heldBills]))return;
-    setDocumentOverride(null);
     requestIdRef.current="";setPosted(null);setPrintNotice(null);setCounterpartyName("");
     setLines(current=>current.filter(line=>line.direction!==direction));
     setHeldNotice("พักบิลสำเร็จ · สามารถเรียกคืนได้จากรายการพักบิล");
@@ -682,7 +679,6 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
 
   function cancelCurrentBill(){
     if(posting||checkoutOpen)return;
-    setDocumentOverride(null);
     requestIdRef.current="";setPosted(null);setPostError("");setPrintNotice(null);
     setLines(current=>current.filter(line=>line.direction!==direction));
     setCounterpartyName("");setCancelOpen(false);setHeldNotice("ยกเลิกตะกร้าที่ยังไม่บันทึกแล้ว");
@@ -881,10 +877,10 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
       generalSaleEnabled={generalSaleEnabled} direction={direction}
       onDirectionChange={changeDirection} busy={posting}
       heldCount={heldBills.length} onOpenHeldBills={openHeldBills}
-      cashierDateButton={cashierDateEnabled?<button type="button" data-testid="recycling-cashier-date-button" disabled={posting||checkoutOpen||!canUseShift} onClick={()=>{setDateDraft(documentOverride?.time??bangkokLocalDateTime(new Date()));setDateReason(documentOverride?.reason??"");setDateError("");setDateOpen(true);}} className="min-h-10 shrink-0 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-extrabold text-amber-900 disabled:opacity-50">เปลี่ยนวันเวลา</button>:null}/>
-    {documentOverride&&<div role="status" className="flex items-center justify-between gap-2 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-900">วันเวลาเอกสารชั่วคราว: {documentOverride.time.replace("T"," ")} · เฉพาะบิลนี้<button type="button" disabled={posting||checkoutOpen} onClick={()=>setDocumentOverride(null)} className="rounded border border-amber-300 bg-white px-2 py-1">คืนเวลาปัจจุบัน</button></div>}
+      fixedDocumentTime={documentOverride?parseRecyclingDocumentTime(documentOverride.time,new Date()):null}/>
+    {documentOverride&&<div role="status" className="flex items-center justify-between gap-2 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-900">กำหนดวันเวลาเอกสาร: {documentOverride.time.replace("T"," ")} · คงที่<button type="button" disabled={posting||checkoutOpen} onClick={()=>setDocumentOverride(null)} className="rounded border border-amber-300 bg-white px-2 py-1">กลับเป็นอัตโนมัติ</button></div>}
     {dateOpen&&<div className="fixed inset-0 z-[1900] grid place-items-center bg-slate-950/55 p-4"><form role="dialog" aria-modal="true" aria-labelledby="recycling-cashier-date-title" className="w-full max-w-lg space-y-4 rounded-2xl bg-white p-5 shadow-2xl" onKeyDown={e=>{e.stopPropagation();if(e.key==="Escape"){e.preventDefault();setDateOpen(false);}}} onKeyUp={e=>e.stopPropagation()} onSubmit={e=>{e.preventDefault();if(!parseRecyclingDocumentTime(dateDraft,new Date())||dateReason.trim().length<10){setDateError("กรุณาระบุวันเวลาที่ไม่เกินปัจจุบันและเหตุผลอย่างน้อย 10 ตัวอักษร");return;}setDocumentOverride({time:dateDraft,reason:dateReason.trim()});setDateOpen(false);window.requestAnimationFrame(()=>scannerRef.current?.focus());}}>
-    <h2 id="recycling-cashier-date-title" className="text-lg font-extrabold">เปลี่ยนวันเวลาเอกสารชั่วคราว</h2><label className="block text-sm font-bold">วันและเวลา<input autoFocus required type="datetime-local" step={1} value={dateDraft} onChange={e=>setDateDraft(e.target.value)} className="mt-1 block w-full rounded-lg border p-3"/></label><label className="block text-sm font-bold">เหตุผล<textarea required minLength={10} maxLength={500} rows={3} value={dateReason} onChange={e=>setDateReason(e.target.value)} className="mt-1 block w-full rounded-lg border p-3"/></label><p className="text-xs text-slate-500">เฉพาะวันเวลาของเอกสารจริง · ไม่เปลี่ยนเวลาเครื่อง กะ หรือเวลาบันทึกจริง · ไม่ใช้กับเอกสารภาษีหรืองวดบัญชีที่ปิดแล้ว</p>{dateError&&<p role="alert" className="text-sm text-rose-700">{dateError}</p>}<footer className="flex justify-end gap-2"><button type="button" onClick={()=>setDateOpen(false)} className="rounded-lg border px-4 py-2">ยกเลิก</button><button type="submit" className="rounded-lg bg-blue-700 px-4 py-2 font-bold text-white">ใช้กับบิลนี้</button></footer></form></div>}
+    <h2 id="recycling-cashier-date-title" className="text-lg font-extrabold">เปลี่ยนวันที่ย้อนหลัง</h2><label className="block text-sm font-bold">วันและเวลา<input autoFocus required type="datetime-local" step={1} value={dateDraft} onChange={e=>setDateDraft(e.target.value)} className="mt-1 block w-full rounded-lg border p-3"/></label><label className="block text-sm font-bold">เหตุผล<textarea required minLength={10} maxLength={500} rows={3} value={dateReason} onChange={e=>setDateReason(e.target.value)} className="mt-1 block w-full rounded-lg border p-3"/></label><p className="text-xs text-slate-500">ใช้วันเวลานี้จนกว่าจะกลับเป็นอัตโนมัติหรือเปลี่ยนกะ · ไม่เปลี่ยนเวลาบันทึกจริง · ไม่ใช้กับเอกสารภาษีหรืองวดบัญชีที่ปิดแล้ว</p>{dateError&&<p role="alert" className="text-sm text-rose-700">{dateError}</p>}<footer className="flex justify-end gap-2"><button type="button" onClick={()=>setDateOpen(false)} className="rounded-lg border px-4 py-2">ยกเลิก</button><button type="submit" className="rounded-lg bg-blue-700 px-4 py-2 font-bold text-white">กำหนดวันเวลา</button></footer></form></div>}
     {shiftGate==="checking" && <div role="status" data-testid="recycling-shift-inline-check"
       className="mx-3 mt-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-900">
       กำลังตรวจสอบสถานะกะ Recycling · ระบบยังไม่อนุญาตให้บันทึกรายการจนกว่าจะตรวจสอบสำเร็จ
@@ -924,9 +920,10 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
 
     <div className="recycling-pos-panels min-h-0 w-full flex-1 overflow-hidden" data-testid="recycling-unified-sales-body">
       <section className="recycling-scanner-panel flex min-h-0 min-w-0 flex-col bg-white p-3">
-        <div className="flex items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-base font-extrabold text-slate-900">ยิงบาร์โค้ด / ค้นหาวัสดุ</h2>
-          <div className="flex shrink-0 items-center gap-2">
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            {cashierDateEnabled?<button type="button" data-testid="recycling-cashier-date-button" disabled={posting||checkoutOpen||!canUseShift} onClick={()=>{setDateDraft(documentOverride?.time??bangkokLocalDateTime(new Date()));setDateReason(documentOverride?.reason??"");setDateError("");setDateOpen(true);}} className="inline-flex min-h-9 shrink-0 items-center rounded-lg border border-blue-200 bg-blue-50 px-2 py-1.5 text-xs font-bold text-blue-800 hover:bg-blue-100 disabled:opacity-50">เปลี่ยนวันที่ย้อนหลัง</button>:null}
             <button type="button" ref={searchPreferencesButtonRef}
               data-testid="recycling-scanner-search-settings"
               aria-haspopup="dialog" aria-expanded={searchPreferencesOpen}
