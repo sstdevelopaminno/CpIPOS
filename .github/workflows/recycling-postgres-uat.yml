@@ -14,6 +14,7 @@ on:
       - "supabase/migrations/20261125165418_recycling_whole_carton_unit.sql"
       - "supabase/migrations/20261126054220_recycling_extra_count_units.sql"
       - "supabase/migrations/20261126055219_recycling_custom_price_units.sql"
+      - "docs/ops/recycling-cashier-document-time-candidate.sql"
       - "tests/recycling/**"
       - "apps/backoffice-web/src/app/api/pos/recycling/**"
       - "apps/backoffice-web/src/lib/recycling-**"
@@ -183,5 +184,12 @@ jobs:
           set -euo pipefail
           docker exec -i "$PG_CONTAINER" psql -U postgres -d recycling_uat -v ON_ERROR_STOP=1 < supabase/migrations/20261126160000_recycling_direct_document_time.sql
           docker exec -i "$PG_CONTAINER" psql -U postgres -d recycling_uat -v ON_ERROR_STOP=1 < tests/recycling/ephemeral_pg_shared_document_correction_acceptance.sql
+      - name: Verify temporary cashier date on disposable PostgreSQL
+        env:
+          PG_CONTAINER: ${{ job.services.postgres.id }}
+        run: |
+          set -euo pipefail
+          docker exec -i "$PG_CONTAINER" psql -U postgres -d recycling_uat -v ON_ERROR_STOP=1 < docs/ops/recycling-cashier-document-time-candidate.sql
+          docker exec -i "$PG_CONTAINER" psql -U postgres -d recycling_uat -v ON_ERROR_STOP=1 < tests/recycling/ephemeral_pg_cashier_date_acceptance.sql
       # No production secrets, URLs or accounts are provided to this job.
       # Successful CI is necessary but not sufficient for a Supabase release.
