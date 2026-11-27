@@ -96,6 +96,10 @@ begin
     'amount_per_cycle',v_amount,'currency',v_currency,'billing_interval',v_interval,
     'commercial_terms',v_req.metadata->'custom_terms_snapshot'
   );
+  if exists(select 1 from public.tenant_custom_agreement_activations
+    where tenant_id=p_tenant_id and ends_at>clock_timestamp()) then
+    raise exception 'agreement_already_active';
+  end if;
   if p_expected_snapshot is null then
     return jsonb_build_object('snapshot',v_snapshot,'accepted_at',null);
   end if;
@@ -120,7 +124,10 @@ begin
     where tenant_id=new.tenant_id and payment_request_id=new.payment_request_id
       and package_id=new.package_id and billing_interval=new.billing_interval
       and amount_per_cycle=new.amount_received and currency=new.currency
-      and accepted_at<=new.bank_received_at;
+      and accepted_at<=new.bank_received_at
+      and exists(select 1 from public.tenant_subscription_payment_requests r
+        where r.id=new.payment_request_id and r.tenant_id=new.tenant_id
+          and r.metadata->'custom_terms_snapshot'=snapshot->'commercial_terms');
   if not found then return new; end if;
   perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended(new.tenant_id::text, 572));
   if exists(select 1 from public.tenant_custom_agreement_activations
