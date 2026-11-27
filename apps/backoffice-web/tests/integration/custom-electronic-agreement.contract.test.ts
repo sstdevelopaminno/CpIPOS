@@ -21,7 +21,7 @@ describe("CUSTOM electronic agreement source contract (not live DB integration)"
   });
   it("activates only after a matching confirmed settlement, not a slip or provisional access",()=>{
     expect(sql).toContain('after insert on public.tenant_subscription_settlements');
-    expect(sql).toContain('payment_request_id=new.payment_request_id');
+    expect(sql).toContain('ca.payment_request_id=new.payment_request_id');
     expect(sql).toContain('amount_per_cycle=new.amount_received and currency=new.currency');
     expect(sql).toContain('accepted_at<=new.bank_received_at');
     expect(sql).toContain("interval '12 months'");
@@ -29,11 +29,26 @@ describe("CUSTOM electronic agreement source contract (not live DB integration)"
     expect(checkout).not.toContain("tenant_custom_agreement_activations");
     expect(preentry).not.toContain("tenant_custom_agreement_activations");
   });
-  it("does not expose acceptance tables or release unsigned draft terms",()=>{
+  it("does not expose acceptance tables or release unapproved or unsigned terms",()=>{
     expect(sql).toContain("enable row level security");
     expect(sql).toContain("from public, anon, authenticated, service_role");
     expect(sql).toContain("grant select, insert");
-    expect(api).toContain('VERSION.endsWith("-draft")');
+    expect(api).toContain('process.env.CUSTOM_AGREEMENT_APPROVED_VERSION !== VERSION');
+    expect(api).toContain('CUSTOM_AGREEMENT_SIGNATURE_PNG_BASE64');
     expect(api).toContain('process.env.CUSTOM_AGREEMENT_ENABLED !== "true"');
+  });
+});
+
+describe("immutable signed print document",()=>{
+  const doc=src("lib/printing/custom-agreement-document.ts");
+  const route=src("app/api/pos/billing/custom-agreement/documents/[agreementId]/route.ts");
+  it("checks stored signature digest, receipt and tenant before rendering",()=>{
+    expect(doc).toContain('createHash("sha256")');
+    expect(doc).toContain('s.signature_sha256');
+    expect(doc).toContain('.eq("tenant_id",tenantId)');
+    expect(doc).toContain('tenant_subscription_receipt_annotations');
+    expect(doc).toContain('private, no-store');
+    expect(route).toContain('scope.session.role!=="owner"');
+    expect(route).toContain("scope.session.tenant_id,agreementId");
   });
 });
