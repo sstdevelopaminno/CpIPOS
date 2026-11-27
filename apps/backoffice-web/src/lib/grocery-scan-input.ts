@@ -34,8 +34,7 @@ export function validatedGroceryScanQuantity(input: unknown): number | null {
 
 /** Empty scanner field (or quantity field) only. Keep physical Thai-layout
  * digit keys as barcode digits; never reinterpret a hyphen inside a SKU.
- * A leading literal +/- SKU can still be entered by paste or by using
- * Shift/keyboard input that is not a reserved shortcut.
+ * A leading literal +/- SKU can still be entered by paste.
  */
 export function retailQuantityShortcut(event: Pick<KeyboardEvent, "code" | "key" | "shiftKey" | "ctrlKey" | "altKey" | "metaKey" | "isComposing">, barcodeValue: string): -1 | 1 | null {
   if (barcodeValue.length !== 0 || event.isComposing || event.ctrlKey || event.altKey || event.metaKey) return null;

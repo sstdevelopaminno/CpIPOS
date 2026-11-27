@@ -861,7 +861,8 @@ export function PosGeneralSaleTableController({ lang = "th" }: { lang?: Lang }) 
       if (!opticalActive) {
         const quantityLabel = document.createElement("div");
         quantityLabel.className = "grid shrink-0 gap-1 text-xs font-bold text-emerald-900";
-        const caption = createTextElement("label", "", lang === "en" ? "Quantity" : lang === "lo" ? "ຈຳນວນ" : "จำนวน");
+        const caption = document.createElement("label");
+        caption.textContent = lang === "en" ? "Quantity" : lang === "lo" ? "ຈຳນວນ" : "จำนวน";
         caption.setAttribute("for", "cpipos-retail-scan-quantity");
         const quantityControls = document.createElement("div");
         quantityControls.className = "cpipos-sd-scan-quantity";
@@ -906,7 +907,7 @@ export function PosGeneralSaleTableController({ lang = "th" }: { lang?: Lang }) 
           button.setAttribute("title", label);
           button.addEventListener("click", () => {
             adjustScanQuantity?.(delta);
-            focusRetailScanner(document, scannerInput, button);
+            focusRetailScanner(document, scannerInput, document.activeElement === qtyInput ? qtyInput : button);
           });
           return button;
         };

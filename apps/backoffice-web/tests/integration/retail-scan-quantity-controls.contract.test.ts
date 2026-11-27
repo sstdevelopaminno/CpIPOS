@@ -5,7 +5,7 @@ describe("shared SD/RW scanner quantity controls",()=>{
   it("puts accessible non-submit buttons on the right, returns focus and preserves manual entry",()=>{
     expect(s).toContain("quantityControls.append(qtyInput, makeStep(-1), makeStep(1))");
     expect(s).toContain('button.type = "button"');
-    expect(s).toContain("focusRetailScanner(document, scannerInput, button)");
+    expect(s).toContain("focusRetailScanner(document, scannerInput, document.activeElement === qtyInput ? qtyInput : button)");
     expect(s).toContain('qtyInput.inputMode = "numeric"');
     expect(s).toContain("min-height: 44px");
   });
