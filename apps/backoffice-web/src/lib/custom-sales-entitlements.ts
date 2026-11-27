@@ -44,6 +44,9 @@ export function hasCustomRecyclingManagementMenuGrant(args:{
  * Standard packages, unrelated CUSTOM modes and explicit decisions are unchanged.
  */
 const CUSTOM_GROCERY_MODULE_MENUS = {
+  branch_management: ["settings.branches"],
+  user_management: ["settings.users"],
+  customer_facing_display: ["settings.display"],
   stock_management: ["more.stock"],
   receipt_reprint_history: ["more.receipts"],
   advanced_sales_reports: ["main.sales_list", "more.sales_summary", "more.product_sales"]
@@ -67,4 +70,17 @@ export function hasCustomGroceryModuleGrant(args: {
   if (!modes.general_sale || modes.optical_retail || modes.recycling) return false;
   const keys = customGroceryModuleMenuKeys(args.featureCode);
   return keys.length > 0 && keys.every(key => isCustomPosMenuVisible(key, args.menuPolicy, true));
+}
+
+/** Notification preferences do not grant the restaurant QR ordering feature. */
+export function hasCustomGroceryNotificationSettingsGrant(args: {
+  packageCode: unknown;
+  rawModes: unknown;
+  menuPolicy: Record<string, boolean>;
+  explicitFeatureDecision: boolean;
+}): boolean {
+  if (String(args.packageCode ?? "").trim().toLowerCase() !== "custom" || args.explicitFeatureDecision) return false;
+  const modes = normalizeCustomPosSalesModes(args.rawModes);
+  return modes.general_sale && !modes.optical_retail && !modes.recycling &&
+    isCustomPosMenuVisible("settings.notifications", args.menuPolicy, true);
 }

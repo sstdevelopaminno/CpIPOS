@@ -1,6 +1,8 @@
 import { fail, ok } from "@/lib/http";
 import { getPosApiAuthContext } from "@/lib/pos-api-auth";
 import { featureGateFail, requirePosApiFeature } from "@/lib/pos-api-feature-guard";
+import { requirePosNotificationSettingsFeature } from "@/lib/feature-gate";
+import type { AuthContext } from "@/lib/auth-context";
 import {
   loadPosNotificationSettings,
   savePosNotificationSettings,
@@ -16,12 +18,25 @@ function statusFromError(error: unknown) {
   return { code: "settings_notifications_failed", message, status: 500 };
 }
 
+async function authorizeNotificationSettings(auth: AuthContext, requestedBranchId: string) {
+  // The original QR entitlement continues to work for existing callers.
+  // Only owner/manager may use the narrower CUSTOM preferences entitlement.
+  if (auth.branchRole !== "owner" && auth.branchRole !== "manager") {
+    await requirePosApiFeature(auth, "qr_table_ordering");
+    return;
+  }
+  await requirePosNotificationSettingsFeature(auth.tenantId ?? "", auth.branchId ?? "");
+  if (requestedBranchId !== auth.branchId) {
+    await requirePosNotificationSettingsFeature(auth.tenantId ?? "", requestedBranchId);
+  }
+}
+
 export async function GET(request: Request) {
   try {
     const auth = await getPosApiAuthContext({ requireBranchScope: true, requiredPermission: "settings:view" });
-    await requirePosApiFeature(auth, "qr_table_ordering");
     const { searchParams } = new URL(request.url);
     const branchId = String(searchParams.get("branch_id") ?? auth.branchId ?? "").trim();
+    await authorizeNotificationSettings(auth, branchId);
     const notification_settings = await loadPosNotificationSettings(auth, branchId);
     return ok({ branch_id: branchId, notification_settings });
   } catch (error) {
@@ -35,8 +50,8 @@ export async function GET(request: Request) {
 export async function PATCH(request: Request) {
   try {
     const auth = await getPosApiAuthContext({ requireBranchScope: true, requiredPermission: "settings:view" });
-    await requirePosApiFeature(auth, "qr_table_ordering");
     const body = (await request.json()) as PosNotificationSettingsInput;
+    await authorizeNotificationSettings(auth, String(body.branch_id ?? auth.branchId ?? "").trim());
     await savePosNotificationSettings(auth, body);
 
     // Keep the legacy notification endpoint compatible while making the IT override authoritative.

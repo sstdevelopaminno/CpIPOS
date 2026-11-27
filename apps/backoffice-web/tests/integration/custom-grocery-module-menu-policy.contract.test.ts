@@ -22,3 +22,20 @@ describe("CUSTOM grocery module authorization stays aligned between UI and API",
     expect(read("app/api/pos/sales-list/route.ts")).toContain('requirePosApiFeature(auth, "advanced_sales_reports")');
   });
 });
+
+describe("CUSTOM grocery settings integration", () => {
+  it("exposes scoped notification preferences without granting the QR ordering feature", () => {
+    const gate = read("lib/feature-gate.ts");
+    const snapshot = read("app/api/pos/features/route.ts");
+    const route = read("app/api/pos/settings/notifications/route.ts");
+    const settings = read("components/pos-preview/pos-settings-workspace.tsx");
+    expect(gate).toContain('":settings-only"');
+    expect(gate).toContain('hasCustomGroceryNotificationSettingsGrant(decision)');
+    expect(snapshot).toContain("features.grocery_notification_settings = hasCustomGroceryNotificationSettingsGrant");
+    expect(settings).toContain("enabledFeatures?.grocery_notification_settings === true");
+    expect(route).toContain("requirePosNotificationSettingsFeature");
+    expect(route).toContain("requestedBranchId !== auth.branchId");
+    expect(route).toContain('requiredPermission: "settings:view"');
+    expect(route).toContain('auth.branchRole !== "owner" && auth.branchRole !== "manager"');
+  });
+});
