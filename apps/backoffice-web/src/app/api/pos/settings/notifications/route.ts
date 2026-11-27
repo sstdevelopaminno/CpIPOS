@@ -1,7 +1,7 @@
 import { fail, ok } from "@/lib/http";
 import { getPosApiAuthContext } from "@/lib/pos-api-auth";
 import { featureGateFail, requirePosApiFeature } from "@/lib/pos-api-feature-guard";
-import { requirePosNotificationSettingsFeature } from "@/lib/feature-gate";
+import { FeatureGateError, requirePosNotificationSettingsFeature } from "@/lib/feature-gate";
 import type { AuthContext } from "@/lib/auth-context";
 import {
   loadPosNotificationSettings,
@@ -21,9 +21,12 @@ function statusFromError(error: unknown) {
 async function authorizeNotificationSettings(auth: AuthContext, requestedBranchId: string) {
   // The original QR entitlement continues to work for existing callers.
   // Only owner/manager may use the narrower CUSTOM preferences entitlement.
-  if (auth.branchRole !== "owner" && auth.branchRole !== "manager") {
+  try {
     await requirePosApiFeature(auth, "qr_table_ordering");
     return;
+  } catch (error) {
+    if (!(error instanceof FeatureGateError) || error.code !== "feature_not_enabled" ||
+      (auth.branchRole !== "owner" && auth.branchRole !== "manager")) throw error;
   }
   await requirePosNotificationSettingsFeature(auth.tenantId ?? "", auth.branchId ?? "");
   if (requestedBranchId !== auth.branchId) {

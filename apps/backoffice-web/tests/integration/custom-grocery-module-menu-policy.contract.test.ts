@@ -6,7 +6,7 @@ describe("CUSTOM grocery module authorization stays aligned between UI and API",
     const gate = read("lib/feature-gate.ts");
     const snapshot = read("app/api/pos/features/route.ts");
     expect(gate).toContain("!enabled && !planFeatureRow && !tenantOverride && !branchOverride");
-    expect(gate).toContain("enabled = hasCustomGroceryModuleGrant");
+    expect(gate).toContain("hasCustomGroceryModuleGrant({ ...decision, featureCode })");
     expect(snapshot).toContain("if (hasCustomGroceryModuleGrant");
     expect(snapshot).toContain("packageFeatures.has(feature) || tenantOverrides.has(feature) || branchOverrides.has(feature)");
     expect(gate).toContain('eq("tenant_id", tenantId)');
