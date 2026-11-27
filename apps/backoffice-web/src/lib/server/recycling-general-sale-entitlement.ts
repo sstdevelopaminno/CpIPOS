@@ -1,12 +1,14 @@
 import "server-only";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
+import { hasBranchFeature } from "@/lib/feature-gate";
 
 /**
  * The optional ordinary/grocery cashier is a separate IT-selected mode,
  * never a prerequisite for Recycling. A CUSTOM trial must be active, and
  * a stale (older) contract must not re-enable an ungranted mode.
  */
-export async function isAuthorizedCustomGeneralSaleTenant(tenantId: string): Promise<boolean> {
+export async function isAuthorizedCustomGeneralSaleTenant(tenantId: string, branchId: string): Promise<boolean> {
+  if (!tenantId || !branchId) return false;
   const db = getSupabaseServiceClient();
   const { data: contract, error } = await db.from("tenant_subscription_contracts")
     .select("package_id,status,ended_at,metadata")
@@ -22,25 +24,29 @@ export async function isAuthorizedCustomGeneralSaleTenant(tenantId: string): Pro
   if (!raw || typeof raw !== "object" || Array.isArray(raw) ||
       (raw as Record<string,unknown>).general_sale !== true) return false;
 
-  const [pkg,lifecycle,tenant,featureOverride] = await Promise.all([
+  const [pkg,lifecycle,tenant] = await Promise.all([
     db.from("subscription_packages").select("code").eq("id",contract.package_id).maybeSingle(),
     db.from("tenant_data_lifecycle")
       .select("access_locked,lifecycle_status,trial_expires_at,subscription_expires_at")
       .eq("tenant_id",tenantId).maybeSingle(),
-    db.from("tenants").select("is_active").eq("id",tenantId).maybeSingle(),
-    db.from("tenant_feature_subscriptions").select("is_enabled")
-      .eq("tenant_id",tenantId).eq("feature_code","core_pos_sales").is("branch_id",null).maybeSingle()
+    db.from("tenants").select("is_active").eq("id",tenantId).maybeSingle()
   ]);
-  if (pkg.error || lifecycle.error || tenant.error || featureOverride.error ||
+  if (pkg.error || lifecycle.error || tenant.error ||
       pkg.data?.code !== "custom" || tenant.data?.is_active !== true ||
       !lifecycle.data || lifecycle.data.access_locked === true) return false;
-  if (featureOverride.data?.is_enabled !== true) return false;
   if (lifecycle.data.lifecycle_status === "trial") {
     if (!lifecycle.data.trial_expires_at ||
-        Date.parse(lifecycle.data.trial_expires_at) <= Date.now()) return false;
+        (!Number.isFinite(Date.parse(lifecycle.data.trial_expires_at)) || Date.parse(lifecycle.data.trial_expires_at) <= Date.now())) return false;
   } else if (lifecycle.data.lifecycle_status === "active") {
     if (lifecycle.data.subscription_expires_at &&
-        Date.parse(lifecycle.data.subscription_expires_at) <= Date.now()) return false;
+        (!Number.isFinite(Date.parse(lifecycle.data.subscription_expires_at)) || Date.parse(lifecycle.data.subscription_expires_at) <= Date.now())) return false;
   } else return false;
-  return true;
+  // The selected CUSTOM mode grants only what the central branch-scoped
+  // policy permits. A missing tenant override is not an explicit denial.
+  // Both checks are required, including the scanner feature's explicit denials.
+  const [cashier, scanner] = await Promise.all([
+    hasBranchFeature(tenantId, branchId, "core_pos_sales"),
+    hasBranchFeature(tenantId, branchId, "barcode_scanner_mode")
+  ]);
+  return cashier && scanner;
 }

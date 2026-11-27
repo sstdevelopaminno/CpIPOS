@@ -1,11 +1,12 @@
 import "server-only";
 
 import { notFound, redirect } from "next/navigation";
+import { PosSalesPageDenied } from "@/lib/pos-sales-page-denial";
 import { FeatureGateError, requireTenantFeature } from "@/lib/feature-gate";
 import { featureForPosPermission } from "@/lib/pos-feature-map";
 import { PosGuardError, requirePermission, requirePosSession, type PosPermission, type PosSessionScope } from "@/lib/pos-session-guard";
 
-export async function requirePosPagePermission(permission: PosPermission, fallbackPath = "/preview/pos"): Promise<PosSessionScope> {
+export async function requirePosPagePermission(permission: PosPermission, fallbackPath = "/preview/pos", explainSalesDenial = false): Promise<PosSessionScope> {
   try {
     const scope = await requirePosSession();
     if (String(scope.session.role ?? "").trim().toLowerCase() === "kitchen") {
@@ -30,8 +31,17 @@ export async function requirePosPagePermission(permission: PosPermission, fallba
 
     // Unauthorized roles and disabled features must NOT be sent to a login
     // screen that immediately recognizes the same valid POS session again.
-    if (error instanceof FeatureGateError && error.code === "feature_not_enabled") notFound();
-    if (error instanceof PosGuardError && (error.status === 403 || error.status === 409)) notFound();
+    if (error instanceof FeatureGateError && error.code === "feature_not_enabled") {
+      if (explainSalesDenial) throw new PosSalesPageDenied("feature");
+      notFound();
+    }
+    if (error instanceof PosGuardError && (error.status === 403 || error.status === 409)) {
+      if (explainSalesDenial) throw new PosSalesPageDenied(
+        error.code === "subscription_access_locked" ? "subscription" :
+        error.code === "missing_active_shift" || error.code === "shift_not_open" ? "shift" : "permission"
+      );
+      notFound();
+    }
 
     // Transient DB/feature lookups stay on a stable error boundary with a
     // manual retry; they are not evidence the customer's session expired.

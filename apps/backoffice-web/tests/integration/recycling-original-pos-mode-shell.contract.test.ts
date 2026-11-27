@@ -47,10 +47,12 @@ describe("CUSTOM Recycling uses original POS shell without grocery mode dependen
  });
  it("does not silently enable ordinary General Sale for Recycling-only CUSTOM tenants",()=>{
    expect(general).toContain("isAuthorizedCustomGeneralSaleTenant");
-   expect(general).toContain("notFound()");
+   expect(general).toContain('new PosSalesPageDenied("mode")');
    expect(server).toContain('general_sale !== true');
    expect(server).toContain('pkg.data?.code !== "custom"');
-   expect(server).toContain('featureOverride.data?.is_enabled !== true');
+   expect(server).toContain('hasBranchFeature(tenantId, branchId, "core_pos_sales")');
+   expect(server).toContain('hasBranchFeature(tenantId, branchId, "barcode_scanner_mode")');
+   expect(server).toContain('return cashier && scanner');
    expect(server).toContain("lifecycle.data.access_locked");
    expect(toolbar).toContain("generalSaleEnabled &&");
    expect(toolbar).toContain('href={GENERAL_URL}');

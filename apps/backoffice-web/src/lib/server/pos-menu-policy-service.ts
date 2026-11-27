@@ -1,5 +1,6 @@
 import "server-only";
 import { notFound } from "next/navigation";
+import { PosSalesPageDenied } from "@/lib/pos-sales-page-denial";
 import { POS_MENU_CATALOG, isCustomPosMenuVisible, posMenuKeyForRoute } from "@/lib/pos-menu-policy";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 import { getInternalItTestMode } from "@/lib/server/internal-it-test-store";
@@ -62,10 +63,13 @@ export async function isTenantCustomPosPackage(tenantId: string): Promise<boolea
   return String(pkg?.code ?? "").toLowerCase() === "custom";
 }
 
-export async function assertPosMenuPageAllowed(tenantId: string, path: string): Promise<void> {
+export async function assertPosMenuPageAllowed(tenantId: string, path: string, explainSalesDenial = false): Promise<void> {
   const menuKey = posMenuKeyForRoute(path);
   if (!menuKey) return;
   if (!await isTenantCustomPosPackage(tenantId)) return;
   const overrides = await getTenantPosMenuOverrides(tenantId);
-  if (!isCustomPosMenuVisible(menuKey, overrides, true)) notFound();
+  if (!isCustomPosMenuVisible(menuKey, overrides, true)) {
+    if (explainSalesDenial) throw new PosSalesPageDenied("menu");
+    notFound();
+  }
 }
