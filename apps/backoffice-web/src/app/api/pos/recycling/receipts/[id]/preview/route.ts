@@ -1,3 +1,4 @@
+import {recyclingBrowserThermalCss} from "@/lib/printing/recycling-browser-thermal-css";
 import type { AuthContext } from "@/lib/auth-context";
 import { PosGuardError, requirePermission, requirePosSession } from "@/lib/pos-session-guard";
 import { isAuthorizedRecyclingTenant } from "@/lib/server/recycling-pos-service";
@@ -110,7 +111,7 @@ export async function GET(request:Request,{params}:{params:Promise<{id:string}>}
       @media screen {body{max-width:${paper==="a4"?"190mm":"160mm"};padding:8mm;margin:auto;box-shadow:0 0 0 1px #e2e8f0;}}
       @media print {table tr, .summary-line {break-inside:avoid;}}
     </style>`;
-    return new Response(paper==="a5"||paper==="a4"?html.replace("</head>",pageCss+"</head>"):html,{
+    return new Response(html.replace("</head>",(paper==="a5"||paper==="a4"?pageCss:recyclingBrowserThermalCss(width))+"</head>"),{
       status:200,headers:{"Content-Type":"text/html; charset=utf-8",...headers}
     });
   }catch(error){

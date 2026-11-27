@@ -18,3 +18,18 @@ describe("filtered recycling batch print",()=>{
   expect(()=>composeRecyclingBatchReceipts([receipt("RCY-1"),"error"],"a4")).toThrow();
  });
 });
+
+describe("browser thermal paper alignment",()=>{
+ it("uses centered 72mm content on an 80mm sheet for every receipt",()=>{
+  const html=composeRecyclingBatchReceipts([receipt("RCY-1"),receipt("RCY-2")],"80");
+  expect(html).toContain('id="recycling-browser-thermal"');
+  expect(html).toContain("width:80mm;max-width:100%;margin:12px auto;padding:0");
+  expect(html).toContain("width:72mm;max-width:100%;margin:0 auto");
+  expect(html).toContain("@page{size:auto;margin:0}");
+  expect(html).not.toContain("size:80mm auto");
+ });
+ it("preserves 58mm printable width and A4/A5 sheet rules",()=>{
+  expect(composeRecyclingBatchReceipts([receipt("RCY-1")],"58")).toContain("width:45mm;max-width:100%;margin:0 auto");
+  for(const size of ["a4","a5"] as const)expect(composeRecyclingBatchReceipts([receipt("RCY-1")],size)).not.toContain('id="recycling-browser-thermal"');
+ });
+});
