@@ -51,7 +51,7 @@ describe("CUSTOM Optical scanner and single-unit stock path", () => {
     expect(lookup).toContain("const { data: inventorySettings, error: inventoryError } = inventoryResult;");
     expect(controller).toContain("void submitScan(raw, status, input, submit)");
     expect(controller).toContain("encodeURIComponent(originalSku)");
-    expect(controller).toContain("scanQueue.push({ code: opticalActive ? originalSku : originalSku, quantity })");
+    expect(controller).toContain("scanQueue.push({ code: originalSku, quantity, quantityRevision: acceptedQuantityRevision })");
     // The legacy decoder retains digit-only canonicalization for old barcodes,
     // but the endpoint must try the original alphanumeric SKU first.
     expect(normalizeGeneralSaleScanCode("QA-LAK-FRAME-001")).toBe("001");
