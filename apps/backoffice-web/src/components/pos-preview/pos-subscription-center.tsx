@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import { CustomAgreementAcceptance } from "./custom-agreement-acceptance";
 import type {Language} from "@/lib/i18n";
 import {loUi} from "@/lib/lao-pos-ui";
 import { PosSupportChat } from "@/components/pos-preview/pos-support-chat";
@@ -1246,6 +1247,7 @@ export function PosSubscriptionCenter({ initial, isOwner, showContactActions = t
           <div className="overflow-y-auto p-5 text-sm leading-6 text-slate-700">
             <dl className="grid gap-2 rounded-xl bg-slate-50 p-4">{agreementDetails.map(([label, value]) => <div key={label} className="flex flex-wrap gap-2"><dt className="font-bold">{label}:</dt><dd>{value}</dd></div>)}</dl>
             <ol className="mt-4 list-decimal space-y-2 pl-5">{agreementClauses.map(clause => <li key={clause}>{clause}</li>)}</ol>
+            {isOwner ? <CustomAgreementAcceptance requestId={approvedCustomRequest?.source === "it_custom_agreement" ? approvedCustomRequest.id : null} /> : null}
           </div>
           <footer className="flex flex-wrap justify-end gap-2 border-t p-4">
             <button type="button" onClick={() => setAgreementOpen(false)} className="rounded-xl border px-4 py-2 text-sm font-bold">ปิด</button>
