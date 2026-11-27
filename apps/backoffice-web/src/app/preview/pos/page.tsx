@@ -1,5 +1,6 @@
 import { assertPosMenuPageAllowed } from "@/lib/server/pos-menu-policy-service";
-import { requirePosSession } from "@/lib/pos-session-guard";
+import { PosSalesPageDenied } from "@/lib/pos-sales-page-denial";
+import { PosSalesAccessNotice } from "@/components/pos/pos-sales-access-notice";
 import { PosCustomerDisplayV2PaymentObserver } from "@/components/pos/pos-customer-display-v2-payment-observer";
 import { PosCustomerDisplayV2Publisher } from "@/components/pos/pos-customer-display-v2-publisher";
 import { PosDineInCommitResetBoundary } from "@/components/pos/pos-dine-in-commit-reset-boundary";
@@ -14,9 +15,20 @@ import { isAuthorizedRecyclingTenant } from "@/lib/server/recycling-pos-service"
 export const dynamic = "force-dynamic";
 
 export default async function PosPreviewPage() {
-  const posMenuScope = await requirePosSession();
-  await assertPosMenuPageAllowed(posMenuScope.session.tenant_id, "/preview/pos");
-  await requirePosPagePermission("sale:create", "/login/store");
+  // Guard once, then use the verified scope; never render a cashier on denial.
+  const posMenuScope = await (async () => {
+    try {
+      const scope = await requirePosPagePermission("sale:create", "/login/store", true);
+      await assertPosMenuPageAllowed(scope.session.tenant_id, "/preview/pos", true);
+      return scope;
+    } catch (error) {
+      if (error instanceof PosSalesPageDenied) return error;
+      throw error;
+    }
+  })();
+  if (posMenuScope instanceof PosSalesPageDenied) {
+    return <PosSalesAccessNotice reason={posMenuScope.reason} lang={await getCurrentLanguage()} />;
+  }
 
   // Recycling is the selected IT CUSTOM selling workspace, rendered at the
   // original /preview/pos entry without routing away from the POS shell.

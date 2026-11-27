@@ -22,7 +22,7 @@ export default async function PosSalesListPage({searchParams}:{searchParams?:Pro
   // its existing standard sales page remains reachable explicitly.
   const options=await searchParams;
   const canUseStandard=options?.report_mode==="standard" &&
-    await isAuthorizedCustomGeneralSaleTenant(posMenuScope.session.tenant_id);
+    await isAuthorizedCustomGeneralSaleTenant(posMenuScope.session.tenant_id, posMenuScope.session.branch_id);
   if(await isAuthorizedRecyclingTenant(posMenuScope.session.tenant_id) && !canUseStandard){
     await requirePosPagePermission("sales:list:view");
     return <RecyclingSalesListPageContent scope={posMenuScope} search={options}/>;

@@ -27,7 +27,7 @@ export async function RecyclingSalesContent({
     db.from("tenants").select("name,display_name,metadata").eq("id",tenantId).maybeSingle(),
     db.from("users_profiles").select("full_name").eq("id",operatorUserId).maybeSingle(),
     deviceCode ? shiftQuery.eq("device_code",deviceCode).maybeSingle() : shiftQuery.maybeSingle(),
-    isAuthorizedCustomGeneralSaleTenant(tenantId),
+    isAuthorizedCustomGeneralSaleTenant(tenantId,branchId).catch(() => false),
     // Fail closed on unavailable printer metadata: receipt printing still
     // works through the normal polling path, without changing any other store.
     db.from("printer_profiles").select("metadata").eq("tenant_id",tenantId)
