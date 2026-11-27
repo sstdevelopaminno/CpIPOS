@@ -1,3 +1,4 @@
+import { isRetailWholesaleProfile } from "@/lib/retail-wholesale/profile";
 import { isFeatureUnlockEnabled } from "@/lib/feature-unlock";
 import { hasCustomSalesModeFeatureGrant, hasCustomRecyclingManagementMenuGrant, hasCustomGroceryModuleGrant, hasCustomGroceryNotificationSettingsGrant } from "@/lib/custom-sales-entitlements";
 import { fail, ok } from "@/lib/http";
@@ -260,7 +261,10 @@ async function loadTenantFeatureSnapshot(tenantId: string, branchId: string, men
         tenantOverrides.get(cfg.feature) !== false && branchOverrides.get(cfg.feature) !== false
     ])
   );
-  return { features, salesModes, isCustom, opticalMoreAccess };
+  const retailWholesale = isRetailWholesaleProfile(packagePolicyResult.data?.code, metadata.sales_modes)
+    && features.core_pos_sales === true && features.barcode_scanner_mode === true
+    && isCustomPosMenuVisible("main.sales", menuPolicy, true);
+  return { features, salesModes, isCustom, opticalMoreAccess, retailWholesale };
 }
 
 export async function GET(request: Request) {
@@ -305,6 +309,7 @@ export async function GET(request: Request) {
       finance_access: financeAccess,
       is_internal_test_full: "internalTestFull" in snapshot && snapshot.internalTestFull === true,
       sales_modes: snapshot.salesModes,
+      retail_wholesale: "retailWholesale" in snapshot && snapshot.retailWholesale === true,
       optical_more_access: "opticalMoreAccess" in snapshot ? snapshot.opticalMoreAccess : {},
       sales_modes_source: "package_metadata + tenant_subscription_contracts.metadata.sales_modes"
     });

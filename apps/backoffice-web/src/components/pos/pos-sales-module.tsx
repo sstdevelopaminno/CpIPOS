@@ -2105,11 +2105,13 @@ function updateSelectedIngredientNoteQuantity(notes: string, ingredients: Recipe
 export function PosSalesModule({
   lang = "th",
   startupMode,
+  retailWholesale = false,
   onStartupModeReady,
   onStartupModeBlocked
 }: {
   lang?: Lang;
   startupMode?: PosStartupSalesMode;
+  retailWholesale?: boolean;
   onStartupModeReady?: (mode: PosStartupSalesMode) => void;
   onStartupModeBlocked?: (mode: PosStartupSalesMode) => void;
 }) {
@@ -8720,7 +8722,7 @@ export function PosSalesModule({
 
   function getQuickModeLabel() {
     if (opticalRetailActive) return "IMDC OPTICAL";
-    if (startupRetailKind === "general_sale" && quickMode === "home") return localSaleLabel("ขายทั่วไป (SD)", "General Sale (SD)");
+    if (startupRetailKind === "general_sale" && quickMode === "home") return retailWholesale ? (lang === "th" ? "ค้าปลีก–ค้าส่ง (RW)" : lang === "lo" ? "ຂາຍຍ່ອຍ–ຂາຍສົ່ງ (RW)" : "Retail & Wholesale (RW)") : localSaleLabel("ขายทั่วไป (SD)", "General Sale (SD)");
     if (quickMode === "buffet_table") return localSaleLabel("โต๊ะบุฟเฟ่", "Buffet table");
     if (quickMode === "dine_in") return text.dineIn;
     if (quickMode === "delivery") return text.delivery;
