@@ -1,7 +1,7 @@
 import "server-only";
 
 import { isFeatureUnlockEnabled } from "@/lib/feature-unlock";
-import { hasCustomSalesModeFeatureGrant, hasCustomRecyclingManagementMenuGrant, customGroceryModuleMenuKeys, hasCustomGroceryModuleGrant } from "@/lib/custom-sales-entitlements";
+import { hasCustomSalesModeFeatureGrant, hasCustomRecyclingManagementMenuGrant, customGroceryModuleMenuKeys, hasCustomGroceryModuleGrant, hasCustomGroceryNotificationSettingsGrant } from "@/lib/custom-sales-entitlements";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 import { getInternalItTestMode } from "@/lib/server/internal-it-test-store";
 import { isDineInExplicitlyEnabled, isDineInLinkedFeature, isOpticalRetailExplicitlyEnabled, normalizeCustomPosSalesModes, resolvePosSalesModePolicy } from "@/lib/pos-sales-modes";
@@ -224,12 +224,13 @@ async function getLatestContract(tenantId: string, forceFresh = false): Promise<
   return promise;
 }
 
-export async function hasBranchFeature(tenantId: string, branchId: string | null, featureKey: string): Promise<boolean> {
+export async function hasBranchFeature(tenantId: string, branchId: string | null, featureKey: string, options?: { notificationSettingsOnly?: boolean }): Promise<boolean> {
   const featureCode = String(featureKey).trim();
   if (!tenantId || !featureCode) return false;
   if (isFeatureUnlockEnabled()) return true;
   const normalizedBranchId = branchId || "tenant";
-  const cacheKey = `${tenantId}:${normalizedBranchId}:${featureCode}`;
+  const notificationSettingsOnly = options?.notificationSettingsOnly === true && featureCode === "qr_table_ordering" && Boolean(branchId);
+  const cacheKey = `${tenantId}:${normalizedBranchId}:${featureCode}${notificationSettingsOnly ? ":settings-only" : ""}`;
   const cached = readFeatureDecisionCache(cacheKey);
   if (cached !== null) return cached;
   // QA grants affect ONLY the doubly verified internal tenant, not all stores.
@@ -342,7 +343,7 @@ export async function hasBranchFeature(tenantId: string, branchId: string | null
   // feature row into the fixed package matrix. Never infer a shared report
   // feature from just one menu or override an explicit package/tenant/branch row.
   if (!enabled && !planFeatureRow && !tenantOverride && !branchOverride &&
-      contract?.package_id && customGroceryModuleMenuKeys(featureCode).length > 0) {
+      contract?.package_id && (customGroceryModuleMenuKeys(featureCode).length > 0 || notificationSettingsOnly)) {
     const modes = normalizeCustomPosSalesModes(contract.metadata?.sales_modes);
     if (modes.general_sale && !modes.optical_retail && !modes.recycling) {
       const [packageLookup, policy] = await Promise.all([
@@ -350,16 +351,19 @@ export async function hasBranchFeature(tenantId: string, branchId: string | null
           .eq("id", contract.package_id).maybeSingle<{ code: string }>(),
         supabase.from("tenant_pos_menu_policies").select("menu_key,is_enabled")
           .eq("tenant_id", tenantId)
-          .in("menu_key", [...customGroceryModuleMenuKeys(featureCode), "main.more"])
+          .in("menu_key", notificationSettingsOnly ? ["settings.notifications", "main.settings"] : [...customGroceryModuleMenuKeys(featureCode), "main.more", "main.settings"])
       ]);
       if (packageLookup.error || policy.error) throw new FeatureGateError(
         "grocery_module_policy_unavailable", "Unable to verify CUSTOM grocery module authorization.", 503
       );
       const menuPolicy = Object.fromEntries((policy.data ?? []).map(row => [row.menu_key, row.is_enabled === true]));
-      enabled = hasCustomGroceryModuleGrant({
+      const decision = {
         packageCode: packageLookup.data?.code, rawModes: contract.metadata?.sales_modes,
-        featureCode, menuPolicy, explicitFeatureDecision: false
-      });
+        menuPolicy, explicitFeatureDecision: false
+      };
+      enabled = notificationSettingsOnly
+        ? hasCustomGroceryNotificationSettingsGrant(decision)
+        : hasCustomGroceryModuleGrant({ ...decision, featureCode });
     }
   }
 
@@ -556,4 +560,13 @@ export async function requireTenantFeatureIfConfigured(tenantId: string, feature
   const configured = await isFeatureKeyConfigured(featureKey);
   if (!configured) return;
   await requireTenantFeature(tenantId, featureKey, branchId);
+}
+
+/** Only the notification settings endpoint may request this narrower access.
+ * The ordinary QR ordering feature, cache entry and API gates are unchanged.
+ */
+export async function requirePosNotificationSettingsFeature(tenantId: string, branchId: string) {
+  if (!tenantId || !branchId || !await hasBranchFeature(tenantId, branchId, "qr_table_ordering", { notificationSettingsOnly: true })) {
+    throw new FeatureGateError("feature_not_enabled", "Feature 'qr_table_ordering' is not enabled for this scope.", 403);
+  }
 }

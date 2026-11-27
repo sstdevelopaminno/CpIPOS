@@ -3599,6 +3599,7 @@ export function PosSettingsWorkspace({ lang, initialData, canManageReceiptLayout
 
   function isSettingLocked(viewKey: keyof typeof POS_SETTINGS_FEATURES) {
     if (viewKey === "devices") return false;
+    if (viewKey === "notifications" && isCustom && canManage && enabledFeatures?.grocery_notification_settings === true) return false;
     const feature = POS_SETTINGS_FEATURES[viewKey];
     return Boolean(enabledFeatures !== null && enabledFeatures[feature] === false);
   }

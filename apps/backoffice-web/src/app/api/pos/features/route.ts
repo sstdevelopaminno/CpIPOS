@@ -1,5 +1,5 @@
 import { isFeatureUnlockEnabled } from "@/lib/feature-unlock";
-import { hasCustomSalesModeFeatureGrant, hasCustomRecyclingManagementMenuGrant, hasCustomGroceryModuleGrant } from "@/lib/custom-sales-entitlements";
+import { hasCustomSalesModeFeatureGrant, hasCustomRecyclingManagementMenuGrant, hasCustomGroceryModuleGrant, hasCustomGroceryNotificationSettingsGrant } from "@/lib/custom-sales-entitlements";
 import { fail, ok } from "@/lib/http";
 import { allPosMenuFeatureCodes } from "@/lib/pos-feature-map";
 import { requirePosSession, PosGuardError } from "@/lib/pos-session-guard";
@@ -234,7 +234,7 @@ async function loadTenantFeatureSnapshot(tenantId: string, branchId: string, men
   // Mirror the backend's exact grant, preserving every explicit feature row.
   // Do not merely remove the lock icon while the page/API still returns 403.
   if (isCustom && salesModes.general_sale && !salesModes.optical_retail && !salesModes.recycling) {
-    for (const feature of ["stock_management", "receipt_reprint_history", "advanced_sales_reports"] as const) {
+    for (const feature of ["stock_management", "receipt_reprint_history", "advanced_sales_reports", "branch_management", "user_management", "customer_facing_display"] as const) {
       if (hasCustomGroceryModuleGrant({
         packageCode: packagePolicyResult.data?.code,
         rawModes: metadata.sales_modes,
@@ -244,6 +244,14 @@ async function loadTenantFeatureSnapshot(tenantId: string, branchId: string, men
       })) features[feature] = true;
     }
   }
+  // Separate settings-only capability: never mark qr_table_ordering itself true.
+  features.grocery_notification_settings = hasCustomGroceryNotificationSettingsGrant({
+    packageCode: packagePolicyResult.data?.code,
+    rawModes: metadata.sales_modes,
+    menuPolicy,
+    explicitFeatureDecision: packageFeatures.has("qr_table_ordering") ||
+      tenantOverrides.has("qr_table_ordering") || branchOverrides.has("qr_table_ordering")
+  });
   const opticalMoreAccess = Object.fromEntries(
     Object.entries(OPTICAL_MORE_FEATURES).map(([key, cfg]) => [
       cfg.route,
