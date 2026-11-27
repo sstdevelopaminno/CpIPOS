@@ -236,10 +236,8 @@ export function PosInitialSalesModeController({
         : authorizedMode === "delivery" ? granted.delivery && features[POS_MODE_FEATURES.delivery] === true
         : granted.takeaway && features.core_pos_sales === true
       );
-      if (allowed) {
-        setRetailWholesale(data.is_custom === true && data.retail_wholesale === true && authorizedMode === "general_sale");
-        return;
-      }
+      setRetailWholesale(allowed && data.is_custom === true && data.retail_wholesale === true && authorizedMode === "general_sale");
+      if (allowed) return;
       activeModeRef.current = null;
       setAuthorizedMode(null);
       setStartupFailureCode("POS-START-GRANTS");
@@ -251,7 +249,7 @@ export function PosInitialSalesModeController({
 
   return (
     <>
-      {authorizedMode ? <SalesComponent lang={lang} startupMode={authorizedMode} retailWholesale={retailWholesale} onStartupModeReady={onReady} onStartupModeBlocked={onBlocked} /> : null}
+      {authorizedMode ? <SalesComponent lang={lang} startupMode={authorizedMode} onStartupModeReady={onReady} onStartupModeBlocked={onBlocked} retailWholesale={retailWholesale} /> : null}
       {startupStatus !== "ready" ? (
         <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-50 px-6"
           role={startupStatus === "error" ? "alert" : "status"}
