@@ -11,3 +11,16 @@ export function parseRecyclingDocumentTime(value:unknown,now:Date):string|null {
   if(!Number.isFinite(date.getTime())||bangkokLocalDateTime(date)!==normalized||date.getTime()>now.getTime())return null;
   return date.toISOString();
 }
+
+/** Document clock only, never a machine, settlement or shift clock. */
+export type RecyclingDocumentClock={anchorMs:number;startedMs:number;reason:string};
+export function startRecyclingDocumentClock(value:unknown,reason:string,now:Date):RecyclingDocumentClock|null{
+ const at=parseRecyclingDocumentTime(value,now);
+ const trimmed=reason.trim();
+ if(!at||trimmed.length<10||trimmed.length>500||now.getTime()-Date.parse(at)>370*86400000)return null;
+ return {anchorMs:Date.parse(at),startedMs:now.getTime(),reason:trimmed};
+}
+export function recyclingDocumentClockAt(clock:RecyclingDocumentClock,now:Date):string{
+ const elapsed=Math.max(0,now.getTime()-clock.startedMs);
+ return bangkokLocalDateTime(new Date(Math.min(now.getTime(),clock.anchorMs+elapsed)));
+}

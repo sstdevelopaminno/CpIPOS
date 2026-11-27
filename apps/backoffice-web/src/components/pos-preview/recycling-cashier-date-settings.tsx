@@ -1,18 +1,19 @@
 "use client";
 import {useEffect,useState} from "react";
+import Link from "next/link";
 type Setting={enabled:boolean;ready:boolean};
 export function RecyclingCashierDateSettings({onBack}:{onBack:()=>void}){
- const [setting,setSetting]=useState<Setting|null>(null),[busy,setBusy]=useState(false),[error,setError]=useState("");
+ const [setting,setSetting]=useState<Setting|null>(null),[busy,setBusy]=useState(false),[error,setError]=useState(""),[notice,setNotice]=useState("");
  const url="/api/pos/settings/recycling-document-time";
  useEffect(()=>{const abort=new AbortController();void fetch(url,{cache:"no-store",signal:abort.signal}).then(async r=>{const body=await r.json();if(!r.ok)throw Error(body.error?.message||"โหลดการตั้งค่าไม่สำเร็จ");if(!abort.signal.aborted)setSetting(body.data);}).catch(e=>{if(!abort.signal.aborted)setError(e.message);});return()=>abort.abort();},[]);
- async function save(enabled:boolean){if(busy)return;setBusy(true);setError("");try{const r=await fetch(url,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({enabled})});const body=await r.json();if(!r.ok)throw Error(body.error?.message||"บันทึกไม่สำเร็จ");setSetting(body.data);}catch(e){setError(e instanceof Error?e.message:"บันทึกไม่สำเร็จ");}finally{setBusy(false);}}
- return <section className="max-w-2xl space-y-4">
- <button type="button" onClick={onBack} className="rounded-lg border px-3 py-2 text-sm">← กลับ</button>
- <h2 className="text-xl font-bold">ตั้งค่าวันเวลาเอกสาร · CUSTOM Recycling</h2>
- <p className="text-sm text-slate-600">เปิดปุ่มเปลี่ยนวันเวลาเอกสารชั่วคราวในหน้าแคชเชียร์รับซื้อ–ขายออก เฉพาะสาขานี้ สำหรับเจ้าของร้านและผู้จัดการที่มีสิทธิ์</p>
- {setting?<label className="flex items-center justify-between gap-4 rounded-xl border p-4"><span><strong className="block">เปลี่ยนวันเวลาเอกสารชั่วคราว</strong><small className="text-slate-500">ค่าเริ่มต้นปิด · มีผลเฉพาะบิลที่กำลังทำ ไม่เปลี่ยนเวลาเครื่องหรือกะ</small></span><input type="checkbox" role="switch" checked={setting.enabled} disabled={busy||(!setting.ready&&!setting.enabled)} onChange={e=>void save(e.target.checked)} className="h-5 w-5"/></label>:!error?<p role="status">กำลังโหลด...</p>:null}
- {setting&&!setting.ready?<p role="status" className="rounded-lg bg-amber-50 p-3 text-sm text-amber-800">ระบบยังไม่พร้อมเปิดใช้งาน ต้องผ่านการตรวจสอบฐานข้อมูลก่อน</p>:null}
+ async function save(enabled:boolean){if(busy)return;setBusy(true);setError("");setNotice("");try{const r=await fetch(url,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({enabled})});const body=await r.json();if(!r.ok)throw Error(body.error?.message||"บันทึกไม่สำเร็จ");setSetting(body.data);setNotice(enabled?"เปิดใช้งานสำหรับสาขานี้แล้ว":"ปิดใช้งานสำหรับสาขานี้แล้ว");}catch(e){setError(e instanceof Error?e.message:"บันทึกไม่สำเร็จ");}finally{setBusy(false);}}
+ return <section className="w-full max-w-4xl space-y-5">
+ <button type="button" onClick={onBack} className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold">← กลับ</button>
+ <header><p className="text-xs font-bold tracking-wide text-blue-700">CUSTOM RECYCLING</p><h2 className="mt-1 text-2xl font-extrabold text-slate-900">ตั้งค่าวันเวลาเอกสาร</h2><p className="mt-2 text-sm text-slate-600">ตั้งค่าสำหรับสาขาปัจจุบัน · เจ้าของร้านหรือผู้จัดการ</p></header>
+ {setting?<div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><div className="flex items-center justify-between gap-4"><div><h3 className="font-bold text-slate-900">เปิดโหมดบันทึกเอกสารย้อนหลัง</h3><p className="mt-1 text-sm text-slate-500">แสดงปุ่มเปลี่ยนวันเวลาในหน้ารับซื้อเข้าร้านและขายออก</p></div><button type="button" role="switch" aria-label="เปิดโหมดบันทึกเอกสารย้อนหลัง" aria-checked={setting.enabled} disabled={busy||(!setting.ready&&!setting.enabled)} onClick={()=>void save(!setting.enabled)} className={"relative h-7 w-12 shrink-0 rounded-full transition-colors disabled:opacity-50 "+(setting.enabled?"bg-blue-700":"bg-slate-300")}><span className={"absolute top-1 h-5 w-5 rounded-full bg-white shadow transition-all "+(setting.enabled?"left-6":"left-1")}/></button></div><p className="mt-3 text-xs font-medium text-slate-600">{busy?"กำลังบันทึก":setting.enabled?"เปิดใช้งาน":"ปิดใช้งาน"} · ค่าเริ่มต้นปิด</p></div>:!error?<p role="status">กำลังโหลด...</p>:null}
+ {setting&&!setting.ready?<p role="status" className="rounded-xl bg-amber-50 p-4 text-sm text-amber-800">ระบบยังไม่พร้อมเปิดใช้งาน ต้องติดตั้งและตรวจสอบ RPC ในฐานข้อมูลก่อน</p>:null}
+ {notice?<p role="status" className="rounded-xl bg-emerald-50 p-3 text-sm text-emerald-800">{notice}</p>:null}
  {error?<p role="alert" className="text-sm text-red-700">{error}</p>:null}
- <p className="text-xs text-slate-500">ใช้เฉพาะวันเวลาที่เกิดธุรกรรมจริง ไม่อนุญาตวันที่อนาคต งวดบัญชีที่ปิดแล้ว หรือการเปลี่ยนบิล VAT/GL ที่ต้องใช้เอกสารปรับปรุง</p>
+ <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5"><h3 className="font-bold">วิธีใช้งาน</h3><ol className="mt-3 list-decimal space-y-2 pl-5 text-sm text-slate-700"><li>เปิดฟังก์ชัน แล้วไปหน้าแคชเชียร์</li><li>เลือกวันเวลาเอกสารที่เกิดรายการจริงและระบุเหตุผล</li><li>นาฬิกาเอกสารจะเดินต่อเนื่องในหน้าแคชเชียร์ จนกดคืนวันเวลาปัจจุบันหรือเปลี่ยนกะ</li></ol><p className="mt-3 text-xs text-slate-500">ไม่เปลี่ยนเวลาเครื่อง เวลาบันทึกจริง หรือกะ · ไม่อนุญาตวันอนาคต งวดปิด หรือบิล VAT/GL ที่ต้องผ่านเอกสารปรับปรุง</p>{setting?.ready&&setting.enabled?<Link href="/preview/pos" className="mt-4 inline-flex rounded-xl bg-blue-700 px-4 py-2 text-sm font-bold text-white">ไปหน้าแคชเชียร์</Link>:null}</div>
  </section>;
 }
