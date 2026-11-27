@@ -17,3 +17,16 @@ describe("RW preserves the standard SD checkout engine",()=>{
     expect(sales).toContain("ค้าปลีก–ค้าส่ง (RW)");
   });
 });
+
+describe("RW standalone compatibility boundary",()=>{
+  it("projects runtime SD only after CUSTOM profile validation and exposes selected licence separately",()=>{
+    const api=read("app/api/pos/features/route.ts");
+    expect(api).toContain("resolveRetailRuntimeModes(packagePolicyResult.data?.code, metadata.sales_modes, selectedModes)");
+    expect(api).toContain("selected_sales_modes:");
+    expect(api).toContain("general_sale: rwSelected ? false : selectedModes.general_sale");
+    expect(api).toContain("rwSelected && !retailWholesale ? { ...salesModes, general_sale: false }");
+    expect(read("lib/feature-gate.ts")).toContain("isRetailWholesaleProfile(packageLookup.data?.code, contract.metadata?.sales_modes)");
+    expect(read("lib/pos-sales-modes.ts")).toContain('isRetailWholesaleProfile("custom", rawSalesModes)');
+    expect(read("components/pos/pos-general-sale-table-controller.tsx")).toContain("generalModeLabel()");
+  });
+});

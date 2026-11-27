@@ -1,3 +1,5 @@
+import { isRetailWholesaleProfile } from "@/lib/retail-wholesale/profile";
+
 export const POS_SALES_MODE_KEYS = ["takeaway", "dine_in", "buffet_table", "delivery", "general_sale", "optical_retail", "recycling"] as const;
 
 export type PosSalesModeKey = (typeof POS_SALES_MODE_KEYS)[number];
@@ -123,7 +125,7 @@ export function isAuthorizedOpticalRetailMode(snapshot: {
  */
 export function isCustomCashierModeEnabled(rawSalesModes: unknown): boolean {
   const modes = normalizeCustomPosSalesModes(rawSalesModes);
-  return modes.general_sale || modes.optical_retail || modes.recycling;
+  return modes.general_sale || modes.optical_retail || modes.recycling || isRetailWholesaleProfile("custom", rawSalesModes);
 }
 
 /** Optical checkout reuses the general retail scanner only when explicitly enabled by IT. */

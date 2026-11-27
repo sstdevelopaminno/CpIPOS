@@ -42,6 +42,7 @@ type PosFeaturesResponse = {
     features?: Record<string, boolean>;
     sales_modes?: { general_sale?: boolean; optical_retail?: boolean };
     is_custom?: boolean;
+    retail_wholesale?: boolean;
     is_internal_test_full?: boolean;
   } | null;
 };
@@ -396,6 +397,8 @@ export function PosGeneralSaleTableController({ lang = "th" }: { lang?: Lang }) 
     let accessSequence = 0;
     let latestSelector: HTMLElement | null = null;
     let generalSaleAllowed = false;
+    let retailWholesale = false;
+    const generalModeLabel = () => retailWholesale ? (lang === "th" ? "ค้าปลีก–ค้าส่ง (RW)" : lang === "lo" ? "ຂາຍຍ່ອຍ–ຂາຍສົ່ງ (RW)" : "Retail & Wholesale (RW)") : generalSaleUi[lang].generalMode;
     let opticalAllowed = false;
     let generalSaleActive = false;
     let opticalActive = false;
@@ -1103,7 +1106,7 @@ export function PosGeneralSaleTableController({ lang = "th" }: { lang?: Lang }) 
         const copy = document.createElement("span");
         copy.className = "posui-mode-option__copy";
         copy.append(
-          createTextElement("strong", "", generalSaleUi[lang].generalMode),
+          createTextElement("strong", "", generalModeLabel()),
           createTextElement("small", "", generalSaleUi[lang].generalModeHint)
         );
         const check = createTextElement("span", "posui-mode-option__check", "✓");
@@ -1130,6 +1133,10 @@ export function PosGeneralSaleTableController({ lang = "th" }: { lang?: Lang }) 
         grid.appendChild(generalSaleButton);
       }
       if (!generalSaleAllowed) generalSaleButton?.remove();
+      else {
+        const label = generalSaleButton?.querySelector("strong");
+        if (label && label.textContent !== generalModeLabel()) label.textContent = generalModeLabel();
+      }
 
       let opticalButton = grid.querySelector<HTMLButtonElement>(`[${OPTICAL_BUTTON_ATTRIBUTE}="1"]`);
       if (!opticalAllowed) {
@@ -1349,6 +1356,7 @@ export function PosGeneralSaleTableController({ lang = "th" }: { lang?: Lang }) 
         generalSaleAllowed = Boolean(body?.data?.features?.core_pos_sales === true
           && body?.data?.features?.[POS_MODE_FEATURES.general_sale] === true
           && body?.data?.sales_modes?.general_sale === true);
+        retailWholesale = generalSaleAllowed && body.data.is_custom === true && body.data.retail_wholesale === true;
         // Optical is independently enabled by IT for this CUSTOM tenant.
         // The ordinary takeaway feature is not a prerequisite for entering its UI.
         opticalAllowed = isAuthorizedOpticalRetailMode(body.data);

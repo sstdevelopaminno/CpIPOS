@@ -1,3 +1,4 @@
+import { isRetailWholesaleProfile } from "@/lib/retail-wholesale/profile";
 import { normalizeCustomPosSalesModes } from "@/lib/pos-sales-modes";
 import { isCustomPosMenuVisible } from "@/lib/pos-menu-policy";
 
@@ -16,7 +17,7 @@ export function hasCustomSalesModeFeatureGrant(
 ): boolean {
   if (String(packageCode ?? "").toLowerCase() !== "custom") return false;
   const modes = normalizeCustomPosSalesModes(rawModes);
-  const cashierModeSelected = modes.general_sale || modes.optical_retail || modes.recycling;
+  const cashierModeSelected = modes.general_sale || modes.optical_retail || modes.recycling || isRetailWholesaleProfile(packageCode, rawModes);
   if (POS_CASHIER_CODES.has(featureCode)) return cashierModeSelected;
   // The standalone Recycler workspace requires the stock catalogue as a
   // first-class module. Its explicit IT mode grant supplies that dependency.
@@ -67,7 +68,7 @@ export function hasCustomGroceryModuleGrant(args: {
   if (String(args.packageCode ?? "").trim().toLowerCase() !== "custom" || args.explicitFeatureDecision) return false;
   const modes = normalizeCustomPosSalesModes(args.rawModes);
   // The existing Optical and Recycling workspaces retain their own policies.
-  if (!modes.general_sale || modes.optical_retail || modes.recycling) return false;
+  if ((!modes.general_sale && !isRetailWholesaleProfile(args.packageCode, args.rawModes)) || modes.optical_retail || modes.recycling) return false;
   const keys = customGroceryModuleMenuKeys(args.featureCode);
   return keys.length > 0 && keys.every(key => isCustomPosMenuVisible(key, args.menuPolicy, true));
 }
@@ -81,6 +82,6 @@ export function hasCustomGroceryNotificationSettingsGrant(args: {
 }): boolean {
   if (String(args.packageCode ?? "").trim().toLowerCase() !== "custom" || args.explicitFeatureDecision) return false;
   const modes = normalizeCustomPosSalesModes(args.rawModes);
-  return modes.general_sale && !modes.optical_retail && !modes.recycling &&
+  return (modes.general_sale || isRetailWholesaleProfile(args.packageCode, args.rawModes)) && !modes.optical_retail && !modes.recycling &&
     isCustomPosMenuVisible("settings.notifications", args.menuPolicy, true);
 }
