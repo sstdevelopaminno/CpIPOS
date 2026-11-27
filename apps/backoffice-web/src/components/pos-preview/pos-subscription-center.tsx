@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import { CustomAgreementAcceptance } from "./custom-agreement-acceptance";
 import type {Language} from "@/lib/i18n";
 import {loUi} from "@/lib/lao-pos-ui";
 import { PosSupportChat } from "@/components/pos-preview/pos-support-chat";
@@ -137,6 +138,7 @@ export function PosSubscriptionCenter({ initial, isOwner, showContactActions = t
   lang?:Language;
 }) {
   const [snapshot, setSnapshot] = useState(initial);
+  const [agreementOpen, setAgreementOpen] = useState(false);
   const ui=(value:string)=>loUi(lang,value);
   const initialPending = initial.requests.find((row) => ["pending", "under_review"].includes(row.status));
   const [tab, setTab] = useState<Tab>("overview");
@@ -201,6 +203,61 @@ export function PosSubscriptionCenter({ initial, isOwner, showContactActions = t
   const dayCount = demo ? ui("บัญชีภายใน") : snapshot.contract.days_remaining === null ? ui("ยังไม่กำหนด") :
     snapshot.contract.days_remaining < 0 ? "เกิน " + Math.abs(snapshot.contract.days_remaining) + " วัน" :
     snapshot.contract.days_remaining + " วัน";
+  const customAgreementAvailable = !demo && snapshot.contract.package_code === "custom";
+  const approvedCustomRequest = pending?.created_by_it && pending.package_code === "custom" ? pending : null;
+  const agreementPrice = approvedCustomRequest?.expected_amount ?? snapshot.contract.amount_per_cycle;
+  const agreementInterval = approvedCustomRequest?.billing_interval ?? snapshot.contract.billing_interval;
+  const agreementClauses = [
+    "ระยะเวลาสัญญา 12 เดือน นับจากวันที่รับชำระค่าบริการรอบแรกสำเร็จตามหลักฐานที่บริษัทตรวจสอบ ไม่เริ่มนับใหม่ทุกเดือน",
+    "ชำระค่าบริการตามรอบและอัตราที่ IT อนุมัติ ผ่าน CpiPOS หรือ LINE ทางการ โดยใช้บัญชีบริษัทหรือบัญชีฉุกเฉินที่ประกาศรับรองเท่านั้น",
+    "ผู้ให้บริการจัดให้มีช่องทางดูแลและ Support ตลอด 24 ชั่วโมง ทุกวัน",
+    "ลูกค้าได้รับสิทธิใช้ซอฟต์แวร์ตามสัญญา ไม่ได้รับกรรมสิทธิ์หรือซอร์สโค้ด มีสิทธิขอสำเนาข้อมูลที่บันทึกในระบบ",
+    "ผู้ให้บริการดูแลความปลอดภัยและสำรองข้อมูล หากเกิดเหตุโจรกรรมหรือโจมตีระบบจะดำเนินการกู้คืนข้อมูลเท่าที่ทำได้ ส่วนความเสียหายจากช่องโหว่ฝั่งลูกค้าอยู่ภายใต้ความรับผิดตามสาเหตุและกฎหมาย",
+    "เมื่อสิ้นสุดระยะเวลาบริการที่ชำระเงินแล้วและไม่มีการต่ออายุ บริษัทให้ระยะผ่อนผัน 2 เดือนปฏิทินนับจากวันหมดอายุแพ็กเกจตามสิทธิและสถานะที่ระบบกำหนด หากยังไม่ต่ออายุเมื่อครบระยะผ่อนผัน ระบบจะระงับสิทธิการใช้งานและเก็บรักษาข้อมูลเพิ่มเติมอีก 30 วัน เพื่อให้ลูกค้าติดต่อขอรับข้อมูลที่มีอยู่หรือดำเนินการต่ออายุ เมื่อครบกำหนดดังกล่าว ระบบจะส่งรายการให้ฝ่าย IT ตรวจสอบก่อนดำเนินการตามนโยบายการเก็บรักษาและลบข้อมูล รวมถึงข้อกำหนดทางกฎหมาย โดยไม่ถือว่าเป็นการลบข้อมูลอัตโนมัติทันทีเมื่อครบกำหนด",
+    "สัญญาจริงต้องมีหลักฐานการยอมรับทางอิเล็กทรอนิกส์และการรับชำระที่ตรวจสอบแล้ว ไม่ต้องมีลายเซ็นลูกค้าบนกระดาษ"
+  ];
+  const agreementDetails = [
+    ["ผู้ให้บริการ", snapshot.issuer.name],
+    ["ผู้รับบริการ", snapshot.store.name],
+    ["ที่อยู่", snapshot.store.company_address || "ยังไม่ได้ระบุในข้อมูลร้านค้า"],
+    ["รหัสร้าน", snapshot.store.code],
+    ["แพ็กเกจ", "CUSTOM"],
+    ["ค่าบริการ", formatMoney(agreementPrice, snapshot.contract.currency)],
+    ["รอบชำระ", agreementInterval === "yearly" ? "รายปี" : "รายเดือน"]
+  ];
+  function printAgreementDraft() {
+    const popup = window.open("", "_blank");
+    if (!popup) { setError("กรุณาอนุญาตหน้าต่างใหม่เพื่อพิมพ์เอกสาร"); return; }
+    popup.opener = null;
+    const doc = popup.document;
+    doc.title = "CpiPOS CUSTOM - ร่างสัญญา";
+    doc.documentElement.lang = "th";
+    const style = doc.createElement("style");
+    style.textContent = "@page{size:A4;margin:18mm}body{font-family:Tahoma,sans-serif;color:#172d49;font-size:13px;line-height:1.65}h1{font-size:21px}h2{font-size:16px}li{margin-bottom:8px}p{margin:5px 0}header{border-bottom:2px solid #175b9b;padding-bottom:12px}footer{margin-top:28px}";
+    doc.head.append(style);
+    const append = (tag: string, content: string, parent: HTMLElement = doc.body) => {
+      const node = doc.createElement(tag);
+      node.textContent = content;
+      parent.append(node);
+      return node;
+    };
+    const logo = doc.createElement("img");
+    logo.alt = "CpiPOS";
+    logo.style.width = "128px";
+    logo.style.height = "auto";
+    doc.body.append(logo);
+    append("h1", "CpiPOS CUSTOM | ร่างสัญญาให้บริการ");
+    append("p", "ฉบับร่างเพื่อพิจารณาเท่านั้น — ยังไม่ใช่หลักฐานสัญญาที่มีผล");
+    agreementDetails.forEach(([label, value]) => append("p", label + ": " + value));
+    append("h2", "เงื่อนไขมาตรฐาน");
+    const list = append("ol", "");
+    agreementClauses.forEach(clause => append("li", clause, list));
+    append("footer", "ลงนามกรรมการผู้มีอำนาจ: ________________________");
+    const print = () => { popup.focus(); popup.print(); };
+    logo.addEventListener("load", print, { once: true });
+    logo.addEventListener("error", print, { once: true });
+    logo.src = new URL("/brand/cpipos-logo.png", window.location.origin).href;
+  }
   const statusLabel = demo ? ui("บัญชีทดสอบภายใน") :
     ui(LABELS[snapshot.contract.status] || snapshot.contract.status);
 
@@ -418,6 +475,10 @@ export function PosSubscriptionCenter({ initial, isOwner, showContactActions = t
           </div>
         </div>
         <div className="flex flex-wrap items-center justify-end gap-2">
+          {customAgreementAvailable ? <button type="button" onClick={() => setAgreementOpen(true)}
+            className="inline-flex items-center gap-2 rounded-xl border border-blue-200 bg-white px-4 py-2.5 text-sm font-bold text-blue-700">
+            <Icon name="file" size={16}/> ร่างสัญญา CUSTOM
+          </button> : null}
           <button type="button" disabled={refreshing} onClick={() => void reload()}
             className="inline-flex items-center gap-2 rounded-xl border border-[#d9e4f7] bg-white px-4 py-2.5 text-sm font-bold text-blue-700 shadow-sm transition hover:bg-blue-50 disabled:opacity-50">
             <Icon name="refresh" size={16} />{refreshing ? "กำลังรีเฟรช..." : "รีเฟรชข้อมูล"}
@@ -1173,6 +1234,25 @@ export function PosSubscriptionCenter({ initial, isOwner, showContactActions = t
         </aside> : null}
       </div>
           </div>
+        </section>
+      </div> : null}
+
+      {agreementOpen && customAgreementAvailable ? <div className="fixed inset-0 z-[470] grid place-items-center bg-slate-950/45 p-3">
+        <section role="dialog" aria-modal="true" aria-label="ร่างสัญญา CUSTOM" className="flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
+          <header className="flex items-center justify-between gap-3 border-b p-4">
+            <div><Image src="/brand/cpipos-logo.png" width={128} height={48} alt="CpiPOS" className="mb-2 h-auto w-28" /><h2 className="text-xl font-black text-slate-900">สัญญาการใช้บริการ CpiPOS CUSTOM</h2>
+              <p className="text-xs text-slate-500">ฉบับร่างเพื่อพิจารณา · ยังไม่ใช่หลักฐานสัญญาที่มีผล</p></div>
+            <button type="button" onClick={() => setAgreementOpen(false)} aria-label="ปิด" className="rounded-xl border px-3 py-2">×</button>
+          </header>
+          <div className="overflow-y-auto p-5 text-sm leading-6 text-slate-700">
+            <dl className="grid gap-2 rounded-xl bg-slate-50 p-4">{agreementDetails.map(([label, value]) => <div key={label} className="flex flex-wrap gap-2"><dt className="font-bold">{label}:</dt><dd>{value}</dd></div>)}</dl>
+            <ol className="mt-4 list-decimal space-y-2 pl-5">{agreementClauses.map(clause => <li key={clause}>{clause}</li>)}</ol>
+            {isOwner ? <CustomAgreementAcceptance requestId={approvedCustomRequest?.source === "it_custom_agreement" ? approvedCustomRequest.id : null} /> : null}
+          </div>
+          <footer className="flex flex-wrap justify-end gap-2 border-t p-4">
+            <button type="button" onClick={() => setAgreementOpen(false)} className="rounded-xl border px-4 py-2 text-sm font-bold">ปิด</button>
+            <button type="button" onClick={printAgreementDraft} className="rounded-xl bg-blue-700 px-4 py-2 text-sm font-bold text-white">พิมพ์ / บันทึก PDF ฉบับร่าง</button>
+          </footer>
         </section>
       </div> : null}
 
