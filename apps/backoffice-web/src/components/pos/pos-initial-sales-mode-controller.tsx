@@ -29,6 +29,7 @@ type PosFeaturesSnapshot = {
     is_custom?: boolean;
     is_internal_test_full?: boolean;
     sales_modes?: unknown;
+    retail_wholesale?: boolean;
     features?: Record<string, boolean>;
   } | null;
 };
@@ -92,9 +93,10 @@ export function PosInitialSalesModeController({
 }: {
   initialScope?: PosScopeIdentity | null;
   lang: "th" | "en" | "lo";
-  SalesComponent: ComponentType<{lang?: "th" | "en" | "lo"; startupMode?: PosStartupSalesMode; onStartupModeReady?: (mode: PosStartupSalesMode) => void; onStartupModeBlocked?: (mode: PosStartupSalesMode) => void}>;
+  SalesComponent: ComponentType<{lang?: "th" | "en" | "lo"; startupMode?: PosStartupSalesMode; retailWholesale?: boolean; onStartupModeReady?: (mode: PosStartupSalesMode) => void; onStartupModeBlocked?: (mode: PosStartupSalesMode) => void}>;
 }) {
   const [attempt, setAttempt] = useState(0);
+  const [retailWholesale, setRetailWholesale] = useState(false);
   const [startupStatus, setStartupStatus] = useState<"pending" | "ready" | "error">("pending");
   const [startupFailureCode, setStartupFailureCode] = useState<string | null>(null);
   const [authorizedMode, setAuthorizedMode] = useState<PosStartupSalesMode | null>(null);
@@ -201,6 +203,7 @@ export function PosInitialSalesModeController({
         authorizedGrants[preferredControl] ? preferred : authorizedMode;
       // A restored cart is NOT an authorization bypass. The child applies the
       // authorized mode without submitting or deleting any existing transaction.
+      setRetailWholesale(payload.data.is_custom === true && payload.data.retail_wholesale === true && mode === "general_sale");
       activeModeRef.current = mode;
       setAuthorizedMode(mode);
     };
@@ -233,6 +236,7 @@ export function PosInitialSalesModeController({
         : authorizedMode === "delivery" ? granted.delivery && features[POS_MODE_FEATURES.delivery] === true
         : granted.takeaway && features.core_pos_sales === true
       );
+      setRetailWholesale(allowed && data.is_custom === true && data.retail_wholesale === true && authorizedMode === "general_sale");
       if (allowed) return;
       activeModeRef.current = null;
       setAuthorizedMode(null);
@@ -245,7 +249,7 @@ export function PosInitialSalesModeController({
 
   return (
     <>
-      {authorizedMode ? <SalesComponent lang={lang} startupMode={authorizedMode} onStartupModeReady={onReady} onStartupModeBlocked={onBlocked} /> : null}
+      {authorizedMode ? <SalesComponent lang={lang} startupMode={authorizedMode} onStartupModeReady={onReady} onStartupModeBlocked={onBlocked} retailWholesale={retailWholesale} /> : null}
       {startupStatus !== "ready" ? (
         <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-50 px-6"
           role={startupStatus === "error" ? "alert" : "status"}

@@ -47,7 +47,7 @@ describe("live POS mode policy refresh across IT and the selector", () => {
     expect(startup).toContain("getAuthorizedCustomPosStartupMode(order ?? [], productProfile, authorizedGrants)");
     expect(startup).toContain('if (!authorizedMode) return fail("POS-START-GRANTS")');
     expect(startup).toContain("activeModeRef.current = mode;");
-    expect(startup).toContain("<SalesComponent lang={lang} startupMode={authorizedMode} onStartupModeReady={onReady} onStartupModeBlocked={onBlocked} />");
+    expect(startup).toContain("<SalesComponent lang={lang} startupMode={authorizedMode} onStartupModeReady={onReady} onStartupModeBlocked={onBlocked} retailWholesale={retailWholesale} />");
     expect(entry).toContain("SalesComponent={PosSalesModule}");
     expect(sales).toContain("lastAppliedStartupModeRef.current === startupMode");
     expect(sales).toContain("onStartupModeReady?.(startupMode)");
