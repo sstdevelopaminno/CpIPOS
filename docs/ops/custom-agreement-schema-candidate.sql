@@ -7,6 +7,9 @@ create table public.tenant_custom_agreement_acceptances (
   payment_request_id uuid not null unique references public.tenant_subscription_payment_requests(id) on delete restrict,
   package_id uuid not null references public.subscription_packages(id) on delete restrict,
   actor_user_id uuid not null,
+  acceptance_channel text not null check (acceptance_channel in ('pos','line')),
+  line_binding_id uuid,
+  check ((acceptance_channel='line') = (line_binding_id is not null)),
   accepted_at timestamptz not null default clock_timestamp(),
   version text not null,
   snapshot jsonb not null check (jsonb_typeof(snapshot)='object'),
@@ -32,7 +35,8 @@ grant select, insert on public.tenant_custom_agreement_acceptances, public.tenan
 -- approved contract clauses/version and authorized issuer configuration.
 create function public.custom_agreement_quote_or_accept(
   p_tenant_id uuid, p_request_id uuid, p_actor_user_id uuid,
-  p_version text, p_clauses jsonb, p_director_name text, p_expected_snapshot jsonb default null
+  p_version text, p_clauses jsonb, p_director_name text, p_expected_snapshot jsonb default null,
+  p_channel text default 'pos', p_line_binding_id uuid default null
 ) returns jsonb
 language plpgsql security invoker set search_path = ''
 as $$
@@ -46,6 +50,13 @@ begin
   if p_actor_user_id is null or nullif(btrim(p_director_name),'') is null
     or nullif(btrim(p_version),'') is null or jsonb_typeof(p_clauses) is distinct from 'array' then
     raise exception 'agreement_configuration_missing';
+  end if;
+  if p_channel not in ('pos','line') or (p_channel='line' and not exists (
+    select 1 from public.line_support_bindings b join public.tenants t on t.id=b.tenant_id
+    where b.id=p_line_binding_id and b.tenant_id=p_tenant_id and b.is_active
+      and t.is_active and b.verified_owner_user_id=p_actor_user_id and t.primary_owner_user_id=p_actor_user_id
+  )) or (p_channel='pos' and p_line_binding_id is not null) then
+    raise exception 'agreement_actor_invalid';
   end if;
   select * into v_req from public.tenant_subscription_payment_requests
     where id=p_request_id and tenant_id=p_tenant_id for update;
@@ -104,14 +115,14 @@ begin
     return jsonb_build_object('snapshot',v_snapshot,'accepted_at',null);
   end if;
   if p_expected_snapshot is distinct from v_snapshot then raise exception 'agreement_quote_changed'; end if;
-  insert into public.tenant_custom_agreement_acceptances(tenant_id,payment_request_id,package_id,actor_user_id,version,snapshot,amount_per_cycle,currency,billing_interval)
-  values(p_tenant_id,p_request_id,v_req.requested_package_id,p_actor_user_id,p_version,v_snapshot,v_amount,v_currency,v_interval)
+  insert into public.tenant_custom_agreement_acceptances(tenant_id,payment_request_id,package_id,actor_user_id,acceptance_channel,line_binding_id,version,snapshot,amount_per_cycle,currency,billing_interval)
+  values(p_tenant_id,p_request_id,v_req.requested_package_id,p_actor_user_id,p_channel,p_line_binding_id,p_version,v_snapshot,v_amount,v_currency,v_interval)
   returning * into v_prior;
   return jsonb_build_object('id',v_prior.id,'snapshot',v_prior.snapshot,'accepted_at',v_prior.accepted_at);
 end;
 $$;
-revoke all on function public.custom_agreement_quote_or_accept(uuid,uuid,uuid,text,jsonb,text,jsonb) from public, anon, authenticated;
-grant execute on function public.custom_agreement_quote_or_accept(uuid,uuid,uuid,text,jsonb,text,jsonb) to service_role;
+revoke all on function public.custom_agreement_quote_or_accept(uuid,uuid,uuid,text,jsonb,text,jsonb,text,uuid) from public, anon, authenticated;
+grant execute on function public.custom_agreement_quote_or_accept(uuid,uuid,uuid,text,jsonb,text,jsonb,text,uuid) to service_role;
 
 -- Single activation point for all channels using canonical settlement.
 -- Legacy/missing acceptance must not make settlement fail or bind a customer retroactively.
