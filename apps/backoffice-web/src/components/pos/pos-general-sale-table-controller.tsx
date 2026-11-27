@@ -6,7 +6,7 @@ import { formatSalesMoney, normalizeSalesCurrency } from "@/lib/pos-money";
 import { generalSaleUi, type GeneralSaleLanguage } from "@/lib/pos-general-sale-i18n";
 import { POS_MODE_FEATURES } from "@/lib/pos-feature-map";
 import { isAuthorizedOpticalRetailMode } from "@/lib/pos-sales-modes";
-import { asciiKeyFromScannerCode, validatedGroceryScanQuantity } from "@/lib/grocery-scan-input";
+import { asciiKeyFromScannerCode, validatedGroceryScanQuantity, retailQuantityShortcut, stepRetailScanQuantity, shouldResetRetailScanQuantity } from "@/lib/grocery-scan-input";
 import {
   buildGeneralSaleCartTableRows,
   buildGeneralSaleCartTableSignature,
@@ -159,6 +159,13 @@ function ensureGeneralSaleStyles() {
     .cpipos-sd-qty button { width: 34px; height: 32px; border: 0; background: #f8fafc; color: #0f172a; font-size: 18px; font-weight: 900; cursor: pointer; }
     .cpipos-sd-qty span { padding: 0 8px; text-align: center; font-weight: 900; font-variant-numeric: tabular-nums; }
     .cpipos-sd-delete { width: 34px; height: 32px; border: 1px solid #fecaca; border-radius: 8px; background: #fff7f7; color: #dc2626; font-weight: 900; cursor: pointer; }
+    .cpipos-sd-scan-quantity { display: flex; align-items: center; gap: 6px; }
+    .cpipos-sd-scan-quantity input { width: 76px; min-width: 0; appearance: textfield; -moz-appearance: textfield; }
+    .cpipos-sd-scan-quantity input::-webkit-inner-spin-button, .cpipos-sd-scan-quantity input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+    .cpipos-sd-scan-step { display: inline-flex; align-items: center; justify-content: center; width: 46px; min-height: 44px; border: 1px solid #cbd5e1; border-radius: 9px; background: #fff; color: #0f172a; font-size: 24px; line-height: 1; font-weight: 800; cursor: pointer; touch-action: manipulation; }
+    .cpipos-sd-scan-step[data-delta="1"] { color: #047857; border-color: #86efac; background: #f0fdf4; }
+    .cpipos-sd-scan-step:active { transform: translateY(1px); }
+    .cpipos-sd-scan-step:focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }
     .cpipos-sd-table__empty { padding: 54px 20px; color: #64748b; font-size: 14px; font-weight: 800; text-align: center; }
     [${GENERAL_SALE_SCANNER_ATTRIBUTE}="1"] [data-tone="error"] { color: #dc2626; }
     [${GENERAL_SALE_SCANNER_ATTRIBUTE}="1"] [data-tone="success"] { color: #047857; }
@@ -424,7 +431,8 @@ export function PosGeneralSaleTableController({ lang = "th" }: { lang?: Lang }) 
     let groceryScanTimer: number | null = null;
     let groceryLastKeyAt = 0;
     let groceryFastKeyCount = 0;
-    const scanQueue: Array<{ code: string; quantity: number }> = [];
+    let quantityRevision = 0;
+    const scanQueue: Array<{ code: string; quantity: number; quantityRevision: number }> = [];
     const lookupProductsById = new Map<string, GeneralSaleLookupProduct>();
     const copy = generalSaleUi[lang];
 
@@ -485,6 +493,7 @@ export function PosGeneralSaleTableController({ lang = "th" }: { lang?: Lang }) 
         window.clearTimeout(opticalBillScanTimer);
         opticalBillScanTimer = null;
       }
+      if (scannerPanel) quantityRevision++;
       scannerPanel?.remove();
       scannerPanel = null;
       scannerNeedsInitialFocus = false;
@@ -701,8 +710,9 @@ export function PosGeneralSaleTableController({ lang = "th" }: { lang?: Lang }) 
       tableRenderTimer = window.setTimeout(renderTable, delayMs);
     };
 
-    const submitScan = async (rawCode: string, status: HTMLElement, input: HTMLInputElement, submit: HTMLButtonElement, requestedQuantity?: number) => {
+    const submitScan = async (rawCode: string, status: HTMLElement, input: HTMLInputElement, submit: HTMLButtonElement, requestedQuantity?: number, requestedQuantityRevision?: number) => {
       const amountInput = scannerPanel?.querySelector<HTMLInputElement>('[data-pos-grocery-scan-quantity="1"]');
+      const acceptedQuantityRevision = requestedQuantityRevision ?? quantityRevision;
       const quantity = opticalActive ? 1 : (requestedQuantity ?? validatedGroceryScanQuantity(amountInput?.value ?? "1"));
       if (quantity === null || !Number.isSafeInteger(quantity) || quantity < 1 || quantity > 9999) {
         status.textContent = lang === "th" ? "จำนวนต้องเป็นเลขจำนวนเต็ม 1–9999" : "Quantity must be a whole number from 1 to 9999";
@@ -733,7 +743,7 @@ export function PosGeneralSaleTableController({ lang = "th" }: { lang?: Lang }) 
           status.dataset.tone = "error";
           return;
         }
-        scanQueue.push({ code: opticalActive ? originalSku : originalSku, quantity });
+        scanQueue.push({ code: originalSku, quantity, quantityRevision: acceptedQuantityRevision });
         status.textContent = lang === "lo" ? `ເພີ່ມ ${scanCode} ເຂົ້າຄິວແລ້ວ · ລໍຖ້າ ${scanQueue.length} ລາຍການ` : lang === "th" ? `รับรหัส ${scanCode} เข้าคิวแล้ว · รอ ${scanQueue.length} รายการ` : `Queued ${scanCode} · ${scanQueue.length} waiting`;
         status.dataset.tone = "pending";
         return;
@@ -786,7 +796,11 @@ export function PosGeneralSaleTableController({ lang = "th" }: { lang?: Lang }) 
             GENERAL_SALE_LAST_SCANNED_EVENT,
             { detail: { id: product.id, sku: product.sku, name: product.name } }
           ));
-          if (amountInput) amountInput.value = "1";
+          // A delayed lookup must not erase a quantity selected for the next scan.
+          if (amountInput?.isConnected && shouldResetRetailScanQuantity(acceptedQuantityRevision, quantityRevision)) {
+            amountInput.value = "1";
+            quantityRevision++;
+          }
         }
         status.dataset.scanElapsedMs = String(Math.round(window.performance.now() - lookupStartedAt));
         scheduleTableRender(0);
@@ -807,7 +821,7 @@ export function PosGeneralSaleTableController({ lang = "th" }: { lang?: Lang }) 
         if (nextCode && !destroyed && generalSaleActive) {
           if (opticalActive) window.setTimeout(() => void submitScan(nextCode.code, status, input, submit, nextCode.quantity), 0);
           else if (generalSaleAllowed && scannerInput && scannerStatus && scannerSubmit) {
-            void submitScan(nextCode.code, scannerStatus, scannerInput, scannerSubmit, nextCode.quantity);
+            void submitScan(nextCode.code, scannerStatus, scannerInput, scannerSubmit, nextCode.quantity, nextCode.quantityRevision);
           }
         }
       }
@@ -843,11 +857,16 @@ export function PosGeneralSaleTableController({ lang = "th" }: { lang?: Lang }) 
       productGroup.className = "min-w-0";
       const form = document.createElement("form");
       form.className = opticalActive ? "flex max-w-[440px] items-center gap-2" : "flex flex-wrap items-end gap-2";
+      let adjustScanQuantity: ((delta: -1 | 1) => void) | null = null;
       if (!opticalActive) {
-        const quantityLabel = document.createElement("label");
+        const quantityLabel = document.createElement("div");
         quantityLabel.className = "grid shrink-0 gap-1 text-xs font-bold text-emerald-900";
-        quantityLabel.textContent = lang === "en" ? "Quantity" : lang === "lo" ? "ຈຳນວນ" : "จำนวน";
+        const caption = createTextElement("label", "", lang === "en" ? "Quantity" : lang === "lo" ? "ຈຳນວນ" : "จำนวน");
+        caption.setAttribute("for", "cpipos-retail-scan-quantity");
+        const quantityControls = document.createElement("div");
+        quantityControls.className = "cpipos-sd-scan-quantity";
         const qtyInput = document.createElement("input");
+        qtyInput.id = "cpipos-retail-scan-quantity";
         qtyInput.type = "number";
         qtyInput.min = "1";
         qtyInput.max = "9999";
@@ -855,9 +874,44 @@ export function PosGeneralSaleTableController({ lang = "th" }: { lang?: Lang }) 
         qtyInput.value = "1";
         qtyInput.inputMode = "numeric";
         qtyInput.dataset.posGroceryScanQuantity = "1";
-        qtyInput.className = "posui-payment-modal__input w-24 text-center font-extrabold tabular-nums";
-        qtyInput.setAttribute("aria-label", lang === "th" ? "จำนวนสินค้าที่จะสแกน" : "Quantity for next scan");
-        quantityLabel.appendChild(qtyInput);
+        qtyInput.className = "posui-payment-modal__input text-center font-extrabold tabular-nums";
+        qtyInput.setAttribute("aria-label", lang === "th" ? "จำนวนสินค้าที่จะสแกน" : lang === "lo" ? "ຈຳນວນສິນຄ້າທີ່ຈະສະແກນ" : "Quantity for next scan");
+        qtyInput.addEventListener("input", () => { quantityRevision++; });
+        adjustScanQuantity = (delta) => {
+          qtyInput.value = String(stepRetailScanQuantity(qtyInput.value, delta));
+          quantityRevision++;
+        };
+        qtyInput.addEventListener("keydown", (event) => {
+          const delta = retailQuantityShortcut(event, "");
+          if (delta !== null) {
+            event.preventDefault();
+            event.stopPropagation();
+            adjustScanQuantity?.(delta);
+          } else if (event.key === "Enter" && !event.isComposing) {
+            event.preventDefault();
+            event.stopPropagation();
+            focusRetailScanner(document, scannerInput, qtyInput);
+          }
+        });
+        const makeStep = (delta: -1 | 1) => {
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = "cpipos-sd-scan-step";
+          button.dataset.delta = String(delta);
+          button.textContent = delta === 1 ? "+" : "−";
+          const label = delta === 1
+            ? (lang === "th" ? "เพิ่มจำนวน" : lang === "lo" ? "ເພີ່ມຈຳນວນ" : "Increase quantity")
+            : (lang === "th" ? "ลดจำนวน" : lang === "lo" ? "ຫຼຸດຈຳນວນ" : "Decrease quantity");
+          button.setAttribute("aria-label", label);
+          button.setAttribute("title", label);
+          button.addEventListener("click", () => {
+            adjustScanQuantity?.(delta);
+            focusRetailScanner(document, scannerInput, button);
+          });
+          return button;
+        };
+        quantityControls.append(qtyInput, makeStep(-1), makeStep(1));
+        quantityLabel.append(caption, quantityControls);
         form.appendChild(quantityLabel);
       }
       const input = document.createElement("input");
@@ -879,7 +933,7 @@ export function PosGeneralSaleTableController({ lang = "th" }: { lang?: Lang }) 
       const status = document.createElement("small");
       status.className = "block min-h-4 pt-1 text-xs font-bold text-slate-600";
       status.setAttribute("aria-live", "polite");
-      if (!opticalActive) input.classList.add("min-w-[190px]", "flex-[1_1_240px]");
+      if (!opticalActive) input.classList.add("min-w-[150px]", "flex-[1_1_210px]");
       form.append(input, submit);
       if (!opticalActive) submit.classList.add("sr-only", "focus:not-sr-only");
       form.addEventListener("submit", (event) => {
@@ -901,6 +955,15 @@ export function PosGeneralSaleTableController({ lang = "th" }: { lang?: Lang }) 
         // KeyA/KeyB/Digit0 codes. Translate only inside this ASCII barcode field.
         input.addEventListener("keydown", (event) => {
           if (event.isComposing || event.ctrlKey || event.altKey || event.metaKey) return;
+          // Quantity shortcuts belong only to an empty barcode field, so
+          // embedded + / - characters in a SKU remain intact.
+          const delta = retailQuantityShortcut(event, input.value);
+          if (delta !== null) {
+            event.preventDefault();
+            event.stopPropagation();
+            adjustScanQuantity?.(delta);
+            return;
+          }
           // Handle scanner Enter even while the submit button is disabled.
           if (event.key === "Enter" || (event.key === "Tab" && !event.shiftKey &&
               groceryFastKeyCount >= 5 && input.value.trim().length >= 4)) {
