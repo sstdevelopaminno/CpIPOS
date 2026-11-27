@@ -30,6 +30,21 @@ async function handle(request: Request, accept: boolean) {
     const data = input && typeof input === "object" && !Array.isArray(input) ? input as Record<string,unknown> : null;
     const requestId = accept ? data?.request_id : new URL(request.url).searchParams.get("request_id");
     const snapshot = accept ? data?.snapshot : null;
+    if (!accept && requestId === null) {
+      const db = getPrimarySupabaseServiceClient();
+      const status = await db.from("tenant_custom_agreement_activations")
+        .select("acceptance_id,settlement_id,starts_at,ends_at")
+        .eq("tenant_id",scope.session.tenant_id).order("starts_at",{ascending:false}).limit(1).maybeSingle();
+      if (status.error) return fail("agreement_unavailable","ไม่สามารถโหลดสถานะสัญญาได้",503);
+      const evidence = status.data ? await db.from("tenant_custom_agreement_acceptances")
+        .select("id,snapshot,accepted_at").eq("tenant_id",scope.session.tenant_id)
+        .eq("id",status.data.acceptance_id).maybeSingle() : null;
+      if (evidence?.error || (status.data && !evidence?.data)) return fail("agreement_unavailable","ไม่สามารถโหลดหลักฐานสัญญาได้",503);
+      const response = ok({activation:status.data,acceptance:evidence?.data ?? null});
+      response.headers.set("cache-control","private, no-store");
+      return response;
+    }
+
     if (typeof requestId !== "string" || !UUID.test(requestId) ||
         (accept && (data?.accepted !== true || !snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)))) {
       return fail("invalid_agreement_request","ข้อมูลสัญญาไม่ครบถ้วน",422);
