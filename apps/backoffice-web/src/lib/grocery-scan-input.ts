@@ -31,3 +31,22 @@ export function validatedGroceryScanQuantity(input: unknown): number | null {
   const quantity = Number(raw);
   return Number.isSafeInteger(quantity) && quantity >= 1 && quantity <= 9999 ? quantity : null;
 }
+
+/** Empty scanner field (or quantity field) only. Keep physical Thai-layout
+ * digit keys as barcode digits; never reinterpret a hyphen inside a SKU.
+ * A leading literal +/- SKU can still be entered by paste.
+ */
+export function retailQuantityShortcut(event: Pick<KeyboardEvent, "code" | "key" | "shiftKey" | "ctrlKey" | "altKey" | "metaKey" | "isComposing">, barcodeValue: string): -1 | 1 | null {
+  if (barcodeValue.length !== 0 || event.isComposing || event.ctrlKey || event.altKey || event.metaKey) return null;
+  // Thai layouts can emit '-' for Digit3. It is still a scanner digit.
+  if (/^(Digit|Numpad)[0-9]$/.test(event.code)) return null;
+  if (event.code === "NumpadAdd" || (event.code === "Equal" && event.shiftKey) || event.key === "+") return 1;
+  if (event.code === "NumpadSubtract" || (event.code === "Minus" && !event.shiftKey) || event.key === "-") return -1;
+  return null;
+}
+export function stepRetailScanQuantity(value: unknown, delta: -1 | 1): number {
+  return Math.max(1, Math.min(9999, (validatedGroceryScanQuantity(value) ?? 1) + delta));
+}
+export function shouldResetRetailScanQuantity(acceptedRevision: number, currentRevision: number): boolean {
+  return acceptedRevision === currentRevision;
+}

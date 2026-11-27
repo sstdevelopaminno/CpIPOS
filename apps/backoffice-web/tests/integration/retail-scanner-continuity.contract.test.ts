@@ -9,7 +9,7 @@ describe("shared SD/RW continuous barcode checkout",()=>{
     expect(scanner).toContain("event.stopPropagation()");
     expect(scanner).toContain("if (code && !event.repeat) void submitScan(code, status, input, submit)");
     expect(scanner).toContain("if (!fromRetailQueue) input.value =");
-    expect(scanner).toContain("void submitScan(nextCode.code, scannerStatus, scannerInput, scannerSubmit, nextCode.quantity)");
+    expect(scanner).toContain("void submitScan(nextCode.code, scannerStatus, scannerInput, scannerSubmit, nextCode.quantity, nextCode.quantityRevision)");
     expect(scanner).toContain("focusRetailScanner(document, scannerInput)");
   });
   it("retains manual collapse across remount and returns pointer focus",()=>{

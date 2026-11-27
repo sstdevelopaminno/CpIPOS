@@ -23,7 +23,8 @@ describe("Grocery checkout fast barcode + SKU phase 1 and 2", () => {
     expect(scanner).toContain("form.append(input, submit)");
     expect(scanner).toContain("validatedGroceryScanQuantity");
     expect(scanner).toContain("bridgeStatus !== \"added\"");
-    expect(scanner).toContain('if (amountInput) amountInput.value = "1"');
+    expect(scanner).toContain('amountInput.value = "1"');
+    expect(scanner).toContain("shouldResetRetailScanQuantity(acceptedQuantityRevision, quantityRevision)");
     expect(scanner).toContain('if (!opticalActive) {');
     expect(scanner).toContain("scanQueue.push({");
     expect(scanner).toContain("nextCode.quantity");
