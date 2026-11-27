@@ -1,0 +1,37 @@
+name: CUSTOM agreement PostgreSQL UAT
+on:
+  pull_request:
+    paths:
+      - 'docs/ops/custom-agreement-*.sql'
+      - '.github/workflows/custom-agreement-uat.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  isolated-postgres:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    services:
+      postgres:
+        image: postgres:17.6-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: synthetic-uat-only
+          POSTGRES_DB: agreement_uat
+        options: >-
+          --health-cmd "pg_isready -U postgres -d agreement_uat"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Apply isolated schema and run agreement scenarios
+        env:
+          DB_CONTAINER: ${{ job.services.postgres.id }}
+        run: |
+          set -euo pipefail
+          for file in docs/ops/custom-agreement-uat-fixture.sql docs/ops/custom-agreement-schema-candidate.sql docs/ops/custom-agreement-uat-tests.sql; do
+            docker exec -i "$DB_CONTAINER" psql -v ON_ERROR_STOP=1 -U postgres -d agreement_uat < "$file"
+          done
