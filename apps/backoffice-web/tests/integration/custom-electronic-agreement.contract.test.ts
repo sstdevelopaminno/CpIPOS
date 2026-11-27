@@ -52,3 +52,13 @@ describe("immutable signed print document",()=>{
     expect(route).toContain("scope.session.tenant_id,agreementId");
   });
 });
+
+describe("CUSTOM agreement v2 retention lifecycle",()=>{
+  it("matches the existing paid grace and manual IT review policy",()=>{
+    expect(api).toContain('CUSTOM-TH-2026-11-v2');
+    expect(api).toContain('ระยะผ่อนผัน 2 เดือนปฏิทิน');
+    expect(api).toContain('เก็บรักษาข้อมูลเพิ่มเติมอีก 30 วัน');
+    expect(api).toContain('ฝ่าย IT ตรวจสอบก่อนดำเนินการ');
+    expect(api).toContain('ไม่ถือว่าเป็นการลบข้อมูลอัตโนมัติทันที');
+  });
+});
