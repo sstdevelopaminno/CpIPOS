@@ -1,4 +1,5 @@
 import { normalizeCustomPosSalesModes } from "@/lib/pos-sales-modes";
+import { isCustomPosMenuVisible } from "@/lib/pos-menu-policy";
 
 const POS_CASHIER_CODES = new Set(["core_pos_sales", "pos.sales.access", "pos_sales"]);
 
@@ -34,4 +35,36 @@ export function hasCustomRecyclingManagementMenuGrant(args:{
  if(String(args.packageCode??"").trim().toLowerCase()!=="custom" || !args.menuEnabled || args.explicitFeatureOverride)return false;
  if(args.featureCode!=="branch_management"&&args.featureCode!=="user_management")return false;
  return normalizeCustomPosSalesModes(args.rawModes).recycling===true;
+}
+
+/** CUSTOM grocery contracts use IT's explicit module choices when there is no
+ * separate package/tenant/branch feature decision. Do not infer commercial
+ * entitlement from a single menu for a shared feature: all routes in the
+ * report bundle must be approved before its underlying API feature is granted.
+ * Standard packages, unrelated CUSTOM modes and explicit decisions are unchanged.
+ */
+const CUSTOM_GROCERY_MODULE_MENUS = {
+  stock_management: ["more.stock"],
+  receipt_reprint_history: ["more.receipts"],
+  advanced_sales_reports: ["main.sales_list", "more.sales_summary", "more.product_sales"]
+} as const;
+
+export function customGroceryModuleMenuKeys(feature: string): readonly string[] {
+  if (!Object.prototype.hasOwnProperty.call(CUSTOM_GROCERY_MODULE_MENUS, feature)) return [];
+  return CUSTOM_GROCERY_MODULE_MENUS[feature as keyof typeof CUSTOM_GROCERY_MODULE_MENUS];
+}
+
+export function hasCustomGroceryModuleGrant(args: {
+  packageCode: unknown;
+  rawModes: unknown;
+  featureCode: string;
+  menuPolicy: Record<string, boolean>;
+  explicitFeatureDecision: boolean;
+}): boolean {
+  if (String(args.packageCode ?? "").trim().toLowerCase() !== "custom" || args.explicitFeatureDecision) return false;
+  const modes = normalizeCustomPosSalesModes(args.rawModes);
+  // The existing Optical and Recycling workspaces retain their own policies.
+  if (!modes.general_sale || modes.optical_retail || modes.recycling) return false;
+  const keys = customGroceryModuleMenuKeys(args.featureCode);
+  return keys.length > 0 && keys.every(key => isCustomPosMenuVisible(key, args.menuPolicy, true));
 }

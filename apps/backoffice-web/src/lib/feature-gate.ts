@@ -1,7 +1,7 @@
 import "server-only";
 
 import { isFeatureUnlockEnabled } from "@/lib/feature-unlock";
-import { hasCustomSalesModeFeatureGrant, hasCustomRecyclingManagementMenuGrant } from "@/lib/custom-sales-entitlements";
+import { hasCustomSalesModeFeatureGrant, hasCustomRecyclingManagementMenuGrant, customGroceryModuleMenuKeys, hasCustomGroceryModuleGrant } from "@/lib/custom-sales-entitlements";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 import { getInternalItTestMode } from "@/lib/server/internal-it-test-store";
 import { isDineInExplicitlyEnabled, isDineInLinkedFeature, isOpticalRetailExplicitlyEnabled, normalizeCustomPosSalesModes, resolvePosSalesModePolicy } from "@/lib/pos-sales-modes";
@@ -336,6 +336,31 @@ export async function hasBranchFeature(tenantId: string, branchId: string | null
       "optical_package_check_failed", packageLookup.error.message, 500
     );
     enabled = hasCustomSalesModeFeatureGrant(packageLookup.data?.code, contract?.metadata?.sales_modes, featureCode);
+  }
+
+  // CUSTOM grocery: IT may approve these modules without inserting a duplicate
+  // feature row into the fixed package matrix. Never infer a shared report
+  // feature from just one menu or override an explicit package/tenant/branch row.
+  if (!enabled && !planFeatureRow && !tenantOverride && !branchOverride &&
+      contract?.package_id && customGroceryModuleMenuKeys(featureCode).length > 0) {
+    const modes = normalizeCustomPosSalesModes(contract.metadata?.sales_modes);
+    if (modes.general_sale && !modes.optical_retail && !modes.recycling) {
+      const [packageLookup, policy] = await Promise.all([
+        supabase.from("subscription_packages").select("code")
+          .eq("id", contract.package_id).maybeSingle<{ code: string }>(),
+        supabase.from("tenant_pos_menu_policies").select("menu_key,is_enabled")
+          .eq("tenant_id", tenantId)
+          .in("menu_key", [...customGroceryModuleMenuKeys(featureCode), "main.more"])
+      ]);
+      if (packageLookup.error || policy.error) throw new FeatureGateError(
+        "grocery_module_policy_unavailable", "Unable to verify CUSTOM grocery module authorization.", 503
+      );
+      const menuPolicy = Object.fromEntries((policy.data ?? []).map(row => [row.menu_key, row.is_enabled === true]));
+      enabled = hasCustomGroceryModuleGrant({
+        packageCode: packageLookup.data?.code, rawModes: contract.metadata?.sales_modes,
+        featureCode, menuPolicy, explicitFeatureDecision: false
+      });
+    }
   }
 
   // Optical retail uses the existing secured SKU/scanner workflow.

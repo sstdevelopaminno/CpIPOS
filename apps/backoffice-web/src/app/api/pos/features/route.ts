@@ -1,5 +1,5 @@
 import { isFeatureUnlockEnabled } from "@/lib/feature-unlock";
-import { hasCustomSalesModeFeatureGrant, hasCustomRecyclingManagementMenuGrant } from "@/lib/custom-sales-entitlements";
+import { hasCustomSalesModeFeatureGrant, hasCustomRecyclingManagementMenuGrant, hasCustomGroceryModuleGrant } from "@/lib/custom-sales-entitlements";
 import { fail, ok } from "@/lib/http";
 import { allPosMenuFeatureCodes } from "@/lib/pos-feature-map";
 import { requirePosSession, PosGuardError } from "@/lib/pos-session-guard";
@@ -229,6 +229,19 @@ async function loadTenantFeatureSnapshot(tenantId: string, branchId: string, men
       if (hasCustomSalesModeFeatureGrant("custom", salesModes, feature)) {
         features[feature] = true;
       }
+    }
+  }
+  // Mirror the backend's exact grant, preserving every explicit feature row.
+  // Do not merely remove the lock icon while the page/API still returns 403.
+  if (isCustom && salesModes.general_sale && !salesModes.optical_retail && !salesModes.recycling) {
+    for (const feature of ["stock_management", "receipt_reprint_history", "advanced_sales_reports"] as const) {
+      if (hasCustomGroceryModuleGrant({
+        packageCode: packagePolicyResult.data?.code,
+        rawModes: metadata.sales_modes,
+        featureCode: feature,
+        menuPolicy,
+        explicitFeatureDecision: packageFeatures.has(feature) || tenantOverrides.has(feature) || branchOverrides.has(feature)
+      })) features[feature] = true;
     }
   }
   const opticalMoreAccess = Object.fromEntries(
