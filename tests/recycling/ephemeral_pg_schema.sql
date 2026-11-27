@@ -6,7 +6,7 @@ create role authenticated nologin;
 create role service_role nologin bypassrls;
 
 create table public.tenants (
-  id uuid primary key, name text not null, is_active boolean not null default true
+  id uuid primary key, name text not null, is_active boolean not null default true, metadata jsonb not null default '{}'::jsonb
 );
 create table public.branches (
   id uuid primary key, tenant_id uuid not null references public.tenants(id),
