@@ -119,7 +119,7 @@ describe("CUSTOM Recycling invoice corrections / VOID through sales-list modal",
   });
   it("does not directly edit posted prices/weights/stock without audited reversal",()=>{
     expect(actions).toContain("directDateEnabled");
-    expect(actions).not.toContain("RecyclingAmountCorrectionEditor");
+    expect(actions).toContain('status==="posted"&&amountCorrectionEnabled&&<RecyclingAmountCorrectionEditor');
     expect(actions).not.toContain("ส่งคำขอให้ฝ่ายบัญชี");
     expect(actions).not.toContain("date-correction-request");
     expect(actions).not.toContain(".update(");

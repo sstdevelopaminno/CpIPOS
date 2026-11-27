@@ -255,6 +255,7 @@ export async function RecyclingSalesListPageContent({scope,search={}}:{
                     amountMinor={Number(t.total_minor)}
                     canManage={["owner","manager"].includes(scope.session.role)&&scope.permissions.includes("sales:list:view")}
                     directDateEnabled={process.env.RECYCLING_DIRECT_DATE_EDIT_ENABLED==="1"}
+                    amountCorrectionEnabled={process.env.RECYCLING_DIRECT_DATE_EDIT_ENABLED==="1"&&process.env.RECYCLING_AMOUNT_CORRECTION_ENABLED==="1"}
                     voidEnabled={process.env.RECYCLING_VOID_ENABLED==="1"}/>:<span className="text-xs text-amber-700">เข้าสาขาต้นทางเพื่อเปิดเอกสาร</span>}
                 </td>
               </tr>;

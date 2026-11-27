@@ -38,7 +38,7 @@ export async function GET(request:Request){
    if(["cash","bank_transfer"].includes(row.settlement))sums.paid+=total;
   }
   if(!Object.values(sums).every(Number.isSafeInteger))throw Error("sum overflow");
-  const response=ok({rows,branches:branches.data??[],count:result.count,page,pageSize:PAGE,sums,from,to,correctionEnabled});
+  const response=ok({rows,branches:branches.data??[],count:result.count,page,pageSize:PAGE,sums,from,to,correctionEnabled,amountCorrectionEnabled:process.env.RECYCLING_DIRECT_DATE_EDIT_ENABLED==="1"&&process.env.RECYCLING_AMOUNT_CORRECTION_ENABLED==="1"});
   response.headers.set("Cache-Control","private, no-store");return response;
  }catch{return fail("expense_unavailable","ไม่สามารถยืนยันข้อมูลรายจ่ายได้ กรุณารีเฟรช",503);}
 }

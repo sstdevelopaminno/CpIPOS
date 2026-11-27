@@ -1,6 +1,6 @@
 import { fail, ok } from "@/lib/http";
 import { FeatureGateError } from "@/lib/feature-gate";
-import { PosGuardError, requirePosSession } from "@/lib/pos-session-guard";
+import { PosGuardError, requirePosSession, requirePermission } from "@/lib/pos-session-guard";
 import { isAuthorizedRecyclingTenant } from "@/lib/server/recycling-pos-service";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 
@@ -17,8 +17,11 @@ export async function POST(request: Request,{
     const { id }=await params;
     if (!UUID.test(id)) return fail("recycling_void_id_invalid","A valid transaction is required.",422);
     const scope=await requirePosSession();
+    requirePermission(scope,"sales:list:view");
+    const origin=request.headers.get("origin");
+    if(origin&&origin!==new URL(request.url).origin)return fail("recycling_void_origin_invalid","ไม่อนุญาตคำขอจากเว็บไซต์อื่น",403);
     if (!["owner","manager","accountant"].includes(scope.session.role)) {
-      return fail("recycling_void_approver_forbidden","An independent supervisor or accountant must approve a VOID.",403);
+      return fail("recycling_void_approver_forbidden","เฉพาะผู้ใช้ที่มีสิทธิ์ยกเลิกบิล",403);
     }
     if (!await isAuthorizedRecyclingTenant(scope.session.tenant_id)) {
       return fail("recycling_not_authorized","An active CUSTOM Recycling entitlement is required.",403);
@@ -57,7 +60,7 @@ export async function POST(request: Request,{
         "recycling_void_already_voided","recycling_void_shift_already_closed",
         "recycling_void_finance_already_posted","recycling_void_bank_reversal_requires_finance",
         "recycling_void_cash_confirmation_required","recycling_void_self_approval_forbidden",
-        "recycling_void_material_has_later_movement","recycling_void_approver_forbidden",
+        "recycling_void_material_has_later_movement","recycling_void_historical_replay_required","recycling_void_approver_forbidden",
         "recycling_void_cash_drawer_insufficient","recycling_void_original_missing"
       ];
       const code=codes.find(x=>error.message.includes(x));

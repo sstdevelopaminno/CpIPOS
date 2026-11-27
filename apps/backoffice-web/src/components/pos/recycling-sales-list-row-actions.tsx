@@ -1,12 +1,13 @@
 "use client";
 import {useRouter} from "next/navigation";
 import {useEffect,useRef,useState} from "react";
+import {RecyclingAmountCorrectionEditor} from "@/components/pos/recycling-amount-correction-editor";
 import {RecyclingDocumentTimeEditor} from "@/components/pos/recycling-document-time-editor";
 import {RecyclingReceiptDialog} from "@/components/pos/recycling-receipt-dialog";
 import {RecyclingVoidTransaction} from "@/components/pos/recycling-void-transaction";
 type Mode="receipt"|"void";
-export function RecyclingSalesListRowActions({receiptId,receiptNo,createdAt,direction,settlement,status,amountMinor,canManage,voidEnabled,directDateEnabled=false}:{
- receiptId:string;receiptNo:string;createdAt:string;direction:"buy"|"sell";settlement:"cash"|"bank_transfer"|"credit";status:"posted"|"voided";amountMinor:number;canManage:boolean;voidEnabled:boolean;directDateEnabled?:boolean;
+export function RecyclingSalesListRowActions({receiptId,receiptNo,createdAt,direction,settlement,status,amountMinor,canManage,voidEnabled,directDateEnabled=false,amountCorrectionEnabled=false}:{
+ receiptId:string;receiptNo:string;createdAt:string;direction:"buy"|"sell";settlement:"cash"|"bank_transfer"|"credit";status:"posted"|"voided";amountMinor:number;canManage:boolean;voidEnabled:boolean;directDateEnabled?:boolean;amountCorrectionEnabled?:boolean;
 }){
  const router=useRouter();
  const [mode,setMode]=useState<Mode|null>(null);
@@ -17,6 +18,7 @@ export function RecyclingSalesListRowActions({receiptId,receiptNo,createdAt,dire
  <div className="flex flex-wrap items-center gap-1.5" data-testid="recycling-sales-list-row-actions">
  <button type="button" ref={receiptRef} onClick={()=>setMode("receipt")} className="min-h-9 whitespace-nowrap rounded-md border border-blue-200 bg-white px-2.5 text-xs font-bold text-blue-700 hover:bg-blue-50">ดู / พิมพ์</button>
  {canManage&&status==="posted"&&directDateEnabled&&<RecyclingDocumentTimeEditor id={receiptId} currentAt={createdAt} receiptNo={receiptNo} direction={direction} amountMinor={amountMinor} source="pos" onSaved={()=>router.refresh()}/>}
+ {canManage&&status==="posted"&&amountCorrectionEnabled&&<RecyclingAmountCorrectionEditor id={receiptId} source="pos" onSaved={()=>router.refresh()}/>}
  {canManage&&status==="posted"&&!directDateEnabled&&<button type="button" disabled title="ระบบแก้ไขโดยตรงยังไม่เปิดใช้งาน" className="min-h-9 rounded-md border border-slate-200 px-2.5 text-xs font-bold text-slate-400">แก้ไขบิล</button>}
  {canManage&&<button type="button" ref={voidRef} disabled={status!=="posted"||!voidEnabled} onClick={()=>setMode("void")} className="min-h-9 whitespace-nowrap rounded-md border border-rose-200 bg-white px-2.5 text-xs font-bold text-rose-800 disabled:opacity-40">ยกเลิก (VOID)</button>}
  </div>

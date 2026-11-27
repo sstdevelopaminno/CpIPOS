@@ -29,5 +29,8 @@ describe("Recycling cashier scanner and parked bills isolation",()=>{
    expect(parseRecyclingHeldBills(JSON.stringify([draft]),shiftId)).toHaveLength(1);
    expect(parseRecyclingHeldBills(JSON.stringify([draft]),"44444444-4444-4444-8444-444444444444")).toHaveLength(0);
    expect(parseRecyclingHeldBills("not-json",shiftId)).toHaveLength(0);
+   const documentOverride={time:"2026-11-25T08:09:10",reason:"Historical test purchase"};
+   expect(parseRecyclingHeldBills(JSON.stringify([{...draft,documentOverride}]),shiftId)[0]?.documentOverride).toEqual(documentOverride);
+   expect(parseRecyclingHeldBills(JSON.stringify([{...draft,documentOverride:{time:"bad",reason:"x"}}]),shiftId)).toHaveLength(0);
  });
 });
