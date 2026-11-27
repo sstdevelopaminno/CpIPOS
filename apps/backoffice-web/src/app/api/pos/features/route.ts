@@ -1,4 +1,4 @@
-import { isRetailWholesaleProfile } from "@/lib/retail-wholesale/profile";
+import { isRetailWholesaleProfile, resolveRetailRuntimeModes } from "@/lib/retail-wholesale/profile";
 import { isFeatureUnlockEnabled } from "@/lib/feature-unlock";
 import { hasCustomSalesModeFeatureGrant, hasCustomRecyclingManagementMenuGrant, hasCustomGroceryModuleGrant, hasCustomGroceryNotificationSettingsGrant } from "@/lib/custom-sales-entitlements";
 import { fail, ok } from "@/lib/http";
@@ -141,9 +141,11 @@ async function loadTenantFeatureSnapshot(tenantId: string, branchId: string, men
   }
 
   const isCustom = String(packagePolicyResult.data?.code ?? "").toLowerCase() === "custom";
-  const salesModes = isCustom
+  const selectedModes = isCustom
     ? normalizeCustomPosSalesModes(metadata.sales_modes)
     : resolvePosSalesModePolicy(metadata, packagePolicyResult.data?.metadata);
+  const rwSelected = isRetailWholesaleProfile(packagePolicyResult.data?.code, metadata.sales_modes);
+  const salesModes = resolveRetailRuntimeModes(packagePolicyResult.data?.code, metadata.sales_modes, selectedModes);
   const packageFeatures = new Map<string, boolean>();
   for (const row of (packageResult.data ?? []) as PackageFeatureRow[]) {
     packageFeatures.set(String(row.feature_code), Boolean(row.included));
@@ -227,7 +229,7 @@ async function loadTenantFeatureSnapshot(tenantId: string, branchId: string, men
       // Match hasBranchFeature(): a branch override supersedes a tenant
       // override. Any explicit override has already been applied above.
       if (tenantOverrides.has(feature) || branchOverrides.has(feature)) continue;
-      if (hasCustomSalesModeFeatureGrant("custom", salesModes, feature)) {
+      if (hasCustomSalesModeFeatureGrant("custom", metadata.sales_modes, feature)) {
         features[feature] = true;
       }
     }
@@ -264,7 +266,11 @@ async function loadTenantFeatureSnapshot(tenantId: string, branchId: string, men
   const retailWholesale = isRetailWholesaleProfile(packagePolicyResult.data?.code, metadata.sales_modes)
     && features.core_pos_sales === true && features.barcode_scanner_mode === true
     && isCustomPosMenuVisible("main.sales", menuPolicy, true);
-  return { features, salesModes, isCustom, opticalMoreAccess, retailWholesale };
+  // Keep legacy engine readers working without persisting or exposing SD as
+  // a second licence. Denied RW must not fall back to the ordinary SD cashier.
+  const runtimeSalesModes = rwSelected && !retailWholesale ? { ...salesModes, general_sale: false } : salesModes;
+  const selectedSalesModes = { ...selectedModes, general_sale: rwSelected ? false : selectedModes.general_sale, retail_wholesale: rwSelected };
+  return { features, salesModes: runtimeSalesModes, selectedSalesModes, isCustom, opticalMoreAccess, retailWholesale };
 }
 
 export async function GET(request: Request) {
@@ -308,7 +314,9 @@ export async function GET(request: Request) {
       is_custom: snapshot.isCustom,
       finance_access: financeAccess,
       is_internal_test_full: "internalTestFull" in snapshot && snapshot.internalTestFull === true,
+      // sales_modes is the legacy engine view; selected_sales_modes is the actual licence view.
       sales_modes: snapshot.salesModes,
+      selected_sales_modes: "selectedSalesModes" in snapshot ? snapshot.selectedSalesModes : { ...snapshot.salesModes, retail_wholesale: false },
       retail_wholesale: "retailWholesale" in snapshot && snapshot.retailWholesale === true,
       optical_more_access: "opticalMoreAccess" in snapshot ? snapshot.opticalMoreAccess : {},
       sales_modes_source: "package_metadata + tenant_subscription_contracts.metadata.sales_modes"

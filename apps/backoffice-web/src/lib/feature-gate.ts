@@ -1,3 +1,4 @@
+import { isRetailWholesaleProfile } from "@/lib/retail-wholesale/profile";
 import "server-only";
 
 import { isFeatureUnlockEnabled } from "@/lib/feature-unlock";
@@ -345,7 +346,7 @@ export async function hasBranchFeature(tenantId: string, branchId: string | null
   if (!enabled && !planFeatureRow && !tenantOverride && !branchOverride &&
       contract?.package_id && (customGroceryModuleMenuKeys(featureCode).length > 0 || notificationSettingsOnly)) {
     const modes = normalizeCustomPosSalesModes(contract.metadata?.sales_modes);
-    if (modes.general_sale && !modes.optical_retail && !modes.recycling) {
+    if ((modes.general_sale || isRetailWholesaleProfile("custom", contract.metadata?.sales_modes)) && !modes.optical_retail && !modes.recycling) {
       const [packageLookup, policy] = await Promise.all([
         supabase.from("subscription_packages").select("code")
           .eq("id", contract.package_id).maybeSingle<{ code: string }>(),
@@ -396,7 +397,7 @@ export async function hasBranchFeature(tenantId: string, branchId: string | null
     const selectedModes = String(packageLookup.data?.code ?? "").toLowerCase() === "custom"
       ? normalizeCustomPosSalesModes(contract.metadata?.sales_modes)
       : resolvePosSalesModePolicy(contract.metadata ?? {}, packageLookup.data?.metadata);
-    if (selectedModes.general_sale) enabled = true;
+    if (selectedModes.general_sale || isRetailWholesaleProfile(packageLookup.data?.code, contract.metadata?.sales_modes)) enabled = true;
   }
 
   // Dine-in cannot operate safely without table, kitchen and table-call

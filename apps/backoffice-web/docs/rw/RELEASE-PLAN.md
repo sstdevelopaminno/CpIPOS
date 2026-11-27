@@ -2,7 +2,7 @@
 
 ## Phase 1/2: compatible profile foundation
 
-Explicit IT contract metadata sales_modes.retail_wholesale=true AND general_sale=true, CUSTOM only, no other selling modes. The latter flag is a technical compatibility dependency; not a second user-facing mode. Existing SD stores and fixed packages remain untouched. Reuse the authenticated SD cashier, scanner, shifts, receipts, held bills and payment engine. Never infer the RW grant from the tenant name. IT console changes are a separate repository release. Do not activate a live tenant until both releases and authenticated UAT pass.
+Explicit IT contract metadata sales_modes.retail_wholesale=true, general_sale=false, CUSTOM only, no other selling modes. The runtime-only SD engine projection is returned in legacy sales_modes; selected_sales_modes describes the actual licence. Legacy dual-flag contracts remain readable. No new SD licence is required. Existing SD stores and fixed packages remain untouched. Reuse the authenticated SD cashier, scanner, shifts, receipts, held bills and payment engine. Never infer the RW grant from the tenant name. IT console changes are a separate repository release. Do not activate a live tenant until both releases and authenticated UAT pass.
 
 ## Phase 3: commercial pricing and units
 

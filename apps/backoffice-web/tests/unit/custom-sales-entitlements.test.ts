@@ -81,3 +81,24 @@ describe("CUSTOM grocery settings", () => {
     expect(groceryModule("qr_table_ordering")).toBe(false);
   });
 });
+
+describe("RW-only contract keeps existing retail dependencies",()=>{
+  const modes={retail_wholesale:true,general_sale:false};
+  it("grants only CUSTOM cashier and scanner",()=>{
+    for(const code of ["core_pos_sales","barcode_scanner_mode","pos.sales.access"]) {
+      expect(allowed("custom",modes,code)).toBe(true);
+      expect(allowed("starter",modes,code)).toBe(false);
+      expect(allowed("custom",{...modes,dine_in:true},code)).toBe(false);
+    }
+    expect(allowed("custom",modes,"qr_table_ordering")).toBe(false);
+    expect(allowed("custom",modes,"stock_management")).toBe(false);
+  });
+  it("inherits IT-approved retail module grants but never overrides explicit denials",()=>{
+    for(const code of ["stock_management","receipt_reprint_history","advanced_sales_reports","branch_management","user_management","customer_facing_display"]) {
+      expect(groceryModule(code,{rawModes:modes})).toBe(true);
+      expect(groceryModule(code,{rawModes:modes,explicitFeatureDecision:true})).toBe(false);
+    }
+    expect(notificationAllowed({packageCode:"custom",rawModes:modes,menuPolicy:allMenus,explicitFeatureDecision:false})).toBe(true);
+    expect(groceryModule("qr_table_ordering",{rawModes:modes})).toBe(false);
+  });
+});
