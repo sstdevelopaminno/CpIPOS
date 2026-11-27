@@ -16,7 +16,7 @@ export default async function PosReceiptsPage({searchParams}:{searchParams?:Prom
   // CUSTOM Recycling has an independent purchases/sales ledger. Do not show empty legacy order reports.
   const requestedMode = (await searchParams)?.report_mode;
   const canUseStandard = requestedMode === "standard" &&
-    await isAuthorizedCustomGeneralSaleTenant(posMenuScope.session.tenant_id);
+    await isAuthorizedCustomGeneralSaleTenant(posMenuScope.session.tenant_id, posMenuScope.session.branch_id);
   if (await isAuthorizedRecyclingTenant(posMenuScope.session.tenant_id) && !canUseStandard) {
     await requirePosPagePermission("receipts:view");
     return <RecyclingHistoryReports scope={posMenuScope} kind="receipts" search={await searchParams} />;
