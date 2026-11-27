@@ -6,7 +6,7 @@ declare
  b uuid:='22222222-2222-4222-8222-222222222222';
  u uuid:='33333333-3333-4333-8333-333333333333';
  s uuid:='99999999-9999-4999-8999-999999999997';
- p uuid:='55555555-5555-4555-8555-555555555555';
+ p uuid:='d4000000-0000-4000-8000-000000000001';
  tx uuid;
  result jsonb;
  prior_qty numeric;
@@ -19,6 +19,10 @@ declare
 begin
  insert into public.shifts(id,tenant_id,branch_id,opening_cash,status)
  values(s,t,b,500,'open');
+ -- Dedicated product and zero-balance row avoid earlier regression fixtures.
+ insert into public.products(id,tenant_id,branch_id,sku,name,category,price,sell_unit,metadata)
+ values(p,t,b,'SYNTHETIC-SUPERVISOR-VOID','Synthetic material','UAT',10,'kg','{"business_mode":"recycling","recycling_price_basis":"kg","recycling_buy_price":8.25}'::jsonb);
+ insert into public.recycling_stock_balances(tenant_id,branch_id,product_id) values(t,b,p);
  select quantity_base,carrying_cost_minor,last_transaction_id
  into prior_qty,prior_cost,prior_marker from public.recycling_stock_balances
  where tenant_id=t and branch_id=b and product_id=p;
@@ -26,7 +30,7 @@ begin
    -- Change only the synthetic fixture's branch role.
    update public.user_branch_roles set role=role_name
    where tenant_id=t and branch_id=b and user_id=u;
-   result:=public.recycling_post_transaction(t,b,s,u,gen_random_uuid(),
+   result:=public.recycling_post_transaction_vat(t,b,s,u,gen_random_uuid(),
      'buy','credit','Synthetic supervisor purchase',
      jsonb_build_array(jsonb_build_object('product_id',p,'quantity',1,'unit','kg','expected_price',8.25)));
    tx:=(result->>'id')::uuid;
@@ -42,7 +46,7 @@ begin
        and voided_by=u and length(void_reason)>=10) then raise exception 'UAT_SUPERVISOR_AUDIT_MISSING'; end if;
  end loop;
  update public.user_branch_roles set role='staff' where tenant_id=t and branch_id=b and user_id=u;
- result:=public.recycling_post_transaction(t,b,s,u,gen_random_uuid(),
+ result:=public.recycling_post_transaction_vat(t,b,s,u,gen_random_uuid(),
    'buy','credit','Synthetic staff purchase',
    jsonb_build_array(jsonb_build_object('product_id',p,'quantity',1,'unit','kg','expected_price',8.25)));
  tx:=(result->>'id')::uuid;
