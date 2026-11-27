@@ -4,6 +4,7 @@ import { featureGateFail, requirePosApiFeature } from "@/lib/pos-api-feature-gua
 import { authorizeOpticalMoreMenu } from "@/lib/server/optical-more-feature-access";
 import { fail, ok } from "@/lib/http";
 import { buildPaginationMeta, parsePagination } from "@/lib/query-params";
+import {resolveCustomReceiptVisibility} from "@/lib/server/custom-receipt-layout-service";
 import { loadReceiptStoreProfile } from "@/lib/services/store-profile-service";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 import { getTenantPosCurrencyCode } from "@/lib/server/custom-pos-currency";
@@ -293,7 +294,7 @@ export async function GET(req: Request) {
     };
 
     return withTiming(ok({
-      branch: { id: auth.branchId, name: String(branchResult.data?.name ?? auth.branchId), store_profile: storeProfile },
+      branch: { id: auth.branchId, name: String(branchResult.data?.name ?? auth.branchId), store_profile: storeProfile, receipt_visibility: await resolveCustomReceiptVisibility(auth.tenantId!,auth.branchId!,storeProfile?.metadata,"shared") },
       range: dateWindow,
       records,
       currencyCode: shopCurrencyCode,

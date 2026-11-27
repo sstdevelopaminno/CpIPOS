@@ -14,7 +14,7 @@ describe("Recycling shared amount correction",()=>{
  });
  it("calls one atomic RPC only when both rollout gates are enabled",()=>{
   const service=read("lib/server/recycling-amount-correction-service.ts");
-  expect(service).toContain('RECYCLING_MANUAL_DOCUMENT_TIME_ENABLED!=="1"');
+  expect(service).toContain('RECYCLING_DIRECT_DATE_EDIT_ENABLED!=="1"');
   expect(service).toContain('RECYCLING_AMOUNT_CORRECTION_ENABLED!=="1"');
   expect(service).toContain('rpc("recycling_replace_eligible_bill"');
   expect(service).toContain("p_expected_total:total");

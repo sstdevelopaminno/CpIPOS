@@ -7,7 +7,7 @@ import {UUID} from "@/lib/recycling-transaction-input";
 import {correctRecyclingDocumentTime} from "@/lib/server/recycling-document-correction-service";
 export async function POST(request:Request,{params}:{params:Promise<{id:string}>}){
  try{
-  if(process.env.RECYCLING_MANUAL_DOCUMENT_TIME_ENABLED!=="1")return fail("recycling_correction_disabled","ระบบแก้ไขวันเวลาเอกสารยังไม่เปิดใช้งาน",503);
+  if(process.env.RECYCLING_DIRECT_DATE_EDIT_ENABLED!=="1")return fail("recycling_correction_disabled","ระบบแก้ไขวันเวลาเอกสารยังไม่เปิดใช้งาน",503);
   const identity=await requireFinanceSession();
   if(!identity)return fail("finance_session_required","กรุณาเข้าสู่ระบบบัญชี",401);
   const {id}=await params;

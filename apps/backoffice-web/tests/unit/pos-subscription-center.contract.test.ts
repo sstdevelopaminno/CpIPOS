@@ -221,3 +221,20 @@ describe("POS subscription center (commercial billing, not cashier payments)", (
     expect(ui).toContain("เอกสาร");
   });
 });
+
+
+describe("CUSTOM agreement draft", () => {
+  it("uses the scoped store identity and IT-approved price, not a fixed price", () => {
+    expect(snapshot).toContain('select("id,code,name,display_name,package_id,company_address")');
+    expect(ui).toContain('snapshot.contract.package_code === "custom"');
+    expect(ui).toContain("approvedCustomRequest?.expected_amount ?? snapshot.contract.amount_per_cycle");
+    expect(ui).toContain("snapshot.store.company_address");
+    expect(ui).toContain("snapshot.contract.is_internal_demo");
+  });
+  it("clearly identifies draft printing and does not claim settlement", () => {
+    expect(ui).toContain("ยังไม่ใช่หลักฐานสัญญาที่มีผล");
+    expect(ui).toContain("node.textContent = content");
+    expect(ui).toContain("popup.print()");
+    expect(ui).toContain("ลายเซ็นลูกค้าบนกระดาษ");
+  });
+});

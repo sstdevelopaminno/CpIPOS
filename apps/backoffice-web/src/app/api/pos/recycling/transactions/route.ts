@@ -3,7 +3,8 @@ import { FeatureGateError, requireTenantFeature } from "@/lib/feature-gate";
 import { PosGuardError, requireActiveShift, requirePermission, requirePosSession } from "@/lib/pos-session-guard";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 import { isAuthorizedRecyclingTenant } from "@/lib/server/recycling-pos-service";
-import { parseRecyclingDocumentTime } from "@/lib/recycling-document-time";
+import {parseRecyclingDocumentTime} from "@/lib/recycling-document-time";
+import {canManageRecyclingCashierDate,recyclingCashierDateReady} from "@/lib/server/recycling-cashier-date-service";
 import { nextOpticalMidnightUtc } from "@/lib/pos-optical-daily-shift";
 
 type TransactionPayload = {
@@ -13,6 +14,7 @@ type TransactionPayload = {
   counterparty_name?: unknown;
   lines?: unknown;
   document_time?: unknown;
+  document_reason?: unknown;
 };
 
 import { UUID, readLine, isRecyclingDirection, isRecyclingSettlement } from "@/lib/recycling-transaction-input";
@@ -58,12 +60,6 @@ export async function POST(request: Request) {
         !isRecyclingSettlement(raw.settlement)) {
       return fail("invalid_recycling_transaction", "Invalid transaction request.", 422);
     }
-    let documentTime:string|null=null;
-    if(raw.document_time!==undefined){
-      if(process.env.RECYCLING_MANUAL_DOCUMENT_TIME_ENABLED!=="1")return fail("recycling_manual_time_disabled","ยังไม่เปิดใช้วันที่ย้อนหลัง ไม่มีการบันทึกบิล",503);
-      documentTime=parseRecyclingDocumentTime(raw.document_time,new Date());
-      if(!documentTime)return fail("recycling_document_time_invalid","วันที่และเวลาเอกสารไม่ถูกต้องหรือเกินเวลาปัจจุบัน",422);
-    }
     if (raw.settlement === "bank_transfer") {
       return fail("recycling_bank_transfer_verification_required",
         "Bank transfers require a verified transfer record and independent reconciliation; no transaction was posted.", 409);
@@ -82,6 +78,13 @@ export async function POST(request: Request) {
     if (lines.some((line) => line === null)) {
       return fail("invalid_recycling_line", "Invalid barcode, quantity, unit or expected price.", 422);
     }
+    const hasOverride=raw.document_time!==undefined||raw.document_reason!==undefined;
+    const documentAt=hasOverride?parseRecyclingDocumentTime(raw.document_time,new Date()):null;
+    const documentReason=typeof raw.document_reason==="string"?raw.document_reason.trim():"";
+    if(hasOverride){
+      if(!recyclingCashierDateReady()||!["owner","manager"].includes(scope.session.role)||!await canManageRecyclingCashierDate(scope.session.tenant_id,scope.session.branch_id,scope.session.user_id))return fail("recycling_cashier_date_disabled","ไม่มีสิทธิ์หรือระบบเปลี่ยนวันเวลายังไม่เปิดใช้งาน",403);
+      if(!documentAt||documentReason.length<10||documentReason.length>500)return fail("recycling_correction_invalid","วันเวลาหรือเหตุผลไม่ถูกต้อง",422);
+    }
     const db = getSupabaseServiceClient();
     // Atomic RPC is the ONLY path for posting a purchase/sale. It prices from
     // the server-side catalog, locks stock, records documents and balances its
@@ -89,7 +92,7 @@ export async function POST(request: Request) {
     // Use the installed VAT-aware atomic RPC for every transaction. It applies
     // VAT only for a configured sale and requires an active verified issuer
     // and the correct chart. Never fall back to the legacy untaxed RPC.
-    const rpcArgs = {
+    const args = {
       p_tenant_id: scope.session.tenant_id,
       p_branch_id: scope.session.branch_id,
       p_shift_id: shift.id,
@@ -100,9 +103,7 @@ export async function POST(request: Request) {
       p_counterparty_name: counterparty,
       p_lines: lines
     };
-    const { data, error } = process.env.RECYCLING_MANUAL_DOCUMENT_TIME_ENABLED==="1"
-      ? await db.rpc("recycling_post_transaction_with_document_time",{...rpcArgs,p_document_at:documentTime})
-      : await db.rpc("recycling_post_transaction_vat",rpcArgs);
+    const {data,error}=hasOverride?await db.rpc("recycling_post_transaction_with_document_time",{...args,p_document_at:documentAt,p_reason:documentReason}):await db.rpc("recycling_post_transaction_vat",args);
     if (error) {
       if (error.code === "PGRST202" || error.code === "42883") {
         return fail("recycling_migration_required",
@@ -128,7 +129,8 @@ export async function POST(request: Request) {
         "recycling_vat_settings_invalid",
         "recycling_vat_settings_unsupported",
         "recycling_tax_snapshot_immutable",
-        "recycling_document_time_conflict","recycling_document_time_invalid","recycling_document_time_vat_unsupported"
+        "recycling_cashier_date_disabled","recycling_correction_invalid","recycling_correction_forbidden",
+        "recycling_correction_requires_adjustment","recycling_correction_period_locked","recycling_correction_conflict","recycling_correction_unavailable"
       ];
       const matched = safeCodes.find(code => error.message.includes(code));
       if (matched) return fail(matched, matched, 409);

@@ -1,8 +1,10 @@
+import {recyclingBrowserThermalCss} from "@/lib/printing/recycling-browser-thermal-css";
 import type { AuthContext } from "@/lib/auth-context";
 import { PosGuardError, requirePermission, requirePosSession } from "@/lib/pos-session-guard";
 import { isAuthorizedRecyclingTenant } from "@/lib/server/recycling-pos-service";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 import { resolvePrinterRoutes } from "@/lib/printing/printer-routing-service";
+import {resolveCustomReceiptVisibility} from "@/lib/server/custom-receipt-layout-service";
 import { renderRecyclingSharedReceipt } from "@/lib/printing/recycling-receipt-print-service";
 import { loadReceiptStoreProfile } from "@/lib/services/store-profile-service";
 import { loadTaxSettings } from "@/lib/services/pos-settings-service";
@@ -43,7 +45,7 @@ export async function GET(request:Request,{params}:{params:Promise<{id:string}>}
       branchRole:role==="owner"||role==="manager"||role==="accountant"?role:"staff"};
     const [tx,lines,tenant,branch,profile,taxSettings]=await Promise.all([
       db.from("recycling_transactions")
-        .select(process.env.RECYCLING_MANUAL_DOCUMENT_TIME_ENABLED==="1"?"id,receipt_no,direction,settlement,counterparty_name,total_minor,base_minor,vat_minor,tax_state,status,void_reason,created_at:effective_document_at":"id,receipt_no,direction,settlement,counterparty_name,total_minor,base_minor,vat_minor,tax_state,status,void_reason,created_at")
+        .select(process.env.RECYCLING_DIRECT_DATE_EDIT_ENABLED==="1"?"id,receipt_no,direction,settlement,counterparty_name,total_minor,base_minor,vat_minor,tax_state,status,void_reason,created_at:effective_document_at":"id,receipt_no,direction,settlement,counterparty_name,total_minor,base_minor,vat_minor,tax_state,status,void_reason,created_at")
         .eq("id",id).eq("tenant_id",tenantId).eq("branch_id",branchId).maybeSingle(),
       db.from("recycling_transaction_lines")
         .select("line_no,sku_snapshot,name_snapshot,original_quantity,original_unit,base_unit,price_per_base,amount_minor")
@@ -78,7 +80,9 @@ export async function GET(request:Request,{params}:{params:Promise<{id:string}>}
         if(routes[0]?.printer.paper_width_mm===58)width=58;
       }catch{ /* preview remains available even without a local printer */ }
     }
+    const visibility=await resolveCustomReceiptVisibility(tenantId,branchId,profile?.metadata,"recycling");
     const html=renderRecyclingSharedReceipt({
+      visibility,
       width,shop:tenant.data?.display_name||tenant.data?.name||
         profile?.display_name||profile?.name||"ร้านค้าวัสดุรีไซเคิล",
       branch:branch.data?.name||"สาขา",receiptNo:tx.data.receipt_no,
@@ -107,7 +111,7 @@ export async function GET(request:Request,{params}:{params:Promise<{id:string}>}
       @media screen {body{max-width:${paper==="a4"?"190mm":"160mm"};padding:8mm;margin:auto;box-shadow:0 0 0 1px #e2e8f0;}}
       @media print {table tr, .summary-line {break-inside:avoid;}}
     </style>`;
-    return new Response(paper==="a5"||paper==="a4"?html.replace("</head>",pageCss+"</head>"):html,{
+    return new Response(html.replace("</head>",(paper==="a5"||paper==="a4"?pageCss:recyclingBrowserThermalCss(width))+"</head>"),{
       status:200,headers:{"Content-Type":"text/html; charset=utf-8",...headers}
     });
   }catch(error){

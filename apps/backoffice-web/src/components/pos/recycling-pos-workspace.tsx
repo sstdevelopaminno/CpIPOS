@@ -1,9 +1,9 @@
 "use client";
 
 import Image from "next/image";
+import {bangkokLocalDateTime,parseRecyclingDocumentTime} from "@/lib/recycling-document-time";
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
-import { bangkokLocalDateTime, parseRecyclingDocumentTime } from "@/lib/recycling-document-time";
 import { recyclingBusinessDayKey, recyclingShiftIsToday } from "@/lib/recycling-business-day";
 import { buildRecyclingBarcodeIndex, resolveRecyclingBarcode } from "@/lib/recycling-barcode-index";
 import { normalizeRecyclingBarcodeInput, physicalRecyclingBarcodeKey } from "@/lib/recycling-scanner-keyboard";
@@ -42,7 +42,7 @@ function CatalogImage({ item, mediaUrl }: { item: RecyclingCatalogItem; mediaUrl
     : <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-slate-100 text-xl" aria-hidden="true">♻️</div>;
 }
 
-export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByProduct, branchName, storeName, deviceCode, sellerName, shiftStatus, generalSaleEnabled, transactionWritesEnabled, fastWindowsReceiptEnabled, manualDocumentTimeEnabled = false }: {
+export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByProduct, branchName, storeName, deviceCode, sellerName, shiftStatus, generalSaleEnabled, transactionWritesEnabled, fastWindowsReceiptEnabled, cashierDateEnabled=false }: {
   products: RecyclingCatalogItem[];
   tenantId: string;
   branchId: string;
@@ -55,7 +55,7 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
   generalSaleEnabled: boolean;
   transactionWritesEnabled: boolean;
   fastWindowsReceiptEnabled: boolean;
-  manualDocumentTimeEnabled?: boolean;
+  cashierDateEnabled?: boolean;
 }) {
   const [shiftGate,setShiftGate]=useState<"checking"|"open"|"blocked">("checking");
   const [shiftOpenedAt,setShiftOpenedAt]=useState("");
@@ -66,9 +66,10 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
   const gateInFlightRef=useRef(false);
   const lastDayRef=useRef(recyclingBusinessDayKey(new Date()));
   const postingRef=useRef(false);
-  const requestIdRef = useRef("");
   const rolloverWhilePostingRef=useRef(false);
   const [direction, setDirection] = useState<Direction>("buy");
+  const [documentOverride,setDocumentOverride]=useState<{time:string;reason:string}|null>(null);
+  const [dateOpen,setDateOpen]=useState(false),[dateDraft,setDateDraft]=useState(""),[dateReason,setDateReason]=useState(""),[dateError,setDateError]=useState("");
   const [search, setSearch] = useState("");
   // Synchronous scan buffer: sub-10ms HID bursts must not lose keys while
   // React waits to render each controlled input update.
@@ -90,13 +91,6 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
       });
     }else setSearch(next);
   }
-  const [fixedDocumentTime,setFixedDocumentTime]=useState<string|null>(null);
-  const [documentTimeOpen,setDocumentTimeOpen]=useState(false);
-  const [documentTimeDraft,setDocumentTimeDraft]=useState("");
-  const [documentTimeError,setDocumentTimeError]=useState("");
-  const documentTimeButtonRef=useRef<HTMLButtonElement>(null);
-  const documentTimeInputRef=useRef<HTMLInputElement>(null);
-  useEffect(()=>{if(documentTimeOpen)window.requestAnimationFrame(()=>documentTimeInputRef.current?.focus());},[documentTimeOpen]);
   const [searchMode,setSearchMode]=useState<"barcode"|"name">("barcode");
   const [searchPreferencesOpen,setSearchPreferencesOpen]=useState(false);
   const searchPreferencesButtonRef=useRef<HTMLButtonElement>(null);
@@ -147,6 +141,7 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
   const [vatQuoteLoading,setVatQuoteLoading]=useState(false);
   const [posted, setPosted] = useState<{ id: string; receipt_no?: string; total_minor: number; printRequestId: string } | null>(null);
   const [receiptDialogOpen,setReceiptDialogOpen]=useState(false);
+  const requestIdRef = useRef("");
   const nextKey = useRef(0);
   const scannerRef = useRef<HTMLInputElement>(null);
   const cashMethodRef=useRef<HTMLInputElement>(null);
@@ -231,9 +226,9 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
         lastDayRef.current = today;
         rolloverWhilePostingRef.current = postingRef.current;
         if (!postingRef.current) {
+          setDocumentOverride(null);setDateOpen(false);
           setLines([]); setPending(null); setCheckoutOpen(false); setCounterpartyName("");
           setHeldBills([]); setHeldOpen(false); setCancelOpen(false);
-          setFixedDocumentTime(null);setDocumentTimeOpen(false);
           requestIdRef.current = ""; setPosted(null);
         }
         shiftGateRef.current="checking";
@@ -451,13 +446,6 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
       setPostError("ยังตรวจสอบ VAT ของสาขาไม่ได้ กรุณาตรวจสอบระบบก่อนยืนยันบิล");
     }finally{setVatQuoteLoading(false);}
   }
-  function closeDocumentTime(){setDocumentTimeOpen(false);window.requestAnimationFrame(()=>documentTimeButtonRef.current?.focus());}
-  function applyDocumentTime(){
-    if(!manualDocumentTimeEnabled||postingRef.current||requestIdRef.current)return;
-    const parsed=parseRecyclingDocumentTime(documentTimeDraft,new Date());
-    if(!parsed){setDocumentTimeError("กรุณาระบุวันที่และเวลาที่ถูกต้อง ไม่เกินเวลาปัจจุบัน");return;}
-    setFixedDocumentTime(parsed);closeDocumentTime();
-  }
   function openCheckout(){
     if(!canUseShift||posting||!visibleLines.length)return;
     setCheckoutOpen(true);setSettlement("cash");setPostError("");
@@ -466,6 +454,7 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
 
   function changeDirection(next: Direction) {
     if (posting || checkoutOpen || next === direction) return;
+    setDocumentOverride(null);
     setDirection(next);
     updateScannerSearch("");
     setError("");
@@ -569,8 +558,8 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           request_id: currentRequestId, direction, settlement,
-          ...(fixedDocumentTime?{document_time:bangkokLocalDateTime(new Date(fixedDocumentTime))}:{}),
           counterparty_name: counterpartyName.trim() || "-",
+          ...(documentOverride?{document_time:documentOverride.time,document_reason:documentOverride.reason}:{}),
           lines: visibleLines.map(line => ({
             product_id: line.product.id,
             quantity: line.quantity,
@@ -617,6 +606,7 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
         printRequestId: currentRequestId
       });
       requestIdRef.current = "";
+      setDocumentOverride(null);
       setCheckoutOpen(false);
       setReceiptDialogOpen(true);
       setLines(current => current.filter(line => line.direction !== direction));
@@ -633,6 +623,7 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
       setPosting(false);
       if(rolloverWhilePostingRef.current){
         rolloverWhilePostingRef.current=false;
+        setDocumentOverride(null);setDateOpen(false);
         setLines([]);setPending(null);setCheckoutOpen(false);
         setCounterpartyName("");requestIdRef.current="";
       }
@@ -644,8 +635,9 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
   useEffect(()=>{
     if(!shiftId){setHeldBills([]);return;}
     if(previousShiftId.current && previousShiftId.current!==shiftId){
+      setDocumentOverride(null);setDateOpen(false);
       setLines([]);setPending(null);setCheckoutOpen(false);
-      setHeldOpen(false);setCancelOpen(false);setFixedDocumentTime(null);setDocumentTimeOpen(false);
+      setHeldOpen(false);setCancelOpen(false);
     }
     previousShiftId.current=shiftId;
     try{
@@ -671,15 +663,17 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
 
   function parkCurrentBill(){
     if(!canUseShift||posting||checkoutOpen||!visibleLines.length||!shiftId)return;
+    if(documentOverride&&!cashierDateEnabled){setHeldError("ไม่ได้รับสิทธิ์กำหนดวันเวลาเอกสาร");return;}
     setHeldError("");
     const draft:HeldRecyclingBill={
       id:window.crypto.randomUUID(),heldAt:new Date().toISOString(),direction,shiftId,
-      documentTime:fixedDocumentTime,
+      documentOverride,
       lines:visibleLines.map(line=>({
         productId:line.product.id,unit:line.unit,quantity:line.quantity,unitPrice:line.unitPrice
       }))
     };
     if(!saveHeldBills([draft,...heldBills]))return;
+    setDocumentOverride(null);
     requestIdRef.current="";setPosted(null);setPrintNotice(null);setCounterpartyName("");
     setLines(current=>current.filter(line=>line.direction!==direction));
     setHeldNotice("พักบิลสำเร็จ · สามารถเรียกคืนได้จากรายการพักบิล");
@@ -688,6 +682,7 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
 
   function cancelCurrentBill(){
     if(posting||checkoutOpen)return;
+    setDocumentOverride(null);
     requestIdRef.current="";setPosted(null);setPostError("");setPrintNotice(null);
     setLines(current=>current.filter(line=>line.direction!==direction));
     setCounterpartyName("");setCancelOpen(false);setHeldNotice("ยกเลิกตะกร้าที่ยังไม่บันทึกแล้ว");
@@ -697,9 +692,7 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
   function restoreHeldBill(bill:HeldRecyclingBill){
     if(posting||checkoutOpen||!canUseShift||!shiftId||bill.shiftId!==shiftId)return;
     setHeldError("");
-    const savedTime=bill.documentTime??null;
-    if(savedTime&&!manualDocumentTimeEnabled){setHeldError("โหมดวันที่ย้อนหลังยังไม่เปิดใช้งาน ไม่สามารถเรียกคืนบิลนี้ได้");return;}
-    if(savedTime!==fixedDocumentTime&&lines.some(line=>line.direction!==bill.direction)){setHeldError("กรุณาจัดการตะกร้าอีกประเภทก่อนเรียกคืนบิลที่ใช้วันที่ต่างกัน");return;}
+    if(bill.documentOverride&&(!cashierDateEnabled||!parseRecyclingDocumentTime(bill.documentOverride.time,new Date()))){setHeldError("ไม่สามารถใช้วันเวลาของบิลพักได้ กรุณาตรวจสอบสิทธิ์และวันเวลา");return;}
     if(lines.some(line=>line.direction===bill.direction) &&
        !window.confirm("มีรายการในตะกร้าอยู่แล้ว ต้องการแทนที่ด้วยบิลที่พักไว้หรือไม่?"))return;
     const nextLines:CartLine[]=[];
@@ -727,7 +720,8 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
     }
     if(!saveHeldBills(heldBills.filter(item=>item.id!==bill.id)))return;
     requestIdRef.current="";setPosted(null);setPrintNotice(null);
-    setDirection(bill.direction);setFixedDocumentTime(savedTime);
+    setDocumentOverride(bill.documentOverride??null);
+    setDirection(bill.direction);
     setLines(current=>[...current.filter(line=>line.direction!==bill.direction),...nextLines]);
     setHeldOpen(false);setCounterpartyName("");setPostError("");
     setHeldNotice(priceChanged
@@ -807,8 +801,7 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
   // Only CUSTOM Recycling owns these shortcuts; the normal POS package and
   // browser shortcuts never install global keyboard handlers.
   function onWorkspaceKeyDown(event:KeyboardEvent<HTMLElement>){
-    if(event.defaultPrevented||event.nativeEvent.isComposing)return;
-    if(documentTimeOpen){shiftTapArmedRef.current=false;if(event.key==="Escape"){event.preventDefault();event.stopPropagation();closeDocumentTime();}return;}
+    if(event.defaultPrevented||event.nativeEvent.isComposing||dateOpen)return;
     if(searchPreferencesOpen){
       if(event.key==="Escape"){
         event.preventDefault();event.stopPropagation();
@@ -870,10 +863,10 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
   }
 
   function onWorkspaceKeyUp(event:KeyboardEvent<HTMLElement>){
-    if(event.key!=="Shift")return;
+    if(event.key!=="Shift"||dateOpen)return;
     const tap=shiftTapArmedRef.current;
     shiftTapArmedRef.current=false;
-    if(tap && !documentTimeOpen && !event.ctrlKey&&!event.altKey&&!event.metaKey &&
+    if(tap && !event.ctrlKey&&!event.altKey&&!event.metaKey &&
        !scanBufferRef.current.trim()&&canUseShift&&!posting &&
        !pending&&!checkoutOpen&&!cancelOpen&&!heldOpen&&!scanErrorPopup&&visibleLines.length){
       event.preventDefault();
@@ -887,7 +880,11 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
       deviceCode={deviceCode} sellerName={sellerName} shiftStatus={canUseShift?"เปิดกะแล้ว":shiftGate==="checking"?"กำลังตรวจสอบกะ":"ยังไม่เปิดกะ"}
       generalSaleEnabled={generalSaleEnabled} direction={direction}
       onDirectionChange={changeDirection} busy={posting}
-      heldCount={heldBills.length} onOpenHeldBills={openHeldBills} fixedDocumentTime={fixedDocumentTime}/>
+      heldCount={heldBills.length} onOpenHeldBills={openHeldBills}
+      cashierDateButton={cashierDateEnabled?<button type="button" data-testid="recycling-cashier-date-button" disabled={posting||checkoutOpen||!canUseShift} onClick={()=>{setDateDraft(documentOverride?.time??bangkokLocalDateTime(new Date()));setDateReason(documentOverride?.reason??"");setDateError("");setDateOpen(true);}} className="min-h-10 shrink-0 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-extrabold text-amber-900 disabled:opacity-50">เปลี่ยนวันเวลา</button>:null}/>
+    {documentOverride&&<div role="status" className="flex items-center justify-between gap-2 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-900">วันเวลาเอกสารชั่วคราว: {documentOverride.time.replace("T"," ")} · เฉพาะบิลนี้<button type="button" disabled={posting||checkoutOpen} onClick={()=>setDocumentOverride(null)} className="rounded border border-amber-300 bg-white px-2 py-1">คืนเวลาปัจจุบัน</button></div>}
+    {dateOpen&&<div className="fixed inset-0 z-[1900] grid place-items-center bg-slate-950/55 p-4"><form role="dialog" aria-modal="true" aria-labelledby="recycling-cashier-date-title" className="w-full max-w-lg space-y-4 rounded-2xl bg-white p-5 shadow-2xl" onKeyDown={e=>{e.stopPropagation();if(e.key==="Escape"){e.preventDefault();setDateOpen(false);}}} onKeyUp={e=>e.stopPropagation()} onSubmit={e=>{e.preventDefault();if(!parseRecyclingDocumentTime(dateDraft,new Date())||dateReason.trim().length<10){setDateError("กรุณาระบุวันเวลาที่ไม่เกินปัจจุบันและเหตุผลอย่างน้อย 10 ตัวอักษร");return;}setDocumentOverride({time:dateDraft,reason:dateReason.trim()});setDateOpen(false);window.requestAnimationFrame(()=>scannerRef.current?.focus());}}>
+    <h2 id="recycling-cashier-date-title" className="text-lg font-extrabold">เปลี่ยนวันเวลาเอกสารชั่วคราว</h2><label className="block text-sm font-bold">วันและเวลา<input autoFocus required type="datetime-local" step={1} value={dateDraft} onChange={e=>setDateDraft(e.target.value)} className="mt-1 block w-full rounded-lg border p-3"/></label><label className="block text-sm font-bold">เหตุผล<textarea required minLength={10} maxLength={500} rows={3} value={dateReason} onChange={e=>setDateReason(e.target.value)} className="mt-1 block w-full rounded-lg border p-3"/></label><p className="text-xs text-slate-500">เฉพาะวันเวลาของเอกสารจริง · ไม่เปลี่ยนเวลาเครื่อง กะ หรือเวลาบันทึกจริง · ไม่ใช้กับเอกสารภาษีหรืองวดบัญชีที่ปิดแล้ว</p>{dateError&&<p role="alert" className="text-sm text-rose-700">{dateError}</p>}<footer className="flex justify-end gap-2"><button type="button" onClick={()=>setDateOpen(false)} className="rounded-lg border px-4 py-2">ยกเลิก</button><button type="submit" className="rounded-lg bg-blue-700 px-4 py-2 font-bold text-white">ใช้กับบิลนี้</button></footer></form></div>}
     {shiftGate==="checking" && <div role="status" data-testid="recycling-shift-inline-check"
       className="mx-3 mt-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-900">
       กำลังตรวจสอบสถานะกะ Recycling · ระบบยังไม่อนุญาตให้บันทึกรายการจนกว่าจะตรวจสอบสำเร็จ
@@ -927,11 +924,9 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
 
     <div className="recycling-pos-panels min-h-0 w-full flex-1 overflow-hidden" data-testid="recycling-unified-sales-body">
       <section className="recycling-scanner-panel flex min-h-0 min-w-0 flex-col bg-white p-3">
-        <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center justify-between gap-3">
           <h2 className="text-base font-extrabold text-slate-900">ยิงบาร์โค้ด / ค้นหาวัสดุ</h2>
-          <div className="flex flex-wrap items-center gap-2">
-            {manualDocumentTimeEnabled&&<button type="button" ref={documentTimeButtonRef} data-testid="recycling-manual-document-time" aria-haspopup="dialog" aria-expanded={documentTimeOpen} disabled={!canUseShift||posting||checkoutOpen} onClick={()=>{if(requestIdRef.current){setError("กรุณาตรวจสอบหรือยืนยันบิลเดิมก่อนเปลี่ยนวันที่");return;}setDocumentTimeDraft(bangkokLocalDateTime(fixedDocumentTime?new Date(fixedDocumentTime):new Date()));setDocumentTimeError("");setDocumentTimeOpen(true);}} className={"inline-flex min-h-9 items-center gap-1 rounded-lg border px-2 py-1 text-xs font-bold disabled:opacity-50 "+(fixedDocumentTime?"border-amber-400 bg-amber-100 text-amber-900":"border-blue-200 bg-blue-50 text-blue-800")}>
-              <span aria-hidden="true">▦</span> {fixedDocumentTime?"วันที่ย้อนหลัง (เปิด)":"เปลี่ยนวันที่ย้อนหลัง"}</button>}
+          <div className="flex shrink-0 items-center gap-2">
             <button type="button" ref={searchPreferencesButtonRef}
               data-testid="recycling-scanner-search-settings"
               aria-haspopup="dialog" aria-expanded={searchPreferencesOpen}
@@ -949,20 +944,6 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
           </span>
           </div>
         </div>
-        {fixedDocumentTime&&<p role="status" className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-xs font-bold text-amber-900">กำหนดวันเวลาเอกสาร: {new Date(fixedDocumentTime).toLocaleString("th-TH",{timeZone:"Asia/Bangkok"})} · ใช้จนกว่าจะกลับเป็นอัตโนมัติหรือเปลี่ยนกะ</p>}
-        {documentTimeOpen&&<div role="presentation" className="fixed inset-0 z-[1760] flex items-center justify-center bg-slate-950/70 p-4">
-          <form role="dialog" aria-modal="true" aria-labelledby="recycling-document-time-title" data-testid="recycling-document-time-dialog" className="w-full max-w-md rounded-xl bg-white p-5 shadow-xl" onSubmit={event=>{event.preventDefault();applyDocumentTime();}}>
-            <h2 id="recycling-document-time-title" className="text-lg font-extrabold">เปลี่ยนวันที่ย้อนหลัง</h2>
-            <p className="mt-2 text-xs text-slate-600">กำหนดวันและเวลาเอกสารรับซื้อหรือขายออก (เวลาไทย) โดยไม่เปลี่ยนกะและเวลาที่บันทึกจริง</p>
-            <label htmlFor="recycling-document-time" className="mt-4 block text-sm font-bold">วันที่และเวลาเอกสาร</label>
-            <input id="recycling-document-time" ref={documentTimeInputRef} type="datetime-local" step={1} required max={bangkokLocalDateTime(new Date())} value={documentTimeDraft} onChange={event=>setDocumentTimeDraft(event.target.value)} className="mt-2 w-full rounded-md border border-slate-300 p-3"/>
-            {documentTimeError&&<p role="alert" className="mt-2 text-sm text-rose-700">{documentTimeError}</p>}
-            <div className="mt-4 flex flex-wrap justify-end gap-2">
-              <button type="button" onClick={closeDocumentTime} className="rounded border px-3 py-2 text-sm">ปิด</button>
-              <button type="button" onClick={()=>{if(!requestIdRef.current&&!postingRef.current){setFixedDocumentTime(null);closeDocumentTime();}}} className="rounded border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-bold text-blue-800">กลับเป็นอัตโนมัติ</button>
-              <button type="submit" className="rounded bg-blue-700 px-3 py-2 text-sm font-bold text-white">ใช้วันที่นี้</button>
-            </div>
-          </form></div>}
         {searchPreferencesOpen&&<div role="presentation" className="fixed inset-0 z-[1760] flex items-center justify-center bg-slate-950/70 p-4"
           onMouseDown={event=>{if(event.target===event.currentTarget){setSearchPreferencesOpen(false);searchPreferencesButtonRef.current?.focus();}}}>
           <section role="dialog" aria-modal="true" aria-labelledby="recycling-scanner-search-settings-title"
@@ -1244,7 +1225,6 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
             onClick={() => setCheckoutOpen(false)}
             className="rounded-lg border border-slate-200 px-3 py-1 text-lg text-slate-500 disabled:opacity-50">×</button>
         </div>
-        {fixedDocumentTime&&<p className="mt-3 rounded-md bg-amber-50 p-2 text-xs font-bold text-amber-900">วันเวลาเอกสารย้อนหลัง: {new Date(fixedDocumentTime).toLocaleString("th-TH",{timeZone:"Asia/Bangkok"})}</p>}
         <div className="mt-4 flex items-center justify-between rounded-lg bg-blue-50 px-4 py-3">
           <span className="text-sm font-semibold text-slate-700">
             {direction === "buy" ? "ยอดที่ร้านต้องจ่าย" : !saleVatReady ? "ยอดก่อนภาษี (ยังยืนยันไม่ได้)" : "ยอดที่ร้านต้องรับ"}

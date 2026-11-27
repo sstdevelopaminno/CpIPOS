@@ -56,9 +56,11 @@ declare
  result jsonb; retry jsonb;
  l jsonb;
 begin
- result:=public.recycling_post_transaction_with_document_time(t,b,s,u,gen_random_uuid(),'buy','cash','Synthetic supplier',
-  jsonb_build_array(jsonb_build_object('product_id',p,'unit','piece','quantity',2,'expected_price',75.50)),now()-interval '1 day');
+ result:=public.recycling_post_transaction_vat(t,b,s,u,gen_random_uuid(),'buy','cash','Synthetic supplier',
+  jsonb_build_array(jsonb_build_object('product_id',p,'unit','piece','quantity',2,'expected_price',75.50)));
  old_id:=(result->>'id')::uuid;
+ select effective_document_at into strict d from public.recycling_transactions where id=old_id;
+ perform public.recycling_correct_document_time(t,b,old_id,m,gen_random_uuid(),d,now()-interval '1 day','Synthetic historical purchase date','pos');
  select effective_document_at,total_minor into strict d,old_total from public.recycling_transactions where id=old_id;
  l:=jsonb_build_array(jsonb_build_object('product_id',p,'unit','piece','quantity',3,'expected_price',75.50));
  begin

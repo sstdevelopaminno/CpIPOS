@@ -6,18 +6,16 @@ type Props = {
   lang: "th" | "en";
   dateLabel: string;
   timeLabel: string;
-  fixedDocumentTime?: string | null;
 };
 
-export function PosRealtimeClock({ lang, dateLabel, timeLabel, fixedDocumentTime }: Props) {
+export function PosRealtimeClock({ lang, dateLabel, timeLabel }: Props) {
   const [now, setNow] = useState<Date | null>(null);
 
   useEffect(() => {
-    if(fixedDocumentTime){setNow(new Date(fixedDocumentTime));return;}
     setNow(new Date());
     const timer = window.setInterval(() => setNow(new Date()), 1000);
     return () => window.clearInterval(timer);
-  }, [fixedDocumentTime]);
+  }, []);
 
   const displayDate = useMemo(
     () =>

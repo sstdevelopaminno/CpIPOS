@@ -3,6 +3,7 @@ import type { PosSessionScope } from "@/lib/pos-session-guard";
 import { loadRecyclingHistoryReport, type RecyclingReportQuery } from "@/lib/server/recycling-history-reports";
 import { sumRecyclingReportMoney } from "@/lib/recycling-report-calculation";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
+import { RecyclingBatchPrint } from "@/components/pos/recycling-batch-print";
 import { RecyclingSalesListExport } from "@/components/pos/recycling-sales-list-export";
 import { RecyclingSalesListRowActions } from "@/components/pos/recycling-sales-list-row-actions";
 
@@ -137,6 +138,7 @@ export async function RecyclingSalesListPageContent({scope,search={}}:{
             {quick("year","รายปี")}
           </div>
           <RecyclingSalesListExport rows={exportRows} from={report.from} to={report.to}/>
+          <RecyclingBatchPrint key={href({})} filters={new URLSearchParams({period:report.period,date:report.date,from:report.from,to:report.to,branch:report.branch,direction,status,q:report.q}).toString()} count={filtered.length}/>
         </div>
       </header>
 
@@ -252,8 +254,8 @@ export async function RecyclingSalesListPageContent({scope,search={}}:{
                     direction={t.direction} settlement={t.settlement} status={t.status}
                     amountMinor={Number(t.total_minor)}
                     canManage={["owner","manager"].includes(scope.session.role)&&scope.permissions.includes("sales:list:view")}
-                    amountCorrectionEnabled={process.env.RECYCLING_AMOUNT_CORRECTION_ENABLED==="1"&&process.env.RECYCLING_MANUAL_DOCUMENT_TIME_ENABLED==="1"&&["owner","manager"].includes(scope.session.role)}
-                    directDateEnabled={process.env.RECYCLING_MANUAL_DOCUMENT_TIME_ENABLED==="1"&&["owner","manager"].includes(scope.session.role)}
+                    directDateEnabled={process.env.RECYCLING_DIRECT_DATE_EDIT_ENABLED==="1"}
+                    amountCorrectionEnabled={process.env.RECYCLING_DIRECT_DATE_EDIT_ENABLED==="1"&&process.env.RECYCLING_AMOUNT_CORRECTION_ENABLED==="1"}
                     voidEnabled={process.env.RECYCLING_VOID_ENABLED==="1"}/>:<span className="text-xs text-amber-700">เข้าสาขาต้นทางเพื่อเปิดเอกสาร</span>}
                 </td>
               </tr>;

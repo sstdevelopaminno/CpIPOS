@@ -6,7 +6,7 @@ import {isAuthorizedRecyclingTenant} from "@/lib/server/recycling-pos-service";
 import {getSupabaseServiceClient} from "@/lib/supabase-admin";
 type Actor={tenantId:string;branchId:string;userId:string;source:"pos"|"finance"};
 export async function correctRecyclingDocumentTime(request:Request,id:string,actor:Actor){
- if(process.env.RECYCLING_MANUAL_DOCUMENT_TIME_ENABLED!=="1")return fail("recycling_correction_disabled","ระบบแก้ไขวันเวลาเอกสารยังไม่เปิดใช้งาน",503);
+ if(process.env.RECYCLING_DIRECT_DATE_EDIT_ENABLED!=="1")return fail("recycling_correction_disabled","ระบบแก้ไขวันเวลาเอกสารยังไม่เปิดใช้งาน",503);
  const origin=request.headers.get("origin");
  if(origin&&origin!==new URL(request.url).origin)return fail("recycling_correction_forbidden","ไม่อนุญาตคำขอจากเว็บไซต์อื่น",403);
  if(!UUID.test(id)||!UUID.test(actor.branchId))return fail("recycling_correction_invalid","ข้อมูลเอกสารไม่ถูกต้อง",422);

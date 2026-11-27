@@ -23,7 +23,7 @@ function RecyclingModeIcon() {
  */
 export function RecyclingSalesModeSwitcher({
   storeName, branchName, deviceCode, generalSaleEnabled, sellerName, shiftStatus,
-  direction, onDirectionChange, onOpenHeldBills, heldCount, busy, fixedDocumentTime
+  direction, onDirectionChange, onOpenHeldBills, heldCount, busy, cashierDateButton
 }: {
   storeName: string;
   branchName: string;
@@ -36,7 +36,7 @@ export function RecyclingSalesModeSwitcher({
   onOpenHeldBills: () => void;
   heldCount: number;
   busy: boolean;
-  fixedDocumentTime?: string | null;
+  cashierDateButton?: React.ReactNode;
 }) {
   const [open, setOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
@@ -100,13 +100,14 @@ export function RecyclingSalesModeSwitcher({
             </button>
           )}
         </div>
+          {cashierDateButton}
           </div>
         </div>
         {!collapsed && <div className="posui-filter-group posui-sales-meta-group" title={storeName}>
           <section className="posui-sales-meta-card" aria-label="ข้อมูลหน้าขาย">
             <PosSalesMetaDetails sellerName={sellerName} shiftStatus={shiftStatus}
               branchName={branchName} deviceCode={deviceCode}
-              labels={THAI_POS_SALES_META_LABELS} fixedDocumentTime={fixedDocumentTime}/>
+              labels={THAI_POS_SALES_META_LABELS}/>
           </section>
         </div>}
       </div>

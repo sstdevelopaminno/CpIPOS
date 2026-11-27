@@ -54,7 +54,7 @@ export async function loadRecyclingHistoryReport(scope:PosSessionScope,kind:Recy
  if(branch!=="all"&&!branches.some(b=>b.id===branch))throw new Error("recycling_report_branch_denied");
  const ids=branch==="all"?branches.map(b=>b.id):[branch];
  const db=getSupabaseServiceClient();
- const useDocumentTime=process.env.RECYCLING_MANUAL_DOCUMENT_TIME_ENABLED==="1"&&kind!=="summary";
+ const useDocumentTime=process.env.RECYCLING_DIRECT_DATE_EDIT_ENABLED==="1"&&kind==="receipts";
  const dateColumn=useDocumentTime?"effective_document_at":"created_at";
  const result=await db.from("recycling_transactions")
   .select(useDocumentTime?"id,receipt_no,direction,settlement,total_minor,base_minor,vat_minor,tax_state,cogs_minor,status,branch_id,shift_id,operator_user_id,counterparty_name,created_at:effective_document_at":"id,receipt_no,direction,settlement,total_minor,base_minor,vat_minor,tax_state,cogs_minor,status,branch_id,shift_id,operator_user_id,counterparty_name,created_at",{count:"exact"})
@@ -64,6 +64,7 @@ export async function loadRecyclingHistoryReport(scope:PosSessionScope,kind:Recy
   .order(dateColumn,{ascending:false}).order("id",{ascending:false}).range(0,MAX_TX);
  if(result.error)throw new Error("recycling_report_transactions_unavailable");
  if((result.count??0)>MAX_TX)throw new Error("recycling_report_narrow_period_required");
+ if(result.count===null||result.count!==(result.data??[]).length)throw new Error("recycling_report_transactions_incomplete");
  const transactions=(result.data??[]) as RecyclingTransaction[];
  const direction=["buy","sell"].includes(query.direction??"")?query.direction!:"all";
  const status=["posted","voided"].includes(query.status??"")?query.status!:"all";

@@ -21,7 +21,7 @@ export async function GET(request:Request){
   if(branch&&!identity.branchIds.includes(branch))return fail("branch_forbidden","ไม่มีสิทธิ์เข้าถึงสาขา",403);
   if(!Number.isSafeInteger(page)||page<1||page>1000||!["","cash","bank_transfer","credit"].includes(method))return fail("invalid_filter","ตัวกรองไม่ถูกต้อง",422);
   const db=getSupabaseServiceClient();
-  const correctionEnabled=process.env.RECYCLING_MANUAL_DOCUMENT_TIME_ENABLED==="1";
+  const correctionEnabled=process.env.RECYCLING_DIRECT_DATE_EDIT_ENABLED==="1";
   const dateColumn=correctionEnabled?"effective_document_at":"created_at";
   let query=db.from("recycling_transactions").select(correctionEnabled?"id,branch_id,receipt_no,created_at:effective_document_at,counterparty_name,settlement,base_minor,vat_minor,total_minor,finance_document_id":"id,branch_id,receipt_no,created_at,counterparty_name,settlement,base_minor,vat_minor,total_minor,finance_document_id",{count:"exact"})
    .eq("tenant_id",identity.tenantId).in("branch_id",branch?[branch]:identity.branchIds).eq("direction","sell").eq("status","posted").gte(dateColumn,range.start).lt(dateColumn,range.end);
@@ -38,7 +38,7 @@ export async function GET(request:Request){
    if(["cash","bank_transfer"].includes(row.settlement))sums.received+=total;
   }
   if(!Object.values(sums).every(Number.isSafeInteger))throw Error("sum overflow");
-  const response=ok({rows,branches:branches.data??[],count:result.count,page,pageSize:PAGE,sums,from,to,correctionEnabled,amountCorrectionEnabled:correctionEnabled&&process.env.RECYCLING_AMOUNT_CORRECTION_ENABLED==="1"});
+  const response=ok({rows,branches:branches.data??[],count:result.count,page,pageSize:PAGE,sums,from,to,correctionEnabled,amountCorrectionEnabled:process.env.RECYCLING_DIRECT_DATE_EDIT_ENABLED==="1"&&process.env.RECYCLING_AMOUNT_CORRECTION_ENABLED==="1"});
   response.headers.set("Cache-Control","private, no-store");return response;
  }catch{return fail("income_unavailable","ไม่สามารถยืนยันข้อมูลรายรับได้ กรุณารีเฟรช",503);}
 }

@@ -1,3 +1,4 @@
+import {canManageRecyclingCashierDate,recyclingCashierDateEnabled,recyclingCashierDateReady} from "@/lib/server/recycling-cashier-date-service";
 import { notFound } from "next/navigation";
 import { RecyclingPosWorkspace } from "@/components/pos/recycling-pos-workspace";
 import { getRecyclingCatalog, isAuthorizedRecyclingTenant } from "@/lib/server/recycling-pos-service";
@@ -23,7 +24,7 @@ export async function RecyclingSalesContent({
   const [products,branch,tenant,operator,shift,generalSaleEnabled,printerProfiles] = await Promise.all([
     getRecyclingCatalog(tenantId,branchId),
     db.from("branches").select("name").eq("tenant_id",tenantId).eq("id",branchId).maybeSingle(),
-    db.from("tenants").select("name,display_name").eq("id",tenantId).maybeSingle(),
+    db.from("tenants").select("name,display_name,metadata").eq("id",tenantId).maybeSingle(),
     db.from("users_profiles").select("full_name").eq("id",operatorUserId).maybeSingle(),
     deviceCode ? shiftQuery.eq("device_code",deviceCode).maybeSingle() : shiftQuery.maybeSingle(),
     isAuthorizedCustomGeneralSaleTenant(tenantId),
@@ -61,5 +62,5 @@ export async function RecyclingSalesContent({
     generalSaleEnabled={generalSaleEnabled}
     transactionWritesEnabled={process.env.RECYCLING_TRANSACTION_WRITES_ENABLED==="1"}
     fastWindowsReceiptEnabled={fastWindowsReceiptEnabled}
-    manualDocumentTimeEnabled={process.env.RECYCLING_MANUAL_DOCUMENT_TIME_ENABLED==="1"}/>;
+    cashierDateEnabled={recyclingCashierDateReady()&&recyclingCashierDateEnabled(tenant.data.metadata,branchId)&&await canManageRecyclingCashierDate(tenantId,branchId,operatorUserId)} />;
 }

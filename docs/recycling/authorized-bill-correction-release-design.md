@@ -1,3 +1,11 @@
+# Integration checkpoint — 2026-11-27
+
+Draft only. Main baseline 65fae75b255df7f635babb64ca9b3a938c02d268; previous draft 7f10da6c3ac11794d173f13216bc60273bbd19b1. Retain current main receipt printing, direct date correction and cashier date APIs. Do not install obsolete manual/shared document time or effective GL candidates: superseded by #571 and #573. The old shared clock files are superseded by the current cashier implementation; #575 remains independent and needs reconciliation before release. Amount editor uses RECYCLING_DIRECT_DATE_EDIT_ENABLED plus RECYCLING_AMOUNT_CORRECTION_ENABLED. Held carts preserve the fixed document timestamp and reason; restore checks current permission and timestamp. Synthetic workflow installs remaining correction candidates after main tests and uses the actual direct-date RPC in the amount fixture. No candidate DDL may be applied to production until reviewed.
+
+Outstanding: arbitrary price changes (current-price guard still enforced), repeat historical replay, cash/transfer settlement, multiple historical lines, effective readers, tax note print/report, authenticated UAT, CI and schema review. Historical credit candidate currently refuses repeated corrections by product and does not expose write RPC. Do not claim complete or merge until release gates pass.
+
+---
+
 # CUSTOM Recycling: authorized transaction correction (release design)
 Status: draft, not production-ready. The branch now includes isolated supervisor VOID and shared date/time correction SQL candidates, gated POS and Finance correction endpoints, common date/time editor, effective document time in POS document registers, Finance income/expense registers and non-tax receipt rendering. Original created_at and shift chronology remain intact. Both features are disabled in production; do not enable until migration, period/VAT and end-to-end UAT are complete. Amount/quantity corrections, posted GL adjustment, historical stock valuation, VAT adjustments, and production migration are still outstanding. The date correction candidate refuses posted GL and VAT documents; the Finance overview/cash reconciliation continues to use actual posting chronology.
 

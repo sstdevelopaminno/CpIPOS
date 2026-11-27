@@ -5,7 +5,7 @@ import {isAuthorizedRecyclingTenant} from "@/lib/server/recycling-pos-service";
 import {getSupabaseServiceClient} from "@/lib/supabase-admin";
 type Actor={tenantId:string;branchId:string;userId:string;source:"pos"|"finance"};
 export async function recyclingAmountCorrection(request:Request,id:string,actor:Actor){
- if(process.env.RECYCLING_MANUAL_DOCUMENT_TIME_ENABLED!=="1"||process.env.RECYCLING_AMOUNT_CORRECTION_ENABLED!=="1")return fail("recycling_amount_disabled","ระบบแก้ไขยอดยังไม่เปิดใช้งาน",503);
+ if(process.env.RECYCLING_DIRECT_DATE_EDIT_ENABLED!=="1"||process.env.RECYCLING_AMOUNT_CORRECTION_ENABLED!=="1")return fail("recycling_amount_disabled","ระบบแก้ไขยอดยังไม่เปิดใช้งาน",503);
  const origin=request.headers.get("origin");
  if(origin&&origin!==new URL(request.url).origin)return fail("recycling_amount_forbidden","ไม่อนุญาตคำขอจากเว็บไซต์อื่น",403);
  if(!UUID.test(id)||!UUID.test(actor.branchId)||!await isAuthorizedRecyclingTenant(actor.tenantId))return fail("recycling_amount_forbidden","ไม่มีสิทธิ์เข้าถึงเอกสาร",403);
