@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import {bangkokLocalDateTime,parseRecyclingDocumentTime} from "@/lib/recycling-document-time";
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { recyclingBusinessDayKey, recyclingShiftIsToday } from "@/lib/recycling-business-day";
@@ -41,7 +42,7 @@ function CatalogImage({ item, mediaUrl }: { item: RecyclingCatalogItem; mediaUrl
     : <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-slate-100 text-xl" aria-hidden="true">♻️</div>;
 }
 
-export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByProduct, branchName, storeName, deviceCode, sellerName, shiftStatus, generalSaleEnabled, transactionWritesEnabled, fastWindowsReceiptEnabled }: {
+export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByProduct, branchName, storeName, deviceCode, sellerName, shiftStatus, generalSaleEnabled, transactionWritesEnabled, fastWindowsReceiptEnabled, cashierDateEnabled=false }: {
   products: RecyclingCatalogItem[];
   tenantId: string;
   branchId: string;
@@ -54,6 +55,7 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
   generalSaleEnabled: boolean;
   transactionWritesEnabled: boolean;
   fastWindowsReceiptEnabled: boolean;
+  cashierDateEnabled?: boolean;
 }) {
   const [shiftGate,setShiftGate]=useState<"checking"|"open"|"blocked">("checking");
   const [shiftOpenedAt,setShiftOpenedAt]=useState("");
@@ -66,6 +68,8 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
   const postingRef=useRef(false);
   const rolloverWhilePostingRef=useRef(false);
   const [direction, setDirection] = useState<Direction>("buy");
+  const [documentOverride,setDocumentOverride]=useState<{time:string;reason:string}|null>(null);
+  const [dateOpen,setDateOpen]=useState(false),[dateDraft,setDateDraft]=useState(""),[dateReason,setDateReason]=useState(""),[dateError,setDateError]=useState("");
   const [search, setSearch] = useState("");
   // Synchronous scan buffer: sub-10ms HID bursts must not lose keys while
   // React waits to render each controlled input update.
@@ -222,6 +226,7 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
         lastDayRef.current = today;
         rolloverWhilePostingRef.current = postingRef.current;
         if (!postingRef.current) {
+          setDocumentOverride(null);setDateOpen(false);
           setLines([]); setPending(null); setCheckoutOpen(false); setCounterpartyName("");
           setHeldBills([]); setHeldOpen(false); setCancelOpen(false);
           requestIdRef.current = ""; setPosted(null);
@@ -449,6 +454,7 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
 
   function changeDirection(next: Direction) {
     if (posting || checkoutOpen || next === direction) return;
+    setDocumentOverride(null);
     setDirection(next);
     updateScannerSearch("");
     setError("");
@@ -553,6 +559,7 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
         body: JSON.stringify({
           request_id: currentRequestId, direction, settlement,
           counterparty_name: counterpartyName.trim() || "-",
+          ...(documentOverride?{document_time:documentOverride.time,document_reason:documentOverride.reason}:{}),
           lines: visibleLines.map(line => ({
             product_id: line.product.id,
             quantity: line.quantity,
@@ -599,6 +606,7 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
         printRequestId: currentRequestId
       });
       requestIdRef.current = "";
+      setDocumentOverride(null);
       setCheckoutOpen(false);
       setReceiptDialogOpen(true);
       setLines(current => current.filter(line => line.direction !== direction));
@@ -615,6 +623,7 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
       setPosting(false);
       if(rolloverWhilePostingRef.current){
         rolloverWhilePostingRef.current=false;
+        setDocumentOverride(null);setDateOpen(false);
         setLines([]);setPending(null);setCheckoutOpen(false);
         setCounterpartyName("");requestIdRef.current="";
       }
@@ -626,6 +635,7 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
   useEffect(()=>{
     if(!shiftId){setHeldBills([]);return;}
     if(previousShiftId.current && previousShiftId.current!==shiftId){
+      setDocumentOverride(null);setDateOpen(false);
       setLines([]);setPending(null);setCheckoutOpen(false);
       setHeldOpen(false);setCancelOpen(false);
     }
@@ -653,6 +663,7 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
 
   function parkCurrentBill(){
     if(!canUseShift||posting||checkoutOpen||!visibleLines.length||!shiftId)return;
+    if(documentOverride){setHeldNotice("กรุณาคืนวันเวลาปัจจุบันก่อนพักบิล หรือบันทึกบิลนี้ให้เสร็จ");return;}
     setHeldError("");
     const draft:HeldRecyclingBill={
       id:window.crypto.randomUUID(),heldAt:new Date().toISOString(),direction,shiftId,
@@ -669,6 +680,7 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
 
   function cancelCurrentBill(){
     if(posting||checkoutOpen)return;
+    setDocumentOverride(null);
     requestIdRef.current="";setPosted(null);setPostError("");setPrintNotice(null);
     setLines(current=>current.filter(line=>line.direction!==direction));
     setCounterpartyName("");setCancelOpen(false);setHeldNotice("ยกเลิกตะกร้าที่ยังไม่บันทึกแล้ว");
@@ -705,6 +717,7 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
     }
     if(!saveHeldBills(heldBills.filter(item=>item.id!==bill.id)))return;
     requestIdRef.current="";setPosted(null);setPrintNotice(null);
+    setDocumentOverride(null);
     setDirection(bill.direction);
     setLines(current=>[...current.filter(line=>line.direction!==bill.direction),...nextLines]);
     setHeldOpen(false);setCounterpartyName("");setPostError("");
@@ -785,7 +798,7 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
   // Only CUSTOM Recycling owns these shortcuts; the normal POS package and
   // browser shortcuts never install global keyboard handlers.
   function onWorkspaceKeyDown(event:KeyboardEvent<HTMLElement>){
-    if(event.defaultPrevented||event.nativeEvent.isComposing)return;
+    if(event.defaultPrevented||event.nativeEvent.isComposing||dateOpen)return;
     if(searchPreferencesOpen){
       if(event.key==="Escape"){
         event.preventDefault();event.stopPropagation();
@@ -847,7 +860,7 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
   }
 
   function onWorkspaceKeyUp(event:KeyboardEvent<HTMLElement>){
-    if(event.key!=="Shift")return;
+    if(event.key!=="Shift"||dateOpen)return;
     const tap=shiftTapArmedRef.current;
     shiftTapArmedRef.current=false;
     if(tap && !event.ctrlKey&&!event.altKey&&!event.metaKey &&
@@ -864,7 +877,11 @@ export function RecyclingPosWorkspace({ products, tenantId, branchId, mediaByPro
       deviceCode={deviceCode} sellerName={sellerName} shiftStatus={canUseShift?"เปิดกะแล้ว":shiftGate==="checking"?"กำลังตรวจสอบกะ":"ยังไม่เปิดกะ"}
       generalSaleEnabled={generalSaleEnabled} direction={direction}
       onDirectionChange={changeDirection} busy={posting}
-      heldCount={heldBills.length} onOpenHeldBills={openHeldBills}/>
+      heldCount={heldBills.length} onOpenHeldBills={openHeldBills}
+      cashierDateButton={cashierDateEnabled?<button type="button" data-testid="recycling-cashier-date-button" disabled={posting||checkoutOpen||!canUseShift} onClick={()=>{setDateDraft(documentOverride?.time??bangkokLocalDateTime(new Date()));setDateReason(documentOverride?.reason??"");setDateError("");setDateOpen(true);}} className="min-h-10 shrink-0 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-extrabold text-amber-900 disabled:opacity-50">เปลี่ยนวันเวลา</button>:null}/>
+    {documentOverride&&<div role="status" className="flex items-center justify-between gap-2 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-900">วันเวลาเอกสารชั่วคราว: {documentOverride.time.replace("T"," ")} · เฉพาะบิลนี้<button type="button" disabled={posting||checkoutOpen} onClick={()=>setDocumentOverride(null)} className="rounded border border-amber-300 bg-white px-2 py-1">คืนเวลาปัจจุบัน</button></div>}
+    {dateOpen&&<div className="fixed inset-0 z-[1900] grid place-items-center bg-slate-950/55 p-4"><form role="dialog" aria-modal="true" aria-labelledby="recycling-cashier-date-title" className="w-full max-w-lg space-y-4 rounded-2xl bg-white p-5 shadow-2xl" onKeyDown={e=>{e.stopPropagation();if(e.key==="Escape"){e.preventDefault();setDateOpen(false);}}} onKeyUp={e=>e.stopPropagation()} onSubmit={e=>{e.preventDefault();if(!parseRecyclingDocumentTime(dateDraft,new Date())||dateReason.trim().length<10){setDateError("กรุณาระบุวันเวลาที่ไม่เกินปัจจุบันและเหตุผลอย่างน้อย 10 ตัวอักษร");return;}setDocumentOverride({time:dateDraft,reason:dateReason.trim()});setDateOpen(false);window.requestAnimationFrame(()=>scannerRef.current?.focus());}}>
+    <h2 id="recycling-cashier-date-title" className="text-lg font-extrabold">เปลี่ยนวันเวลาเอกสารชั่วคราว</h2><label className="block text-sm font-bold">วันและเวลา<input autoFocus required type="datetime-local" step={1} value={dateDraft} onChange={e=>setDateDraft(e.target.value)} className="mt-1 block w-full rounded-lg border p-3"/></label><label className="block text-sm font-bold">เหตุผล<textarea required minLength={10} maxLength={500} rows={3} value={dateReason} onChange={e=>setDateReason(e.target.value)} className="mt-1 block w-full rounded-lg border p-3"/></label><p className="text-xs text-slate-500">เฉพาะวันเวลาของเอกสารจริง · ไม่เปลี่ยนเวลาเครื่อง กะ หรือเวลาบันทึกจริง · ไม่ใช้กับเอกสารภาษีหรืองวดบัญชีที่ปิดแล้ว</p>{dateError&&<p role="alert" className="text-sm text-rose-700">{dateError}</p>}<footer className="flex justify-end gap-2"><button type="button" onClick={()=>setDateOpen(false)} className="rounded-lg border px-4 py-2">ยกเลิก</button><button type="submit" className="rounded-lg bg-blue-700 px-4 py-2 font-bold text-white">ใช้กับบิลนี้</button></footer></form></div>}
     {shiftGate==="checking" && <div role="status" data-testid="recycling-shift-inline-check"
       className="mx-3 mt-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-900">
       กำลังตรวจสอบสถานะกะ Recycling · ระบบยังไม่อนุญาตให้บันทึกรายการจนกว่าจะตรวจสอบสำเร็จ

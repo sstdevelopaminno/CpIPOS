@@ -23,7 +23,7 @@ function RecyclingModeIcon() {
  */
 export function RecyclingSalesModeSwitcher({
   storeName, branchName, deviceCode, generalSaleEnabled, sellerName, shiftStatus,
-  direction, onDirectionChange, onOpenHeldBills, heldCount, busy
+  direction, onDirectionChange, onOpenHeldBills, heldCount, busy, cashierDateButton
 }: {
   storeName: string;
   branchName: string;
@@ -36,6 +36,7 @@ export function RecyclingSalesModeSwitcher({
   onOpenHeldBills: () => void;
   heldCount: number;
   busy: boolean;
+  cashierDateButton?: React.ReactNode;
 }) {
   const [open, setOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
@@ -99,6 +100,7 @@ export function RecyclingSalesModeSwitcher({
             </button>
           )}
         </div>
+          {cashierDateButton}
           </div>
         </div>
         {!collapsed && <div className="posui-filter-group posui-sales-meta-group" title={storeName}>

@@ -1,3 +1,4 @@
+import {isAuthorizedRecyclingTenant} from "@/lib/server/recycling-pos-service";
 import { assertPosMenuPageAllowed, getTenantPosMenuOverrides, isTenantCustomPosPackage } from "@/lib/server/pos-menu-policy-service";
 import { PrintersModule } from "@/components/backoffice/printers-module";
 import { PosSettingsWorkspace } from "@/components/pos-preview/pos-settings-workspace";
@@ -69,7 +70,7 @@ export default async function PosLanguageSettingsPage() {
 
   return (
     <div className="h-full min-h-0 flex-1 bg-slate-50">
-      <PosSettingsWorkspace lang={lang} initialData={initialData} canManageReceiptLayout={canManageTableQr&&isCustom}/>
+      <PosSettingsWorkspace lang={lang} initialData={initialData} canManageReceiptLayout={canManageTableQr&&isCustom} canManageRecyclingCashierDate={canManageTableQr&&isCustom&&await isAuthorizedRecyclingTenant(scope.session.tenant_id)}/>
       {canManageTableQr ? <TableQrSettingsMenuPortal lang={lang} timelineEnabled={timelineEnabled} menuPolicy={settingsMenuPolicy} isCustom={isCustom} /> : null}
     </div>
   );
