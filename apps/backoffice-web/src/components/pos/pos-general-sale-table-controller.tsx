@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { focusRetailScanner } from "@/lib/retail-wholesale/scanner-focus";
 import { formatSalesMoney, normalizeSalesCurrency } from "@/lib/pos-money";
 import { generalSaleUi, type GeneralSaleLanguage } from "@/lib/pos-general-sale-i18n";
 import { POS_MODE_FEATURES } from "@/lib/pos-feature-map";
@@ -137,7 +138,6 @@ function ensureGeneralSaleStyles() {
     html[${GENERAL_SALE_ROOT_ATTRIBUTE}="${GENERAL_SALE_MODE_ID}"] .posui-cart-col .posui-cart-items,
     html[${GENERAL_SALE_ROOT_ATTRIBUTE}="${GENERAL_SALE_MODE_ID}"] .posui-cart-col .posui-cart-empty { display: none !important; }
     html[${GENERAL_SALE_ROOT_ATTRIBUTE}="${GENERAL_SALE_MODE_ID}"] [${GENERAL_SALE_TABLE_ATTRIBUTE}="1"] { display: grid; }
-    .cpipos-sd-table-mode { display: inline-flex; align-items: center; gap: 6px; padding: 7px 10px; border: 1px solid #a7f3d0; border-radius: 10px; background: #ecfdf5; color: #065f46; font-size: 12px; font-weight: 900; white-space: nowrap; }
     .cpipos-sd-table { min-width: 0; gap: 10px; border: 1px solid #dbe7e3; border-radius: 14px; background: #fff; overflow: hidden; }
     .cpipos-sd-table__summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px; background: #f0fdf4; border-bottom: 1px solid #d1fae5; }
     .cpipos-sd-table__summary p { margin: 0; color: #065f46; font-size: 13px; font-weight: 800; }
@@ -410,6 +410,7 @@ export function PosGeneralSaleTableController({ lang = "th" }: { lang?: Lang }) 
     let scannerInput: HTMLInputElement | null = null;
     let scannerSubmit: HTMLButtonElement | null = null;
     let scannerStatus: HTMLElement | null = null;
+    let scannerNeedsInitialFocus = false;
     let tableHost: HTMLElement | null = null;
     let tableRenderTimer: number | null = null;
     let reconcileFrame: number | null = null;
@@ -486,6 +487,7 @@ export function PosGeneralSaleTableController({ lang = "th" }: { lang?: Lang }) 
       }
       scannerPanel?.remove();
       scannerPanel = null;
+      scannerNeedsInitialFocus = false;
       scannerInput = null;
       scannerSubmit = null;
       scannerStatus = null;
@@ -708,7 +710,9 @@ export function PosGeneralSaleTableController({ lang = "th" }: { lang?: Lang }) 
         amountInput?.focus();
         return;
       }
-      if (groceryScanTimer !== null) {
+      // A queued scan must not clear the next barcode being typed.
+      const fromRetailQueue = !opticalActive && requestedQuantity !== undefined;
+      if (!fromRetailQueue && groceryScanTimer !== null) {
         window.clearTimeout(groceryScanTimer);
         groceryScanTimer = null;
       }
@@ -720,8 +724,9 @@ export function PosGeneralSaleTableController({ lang = "th" }: { lang?: Lang }) 
         input.focus();
         return;
       }
-      input.value = "";
+      if (!fromRetailQueue) input.value = "";
       opticalPastedCode = false;
+      if (!opticalActive) focusRetailScanner(document, input);
       if (scanBusy) {
         if (scanQueue.length >= MAX_QUEUED_SCANS) {
           status.textContent = copy.queueFull;
@@ -793,10 +798,18 @@ export function PosGeneralSaleTableController({ lang = "th" }: { lang?: Lang }) 
         scanBusy = false;
         submit.disabled = false;
         submit.textContent = copy.add;
-        // Do not steal focus when the cashier is entering a deposit/bill reference.
-        if (document.activeElement === input || document.activeElement === document.body) input.focus();
+        if (opticalActive) {
+          if (document.activeElement === input || document.activeElement === document.body) input.focus();
+        } else if (!destroyed && generalSaleActive && generalSaleAllowed) {
+          focusRetailScanner(document, scannerInput);
+        }
         const nextCode = scanQueue.shift();
-        if (nextCode && !destroyed && generalSaleActive) window.setTimeout(() => void submitScan(nextCode.code, status, input, submit, nextCode.quantity), 0);
+        if (nextCode && !destroyed && generalSaleActive) {
+          if (opticalActive) window.setTimeout(() => void submitScan(nextCode.code, status, input, submit, nextCode.quantity), 0);
+          else if (generalSaleAllowed && scannerInput && scannerStatus && scannerSubmit) {
+            void submitScan(nextCode.code, scannerStatus, scannerInput, scannerSubmit, nextCode.quantity);
+          }
+        }
       }
     };
 
@@ -823,20 +836,6 @@ export function PosGeneralSaleTableController({ lang = "th" }: { lang?: Lang }) 
         ? "rounded-xl border border-emerald-100 bg-white p-3"
         : "grid gap-2 rounded-xl border border-emerald-200 bg-emerald-50 p-3";
       panel.setAttribute("aria-label", opticalActive ? copy.opticalScannerAria : copy.groceryScannerAria);
-
-      if (!opticalActive) {
-        const heading = document.createElement("div");
-        heading.className = "flex flex-wrap items-center justify-between gap-3";
-        const headingCopy = document.createElement("div");
-        headingCopy.className = "grid gap-1";
-        headingCopy.append(
-          createTextElement("strong", "text-sm font-black text-emerald-950", copy.groceryHeading),
-          createTextElement("small", "text-xs font-bold text-emerald-700", copy.groceryHint)
-        );
-        const tableMode = createTextElement("span", "cpipos-sd-table-mode", copy.tableMode);
-        heading.append(headingCopy, tableMode);
-        panel.appendChild(heading);
-      }
 
       const row = document.createElement("div");
       row.className = opticalActive ? "grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]" : "grid gap-2";
@@ -902,6 +901,16 @@ export function PosGeneralSaleTableController({ lang = "th" }: { lang?: Lang }) 
         // KeyA/KeyB/Digit0 codes. Translate only inside this ASCII barcode field.
         input.addEventListener("keydown", (event) => {
           if (event.isComposing || event.ctrlKey || event.altKey || event.metaKey) return;
+          // Handle scanner Enter even while the submit button is disabled.
+          if (event.key === "Enter" || (event.key === "Tab" && !event.shiftKey &&
+              groceryFastKeyCount >= 5 && input.value.trim().length >= 4)) {
+            event.preventDefault();
+            event.stopPropagation();
+            groceryFastKeyCount = 0;
+            const code = input.value.trim();
+            if (code && !event.repeat) void submitScan(code, status, input, submit);
+            return;
+          }
           if (event.key.length !== 1) return;
           const now = window.performance.now();
           groceryFastKeyCount = now - groceryLastKeyAt <= OPTICAL_SCAN_KEY_INTERVAL_MS ? groceryFastKeyCount + 1 : 1;
@@ -909,10 +918,14 @@ export function PosGeneralSaleTableController({ lang = "th" }: { lang?: Lang }) 
           const mapped = asciiKeyFromScannerCode(event.code, event.key, event.shiftKey);
           if (!mapped) return;
           event.preventDefault();
+          event.stopPropagation();
           const cursor = input.selectionStart ?? input.value.length;
           const end = input.selectionEnd ?? cursor;
           input.setRangeText(mapped, cursor, end, "end");
           input.dispatchEvent(new Event("input", { bubbles: true }));
+        });
+        input.addEventListener("keyup", (event) => {
+          if (event.key === "Enter") event.stopPropagation();
         });
         input.addEventListener("input", (event) => {
           if (groceryScanTimer !== null) window.clearTimeout(groceryScanTimer);
@@ -1080,7 +1093,8 @@ export function PosGeneralSaleTableController({ lang = "th" }: { lang?: Lang }) 
       scannerStatus = status;
       ensureTableHost();
       scheduleTableRender(0);
-      window.setTimeout(() => input.focus(), 0);
+      if (opticalActive) window.setTimeout(() => input.focus(), 0);
+      else scannerNeedsInitialFocus = true;
     };
 
     const enhanceSelector = () => {
@@ -1285,7 +1299,8 @@ export function PosGeneralSaleTableController({ lang = "th" }: { lang?: Lang }) 
       if (action !== "decrease" && action !== "increase" && action !== "delete") return;
       invokeCartAction(index, action);
       scheduleTableRender(0);
-      window.setTimeout(() => scannerInput?.focus(), 0);
+      if (opticalActive) window.setTimeout(() => scannerInput?.focus(), 0);
+      else focusRetailScanner(document, scannerInput, button);
     };
 
     const reconcile = () => {
@@ -1325,6 +1340,8 @@ export function PosGeneralSaleTableController({ lang = "th" }: { lang?: Lang }) 
       setModeVisualState();
       ensureScanner();
       ensureTableHost();
+      if (scannerNeedsInitialFocus && !opticalActive &&
+          focusRetailScanner(document, scannerInput)) scannerNeedsInitialFocus = false;
     };
 
     const scheduleReconcile = () => {

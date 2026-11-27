@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { MouseEvent, useEffect, useState } from "react";
+import { MouseEvent, useEffect, useRef, useState } from "react";
+import { focusRetailScanner } from "@/lib/retail-wholesale/scanner-focus";
 import type {CSSProperties} from "react";
 import { PackageLockDialog } from "@/components/pos-preview/package-lock-dialog";
 import { ItMenuLockDialog } from "@/components/pos-preview/it-menu-lock-dialog";
@@ -51,10 +52,12 @@ type Props = {
   placement: MainMenuPlacement;
 };
 
+const SIDEBAR_COLLAPSED_SESSION_KEY = "cpipos_sidebar_collapsed_v1";
 const COMPACT_SIDEBAR_QUERY = "(min-width: 768px) and (max-width: 1180px) and (orientation: landscape)";
 
 export function PosShellSidebar({ lang, settingsLabel, placement }: Props) {
   const [collapsed, setCollapsed] = useState(false);
+  const manualCollapseChoice = useRef<boolean | null>(null);
   const pathname = usePathname();
   const [sessionRole, setSessionRole] = useState<PosRole | null>(null);
   const [enabledFeatures, setEnabledFeatures] = useState<Record<string, boolean> | null>(null);
@@ -80,14 +83,14 @@ export function PosShellSidebar({ lang, settingsLabel, placement }: Props) {
 
   useEffect(() => {
     const mediaQuery = window.matchMedia(COMPACT_SIDEBAR_QUERY);
-    if (mediaQuery.matches) {
-      setCollapsed(true);
-    }
+    try {
+      const saved = window.sessionStorage.getItem(SIDEBAR_COLLAPSED_SESSION_KEY);
+      if (saved === "1" || saved === "0") manualCollapseChoice.current = saved === "1";
+    } catch { /* optional persistence */ }
+    setCollapsed(manualCollapseChoice.current ?? mediaQuery.matches);
 
     const collapseForCompactWidth = (event: MediaQueryListEvent) => {
-      if (event.matches) {
-        setCollapsed(true);
-      }
+      if (manualCollapseChoice.current === null && event.matches) setCollapsed(true);
     };
 
     mediaQuery.addEventListener("change", collapseForCompactWidth);
@@ -266,7 +269,13 @@ export function PosShellSidebar({ lang, settingsLabel, placement }: Props) {
           <button
             type="button"
             className="inline-flex h-[34px] min-w-[34px] items-center justify-center rounded-lg border border-white/20 bg-slate-900/45 p-0 text-slate-100 transition hover:bg-slate-900/70"
-            onClick={() => setCollapsed((current) => !current)}
+            onClick={(event) => {
+              const next = !collapsed;
+              manualCollapseChoice.current = next;
+              setCollapsed(next);
+              try { window.sessionStorage.setItem(SIDEBAR_COLLAPSED_SESSION_KEY, next ? "1" : "0"); } catch { /* optional */ }
+              if (event.detail > 0) focusRetailScanner(document, undefined, event.currentTarget);
+            }}
             aria-label={collapsed ? t(lang, "pos_sidebar_expand_labels") : t(lang, "pos_sidebar_collapse_labels")}
             title={collapsed ? t(lang, "pos_sidebar_expand") : t(lang, "pos_sidebar_collapse")}
           >
