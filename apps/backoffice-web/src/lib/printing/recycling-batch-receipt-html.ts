@@ -1,3 +1,4 @@
+import {recyclingBrowserThermalCss} from "./recycling-browser-thermal-css";
 export type RecyclingBatchPaper="58"|"80"|"a4"|"a5";
 export function isRecyclingBatchPaper(value:unknown):value is RecyclingBatchPaper{
  return value==="58"||value==="80"||value==="a4"||value==="a5";
@@ -12,7 +13,7 @@ export function composeRecyclingBatchReceipts(receipts:string[],paper:RecyclingB
   return {head:head[1],body:body[1]};
  });
  const sheet=paper==="a4"||paper==="a5";
- const page=sheet?paper.toUpperCase()+" portrait":paper+"mm auto";
+ const page=sheet?paper.toUpperCase()+" portrait":"auto";
  const css=`<style>
  @page{size:${page};margin:${sheet?"10mm":"0"}}
  html,body{margin:0;width:auto;min-width:0;background:white}
@@ -23,5 +24,5 @@ export function composeRecyclingBatchReceipts(receipts:string[],paper:RecyclingB
  @media screen{.batch-receipt{margin:12px auto;padding:8px;border:1px solid #ddd;max-width:${sheet?"180mm":paper+"mm"}}}
  @media print{.batch-receipt{margin:0;padding:0;border:0}}
  </style>`;
- return '<!doctype html><html lang="th"><head>'+parts[0].head.replace(/<title>[\s\S]*?<\/title>/i,"<title>พิมพ์บิลทั้งหมดตามตัวกรอง</title>")+css+'</head><body data-recycling-batch-ready="true" data-receipt-count="'+parts.length+'">'+parts.map(p=>'<section class="batch-receipt">'+p.body+'</section>').join("")+'</body></html>';
+ return '<!doctype html><html lang="th"><head>'+parts[0].head.replace(/<title>[\s\S]*?<\/title>/i,"<title>พิมพ์บิลทั้งหมดตามตัวกรอง</title>")+css+(sheet?"":recyclingBrowserThermalCss(paper==="58"?58:80))+'</head><body data-recycling-batch-ready="true" data-receipt-count="'+parts.length+'">'+parts.map(p=>'<section class="batch-receipt">'+p.body+'</section>').join("")+'</body></html>';
 }
