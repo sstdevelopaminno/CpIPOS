@@ -15,6 +15,7 @@ import android.os.Handler
 import android.os.Looper
 import android.view.Display
 import android.view.WindowManager
+import android.widget.Toast
 import android.webkit.CookieManager
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
@@ -150,21 +151,34 @@ class MainActivity : ComponentActivity() {
                 request: WebResourceRequest
             ): Boolean {
                 val uri = request.url
-                return if (isAllowedWebUri(uri)) {
-                    false
-                } else {
-                    openExternalUri(uri)
-                    true
+                if (!isAllowedWebUri(uri)) {
+                    if (request.isForMainFrame) reportBlockedNavigation()
+                    return true
                 }
+                // Only an explicit click on the official download endpoint may
+                // leave the WebView. Its release/CDN redirects occur in the browser.
+                if (request.isForMainFrame && request.hasGesture() && !request.isRedirect &&
+                    isOfficialDownloadUri(uri)) {
+                    openExternalUri(uri)
+                    return true
+                }
+                return false
             }
 
             override fun onPageStarted(view: WebView, url: String?, favicon: android.graphics.Bitmap?) {
                 super.onPageStarted(view, url, favicon)
+                if (url == null || !isAllowedWebUri(Uri.parse(url))) {
+                    view.stopLoading()
+                    reportBlockedNavigation()
+                    view.loadUrl(BuildConfig.CPIPOS_POS_WEB_URL)
+                    return
+                }
                 mdmAgent?.notifyPageStarted(url)
             }
 
             override fun onPageFinished(view: WebView, url: String?) {
                 super.onPageFinished(view, url)
+                if (url == null || !isAllowedWebUri(Uri.parse(url))) return
                 mdmAgent?.notifyPageFinished(url)
                 applyCustomerDisplayV2Flag()
                 CookieManager.getInstance().flush()
@@ -193,7 +207,11 @@ class MainActivity : ComponentActivity() {
         if (savedInstanceState == null) {
             webView.loadUrl(BuildConfig.CPIPOS_POS_WEB_URL)
         } else {
-            webView.restoreState(savedInstanceState)
+            val restoredUrl = webView.restoreState(savedInstanceState)?.currentItem?.url
+            if (restoredUrl == null || !isAllowedWebUri(Uri.parse(restoredUrl))) {
+                webView.stopLoading()
+                webView.loadUrl(BuildConfig.CPIPOS_POS_WEB_URL)
+            }
         }
     }
 
@@ -370,14 +388,26 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun isAllowedWebUri(uri: Uri): Boolean {
-        val scheme = uri.scheme?.lowercase()
-        if (scheme != "http" && scheme != "https") return false
+        if (!uri.scheme.equals("https", ignoreCase = true)) return false
+        if (uri.port != -1 && uri.port != 443) return false
+        if (uri.userInfo != null) return false
         return uri.host.equals(BuildConfig.CPIPOS_ANDROID_POS_ALLOWED_HOST, ignoreCase = true)
     }
 
+    private fun isOfficialDownloadUri(uri: Uri): Boolean =
+        isAllowedWebUri(uri) && uri.query == null && uri.fragment == null &&
+            uri.path in setOf("/download/android/latest", "/download/android/modern-latest")
+
+    private fun reportBlockedNavigation() {
+        // No destination URL, query, token or customer data in diagnostics.
+        mdmAgent?.notifyPageError(null, "blocked_untrusted_navigation")
+        Toast.makeText(this, "CpIPOS blocked an unsafe link", Toast.LENGTH_SHORT).show()
+    }
+
     private fun openExternalUri(uri: Uri) {
+        if (!isOfficialDownloadUri(uri)) return
         runCatching {
-            startActivity(Intent(Intent.ACTION_VIEW, uri))
+            startActivity(Intent(Intent.ACTION_VIEW, uri).addCategory(Intent.CATEGORY_BROWSABLE))
         }
     }
 }

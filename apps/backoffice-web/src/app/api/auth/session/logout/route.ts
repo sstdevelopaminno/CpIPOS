@@ -52,7 +52,7 @@ function resetLanguageCookies(response: NextResponse) {
 }
 
 function jsonError(status: number, code: string, message: string) {
-  return NextResponse.json({ data: null, error: { code, message } }, { status });
+  return NextResponse.json({ data: null, error: { code, message } }, { status, headers: { "Cache-Control": "private, no-store, max-age=0" } });
 }
 
 async function revokePosSessionById(sessionId: string) {
@@ -135,6 +135,7 @@ export async function POST(request: Request) {
     clearPosSessionCookies(response);
     resetLanguageCookies(response);
     clearPreEntryFlowState(response);
+    response.headers.set("Cache-Control", "private, no-store, max-age=0");
     return response;
   }
 
@@ -189,6 +190,7 @@ export async function POST(request: Request) {
       clearPosSessionCookies(response);
       resetLanguageCookies(response);
       writePreEntryFlowState(response, flow);
+      response.headers.set("Cache-Control", "private, no-store, max-age=0");
       return response;
     }
 
@@ -208,6 +210,7 @@ export async function POST(request: Request) {
         error: null
       });
       clearPosSessionCookies(response);
+      response.headers.set("Cache-Control", "private, no-store, max-age=0");
       return response;
     }
 
@@ -239,6 +242,7 @@ export async function POST(request: Request) {
     });
     clearPosSessionCookies(response);
     writePreEntryFlowState(response, flow);
+    response.headers.set("Cache-Control", "private, no-store, max-age=0");
     return response;
   } catch (error) {
     if (error instanceof PosGuardError) {
@@ -269,11 +273,13 @@ export async function POST(request: Request) {
               })
             );
           }
+          response.headers.set("Cache-Control", "private, no-store, max-age=0");
           return response;
         }
       }
       const response = jsonError(error.status, error.code, error.message);
       clearPosSessionCookies(response);
+      response.headers.set("Cache-Control", "private, no-store, max-age=0");
       return response;
     }
     return jsonError(500, "logout_failed", error instanceof Error ? error.message : "Unknown error.");

@@ -33,7 +33,11 @@ export async function GET() {
       return notReady(`พบหน้า Modern Release แล้ว แต่ Android POS ${ANDROID_MODERN_RELEASE.versionName} ยังสร้าง Stable Signed APK ไม่เสร็จ กรุณารอสักครู่แล้วลองใหม่`);
     }
 
-    const redirect = NextResponse.redirect(asset.browser_download_url, 302);
+    const expectedUrl = `https://github.com/sstdevelopaminno/CpIPOS/releases/download/${ANDROID_MODERN_RELEASE.releaseTag}/${ANDROID_MODERN_RELEASE.assetName}`;
+    if (asset.browser_download_url !== expectedUrl) {
+      return notReady("ไม่สามารถยืนยัน URL ของไฟล์ APK ได้");
+    }
+    const redirect = NextResponse.redirect(expectedUrl, 302);
     redirect.headers.set("X-CpIPOS-Android-Version", ANDROID_MODERN_RELEASE.versionName);
     redirect.headers.set("X-CpIPOS-Android-Version-Code", String(ANDROID_MODERN_RELEASE.versionCode));
     redirect.headers.set("X-CpIPOS-Android-Channel", ANDROID_MODERN_RELEASE.channel);

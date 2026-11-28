@@ -2,43 +2,16 @@
 
 import { useEffect, useState } from "react";
 
-const ACTIVE_POS_STORAGE_KEYS = [
-  "pos_pending_submit_v012",
-  "pos_pending_submit_queue_v001",
-  "pos_pending_payment_queue_v001",
-  "pos_active_order_v001",
-  "pos_dine_in_selected_table_v001"
-] as const;
+import { isSafeForAppUpdate } from "@/lib/app-update-safety";
 
-function hasNonEmptyArray(raw: string | null): boolean {
-  if (!raw) return false;
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    return Array.isArray(parsed) ? parsed.length > 0 : Boolean(parsed);
-  } catch {
-    return true;
-  }
-}
+const UPDATE_CHECK_MS = 5 * 60_000;
 
-function isSafeForAutomaticUiRefresh(): boolean {
-  try {
-    if (hasNonEmptyArray(window.localStorage.getItem("pos_sales_cart_v012"))) return false;
-    return !ACTIVE_POS_STORAGE_KEYS.some((key) => {
-      const raw = window.localStorage.getItem(key);
-      if (!raw) return false;
-      if (key.includes("queue")) return hasNonEmptyArray(raw);
-      const normalized = raw.trim();
-      return normalized.length > 0 && normalized !== "null" && normalized !== "{}" && normalized !== "[]";
-    });
-  } catch {
-    // Never force a reload when POS state cannot be proven idle.
-    return false;
-  }
-}
-
-export function PwaBootstrap() {
+export function PwaBootstrap({ loadedCommit = null }: { loadedCommit?: string | null }) {
   const [waitingWorker, setWaitingWorker] = useState<ServiceWorker | null>(null);
+  const [webUpdateAvailable, setWebUpdateAvailable] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [blocked, setBlocked] = useState(false);
+  const [updateRequested, setUpdateRequested] = useState(false);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -51,7 +24,7 @@ export function PwaBootstrap() {
           await Promise.all(registrations.map((registration) => registration.unregister()));
           if ("caches" in window) {
             const keys = await window.caches.keys();
-            await Promise.all(keys.map((key) => window.caches.delete(key)));
+            await Promise.all(keys.filter((key) => key.startsWith("cpipos-shell-")).map((key) => window.caches.delete(key)));
           }
           if (navigator.serviceWorker.controller && !window.sessionStorage.getItem("cpipos_dev_sw_cleared_v1")) {
             window.sessionStorage.setItem("cpipos_dev_sw_cleared_v1", "1");
@@ -64,54 +37,138 @@ export function PwaBootstrap() {
       return;
     }
 
-    let reloadedForUpdate = false;
-    const handleControllerChange = () => {
-      if (reloadedForUpdate) return;
-      reloadedForUpdate = true;
-      window.location.reload();
-    };
-
-    const activateOrOfferUpdate = (worker: ServiceWorker) => {
-      if (isSafeForAutomaticUiRefresh()) {
-        setIsRefreshing(true);
-        worker.postMessage({ type: "SKIP_WAITING" });
-        return;
+    let disposed = false;
+    let registration: ServiceWorkerRegistration | undefined;
+    let checking = false;
+    let lastCheck = 0;
+    const check = async () => {
+      if (!registration || disposed || checking || !navigator.onLine ||
+          document.visibilityState !== "visible") return;
+      if (Date.now() - lastCheck < 15_000) return;
+      checking = true;
+      lastCheck = Date.now();
+      try {
+        await registration.update();
+        if (!disposed && registration.waiting) setWaitingWorker(registration.waiting);
+      } catch {
+        // Retry on focus, reconnect or the next periodic check.
+      } finally {
+        checking = false;
       }
-      setWaitingWorker(worker);
     };
 
-    navigator.serviceWorker.addEventListener("controllerchange", handleControllerChange);
+    const watchUpdate = () => {
+      const nextWorker = registration?.installing;
+      if (!nextWorker) return;
+      nextWorker.addEventListener("statechange", () => {
+        if (!disposed && nextWorker.state === "installed" && navigator.serviceWorker.controller) {
+          setWaitingWorker(nextWorker);
+        }
+      });
+    };
 
     void (async () => {
       try {
-        const registration = await navigator.serviceWorker.register("/sw.js", { scope: "/" });
-        if (registration.waiting) {
-          activateOrOfferUpdate(registration.waiting);
-        }
-
-        registration.addEventListener("updatefound", () => {
-          const nextWorker = registration.installing;
-          if (!nextWorker) return;
-
-          nextWorker.addEventListener("statechange", () => {
-            if (nextWorker.state === "installed" && navigator.serviceWorker.controller) {
-              activateOrOfferUpdate(nextWorker);
-            }
-          });
-        });
-
-        await registration.update();
+        registration = await navigator.serviceWorker.register("/sw.js", { scope: "/", updateViaCache: "none" });
+        if (disposed) return;
+        if (registration.waiting) setWaitingWorker(registration.waiting);
+        registration.addEventListener("updatefound", watchUpdate);
+        watchUpdate();
+        await check();
       } catch {
-        // PWA update checks should never block login/POS usage.
+        // An unavailable service worker must not block login/POS usage.
       }
     })();
-
+    const timer = window.setInterval(() => void check(), UPDATE_CHECK_MS);
+    const onWake = () => void check();
+    window.addEventListener("online", onWake);
+    window.addEventListener("focus", onWake);
+    document.addEventListener("visibilitychange", onWake);
     return () => {
-      navigator.serviceWorker.removeEventListener("controllerchange", handleControllerChange);
+      disposed = true;
+      window.clearInterval(timer);
+      registration?.removeEventListener("updatefound", watchUpdate);
+      window.removeEventListener("online", onWake);
+      window.removeEventListener("focus", onWake);
+      document.removeEventListener("visibilitychange", onWake);
     };
   }, []);
 
-  if (!waitingWorker) return null;
+  useEffect(() => {
+    // A web deployment can change without changing the service worker script.
+    if (!loadedCommit || process.env.NODE_ENV !== "production") return;
+    let disposed = false;
+    let checking = false;
+    let lastCheck = 0;
+    let controller: AbortController | undefined;
+    const checkVersion = async () => {
+      if (disposed || checking || !navigator.onLine || document.visibilityState !== "visible" ||
+          Date.now() - lastCheck < 15_000) return;
+      checking = true;
+      lastCheck = Date.now();
+      controller = new AbortController();
+      const timeout = window.setTimeout(() => controller?.abort(), 10_000);
+      try {
+        const response = await fetch("/api/system/version", { cache: "no-store", signal: controller.signal });
+        if (!response.ok) return;
+        const data = await response.json();
+        const liveCommit = data?.data?.web?.commit_sha;
+        if (!disposed && typeof liveCommit === "string" && /^[a-f0-9]{40}$/i.test(liveCommit)) {
+          setWebUpdateAvailable(liveCommit !== loadedCommit);
+        }
+      } catch {
+        // Continue selling when the version endpoint is unavailable.
+      } finally {
+        window.clearTimeout(timeout);
+        checking = false;
+      }
+    };
+    void checkVersion();
+    const onWake = () => void checkVersion();
+    const timer = window.setInterval(onWake, UPDATE_CHECK_MS);
+    window.addEventListener("online", onWake);
+    window.addEventListener("focus", onWake);
+    document.addEventListener("visibilitychange", onWake);
+    return () => {
+      disposed = true;
+      controller?.abort();
+      window.clearInterval(timer);
+      window.removeEventListener("online", onWake);
+      window.removeEventListener("focus", onWake);
+      document.removeEventListener("visibilitychange", onWake);
+    };
+  }, [loadedCommit]);
+
+  useEffect(() => {
+    if (!updateRequested || !waitingWorker || !("serviceWorker" in navigator)) return;
+    let disposed = false;
+    // Only the tab that explicitly requested activation may reload.
+    const onControllerChange = async () => {
+      const safe = await isSafeForAppUpdate();
+      if (disposed) return;
+      if (safe) window.location.reload();
+      else {
+        setBlocked(true);
+        setIsRefreshing(false);
+        setUpdateRequested(false);
+      }
+    };
+    navigator.serviceWorker.addEventListener("controllerchange", onControllerChange);
+    // A waiting worker may already have activated in another tab.
+    if (waitingWorker?.state === "activated") void onControllerChange();
+    else waitingWorker?.postMessage({ type: "SKIP_WAITING" });
+    const timeout = window.setTimeout(() => {
+      setIsRefreshing(false);
+      setUpdateRequested(false);
+    }, 20_000);
+    return () => {
+      disposed = true;
+      window.clearTimeout(timeout);
+      navigator.serviceWorker.removeEventListener("controllerchange", onControllerChange);
+    };
+  }, [updateRequested, waitingWorker]);
+
+  if (!waitingWorker && !webUpdateAvailable) return null;
 
   return (
     <div
@@ -134,13 +191,21 @@ export function PwaBootstrap() {
     >
       <div style={{ fontSize: 14, fontWeight: 700 }}>มีอัปเดต CpIPOS พร้อมใช้งาน</div>
       <div style={{ marginTop: 4, fontSize: 12, lineHeight: 1.5, color: "#cbd5e1" }}>
-        ระบบจะอัปเดตอัตโนมัติเมื่อไม่มีบิล/ตะกร้า/งานค้าง หรือกดอัปเดตเมื่อพร้อม
+        ระบบตรวจหาอัปเดตอัตโนมัติ กรุณาปิดงานขาย ซิงก์ข้อมูลค้าง และกลับหน้าเข้าสู่ระบบก่อนอัปเดต
       </div>
+      {blocked ? <div role="alert" style={{ marginTop: 8, color: "#fbbf24", fontSize: 12 }}>ยังมีงานค้างหรือไม่สามารถยืนยันสถานะข้อมูลได้ กรุณาซิงก์/ตรวจสอบก่อนอัปเดต</div> : null}
       <button
         type="button"
-        onClick={() => {
+        onClick={async () => {
           setIsRefreshing(true);
-          waitingWorker.postMessage({ type: "SKIP_WAITING" });
+          const safe = await isSafeForAppUpdate();
+          setBlocked(!safe);
+          if (!safe) {
+            setIsRefreshing(false);
+            return;
+          }
+          if (waitingWorker) setUpdateRequested(true);
+          else window.location.reload();
         }}
         disabled={isRefreshing}
         style={{

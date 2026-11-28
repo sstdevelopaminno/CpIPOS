@@ -4,8 +4,20 @@ import { describe, expect, it } from "vitest";
 const sw = readFileSync(new URL("../../public/sw.js", import.meta.url), "utf8");
 
 describe("PWA service worker cache safety", () => {
-  it("bumps the shell cache so stale v5 entries are purged", () => {
-    expect(sw).toContain('const CACHE_NAME = "cpipos-shell-v6"');
+  it("bumps the shell cache so stale CpIPOS entries are purged", () => {
+    expect(sw).toContain('const CACHE_NAME = "cpipos-shell-v7"');
+  });
+
+  it("only removes CpIPOS shell caches and never precaches the root document", () => {
+    expect(sw).toContain('key.startsWith(CACHE_PREFIX) && key !== CACHE_NAME');
+    expect(sw).not.toContain('  "/",');
+    expect(sw).toContain('caches.open(CACHE_NAME).then((cache) => cache.match(request))');
+  });
+
+  it("normalizes notification targets and does not navigate an existing register", () => {
+    expect(sw).toContain('safeSameOriginPath(event.notification.data?.url)');
+    expect(sw).toContain('target.origin !== self.location.origin');
+    expect(sw).not.toContain('client.navigate(target)');
   });
 
   it("never caches Next.js runtime or RSC navigation payloads", () => {

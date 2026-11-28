@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { shouldDisableNativeCustomerDisplayForDiagnostics } from "@/lib/android-pos/native-device-policy";
 import { ANDROID_MODERN_RELEASE } from "@/lib/android-runtime-release";
+import { isLocallyIdle, isSafeForAppUpdate, isTrustedAndroidDownload } from "@/lib/app-update-safety";
 
 type NativeDiagnostics = {
   install_id?: unknown;
@@ -41,6 +42,8 @@ export function AndroidPosMandatoryUpdate() {
   const [targetCode, setTargetCode] = useState<number>(ANDROID_MODERN_RELEASE.versionCode);
   const [downloadUrl, setDownloadUrl] = useState(FALLBACK_DOWNLOAD_URL);
   const [rollbackMode, setRollbackMode] = useState(false);
+  const [safeToUpdate, setSafeToUpdate] = useState(false);
+  const [downloadConfirmed, setDownloadConfirmed] = useState(false);
 
   const check = useCallback(async () => {
     const bridge = window.CpiposMdm;
@@ -78,7 +81,13 @@ export function AndroidPosMandatoryUpdate() {
       setRequired(data.required === true);
       if (data.target_version_name) setTargetName(data.target_version_name);
       if (Number.isFinite(Number(data.target_version_code))) setTargetCode(Number(data.target_version_code));
-      if (data.download_url) setDownloadUrl(data.download_url);
+      if (data.download_url && isTrustedAndroidDownload(data.download_url, window.location.origin)) {
+        setDownloadUrl(data.download_url);
+      } else {
+        setDownloadUrl(FALLBACK_DOWNLOAD_URL);
+      }
+    } catch {
+      // Offline or temporary server failure must not interrupt sales.
     } finally {
       setChecking(false);
     }
@@ -89,10 +98,41 @@ export function AndroidPosMandatoryUpdate() {
     const timer = window.setInterval(() => {
       if (document.visibilityState === "visible") void check();
     }, POLL_MS);
-    return () => window.clearInterval(timer);
+    const onWake = () => { if (document.visibilityState === "visible") void check(); };
+    window.addEventListener("online", onWake);
+    document.addEventListener("visibilitychange", onWake);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("online", onWake);
+      document.removeEventListener("visibilitychange", onWake);
+    };
   }, [check]);
 
+  useEffect(() => {
+    if (!required) return;
+    let disposed = false;
+    const refresh = async () => {
+      const safe = await isSafeForAppUpdate();
+      if (!disposed) {
+        setSafeToUpdate(safe);
+        if (!safe) setDownloadConfirmed(false);
+      }
+    };
+    void refresh();
+    const timer = window.setInterval(() => void refresh(), 5_000);
+    return () => { disposed = true; window.clearInterval(timer); };
+  }, [required]);
+
   if (!required) return null;
+
+  // Let the operator finish and reconcile an in-flight sale before enforcing the APK update.
+  if (!safeToUpdate) {
+    return (
+      <div role="status" style={{ position: "fixed", right: 16, top: 16, zIndex: 10000, maxWidth: 340, padding: 12, borderRadius: 10, background: "#fff7ed", color: "#9a3412", boxShadow: "0 4px 16px #0002", pointerEvents: "none" }}>
+        ต้องอัปเดต CpIPOS {targetName} กรุณาปิดงานขาย ซิงก์ข้อมูลค้าง และกลับหน้าเข้าสู่ระบบเพื่อดาวน์โหลด
+      </div>
+    );
+  }
 
   return (
     <div
@@ -146,15 +186,37 @@ export function AndroidPosMandatoryUpdate() {
 
         {!rollbackMode ? (
           <div style={{ marginTop: 18, borderRadius: 14, background: "#eff6ff", padding: 14, color: "#1e3a8a", lineHeight: 1.65 }}>
-            1. กด “ดาวน์โหลดและติดตั้ง”<br />
-            2. เปิดไฟล์ APK ที่ดาวน์โหลดและยืนยันติดตั้ง<br />
+            1. กด “ตรวจสอบก่อนดาวน์โหลด” แล้วกดลิงก์ดาวน์โหลด APK<br />
+            2. เปิดไฟล์ APK ที่ดาวน์โหลดและยืนยันติดตั้งทับแอปเดิม (ไม่ถอนการติดตั้ง)<br />
             3. เปิด CpIPOS อีกครั้ง ระบบจะตรวจ code {targetCode} อัตโนมัติ
           </div>
         ) : null}
 
+        {downloadConfirmed ? (
+          <a
+            href={downloadUrl}
+            onClick={(event) => {
+              // A genuine link gesture is required by the hardened Android WebView.
+              try {
+                if (safeToUpdate && isLocallyIdle() && isTrustedAndroidDownload(downloadUrl, window.location.origin)) return;
+              } catch {
+                // Do not download if local state cannot be read.
+              }
+              event.preventDefault();
+              setDownloadConfirmed(false);
+              setSafeToUpdate(false);
+            }}
+            style={{ display: "block", textAlign: "center", marginTop: 16, borderRadius: 12, padding: "14px 18px", background: "#2563eb", color: "#fff", fontWeight: 800 }}
+          >
+            ดาวน์โหลด APK ที่ตรวจสอบแล้ว {targetName}
+          </a>
+        ) : (
         <button
           type="button"
-          onClick={() => window.location.assign(downloadUrl)}
+          onClick={async () => {
+            if (!(await isSafeForAppUpdate())) { setSafeToUpdate(false); return; }
+            setDownloadConfirmed(isTrustedAndroidDownload(downloadUrl, window.location.origin));
+          }}
           style={{
             width: "100%",
             marginTop: 16,
@@ -168,8 +230,9 @@ export function AndroidPosMandatoryUpdate() {
             cursor: "pointer"
           }}
         >
-          {rollbackMode ? `ดาวน์โหลดเวอร์ชันเดิม code ${targetCode}` : `ดาวน์โหลดและติดตั้ง ${targetName}`}
+          {rollbackMode ? `ตรวจสอบก่อนดาวน์โหลด code ${targetCode}` : `ตรวจสอบก่อนดาวน์โหลด ${targetName}`}
         </button>
+        )}
 
         {!rollbackMode ? (
           <button
