@@ -94,3 +94,13 @@ do $$ declare movement uuid; begin
  if (select count(*) from public.manager_pin_approvals where note::jsonb->>'request_id'='00000000-0000-0000-0000-000000001521')<>0 then raise exception 'BRANCH_PIN_ADAPTER_ROLLBACK'; end if;
 end $$;
 reset role;
+
+set role service_role;
+do $$ begin
+ if has_table_privilege('authenticated','public.rw_warehouse_finance_intents_candidate','SELECT') then raise exception 'BROWSER_FINANCE_GRANTED'; end if;
+ if exists(select 1 from public.rw_warehouse_finance_intents_candidate where event='dispatch' and (debit_bucket<>'inventory_in_transit' or credit_bucket<>'warehouse_inventory' or amount_minor<0)) then raise exception 'BAD_DISPATCH_INTENT'; end if;
+ if exists(select 1 from public.rw_warehouse_finance_intents_candidate where event='branch_receipt' and (debit_bucket<>'branch_inventory' or credit_bucket<>'inventory_in_transit' or amount_minor<0)) then raise exception 'BAD_RECEIPT_INTENT'; end if;
+ if exists(select 1 from public.rw_warehouse_finance_intents_candidate where event='warehouse_receipt' and (posting_status<>'source_document_required' or credit_bucket is not null)) then raise exception 'INBOUND_POSTING_UNSAFE'; end if;
+ if (select count(*) from public.rw_warehouse_finance_intents_candidate)<>(select count(*) from public.rw_warehouse_ledger) then raise exception 'FINANCE_INTENT_CARDINALITY'; end if;
+end $$;
+reset role;

@@ -2,7 +2,7 @@ import { fail, ok } from "@/lib/http";
 import {
   accountingIdentity, accountingBranches, accountingDocuments, accountingAging,
   accountingAccounts, accountingCreate, accountingTransition, accountingPost,
-  accountingCreateAccount, accountingJournals, accountingJournalDetail, accountingDocumentDetail,
+  accountingCreateAccount, accountingJournals, accountingJournalDetail, accountingDocumentDetail, accountingWarehouseIntents,
   FinanceAccountingError
 } from "@/lib/server/finance-accounting-workflow";
 import { todayBangkok } from "@/lib/finance-sales-analytics";
@@ -33,6 +33,8 @@ export async function GET(request:Request) {
       return nonCache(ok({branches:await accountingBranches(identity)}));
     if(view==="accounts")
       return nonCache(ok(await accountingAccounts(identity)));
+    if(view==="warehouse_reconciliation")
+      return nonCache(ok(await accountingWarehouseIntents(identity,branch)));
     if(view==="journals")
       return nonCache(ok(await accountingJournals(identity,branch)));
     if(view==="journal_detail")
