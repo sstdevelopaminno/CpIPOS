@@ -37,4 +37,39 @@ begin
 end $$;
 revoke all on function public.rw_apply_transfer_pin_candidate(uuid,uuid,uuid,uuid,uuid,public.rw_transfer_approval_action) from public,anon,authenticated;
 grant execute on function public.rw_apply_transfer_pin_candidate(uuid,uuid,uuid,uuid,uuid,public.rw_transfer_approval_action) to service_role;
+create function public.rw_adjust_branch_with_pin_candidate(
+ p_tenant uuid,p_branch uuid,p_product uuid,p_actor uuid,p_request uuid,p_approver uuid,p_delta integer,p_reason text
+) returns uuid language plpgsql security invoker set search_path=pg_catalog,public as $
+declare
+ prior public.stock_movements%rowtype;
+ ingredient_id_value uuid;
+ approval_id_value uuid:=gen_random_uuid();
+begin
+ if p_tenant is null or p_branch is null or p_product is null or p_actor is null or p_request is null or p_approver is null
+   or p_delta is null or p_delta=0 or p_reason is null or length(btrim(p_reason)) not between 1 and 500 then
+   raise exception 'INVALID_ADJUSTMENT'; end if;
+ if not exists(select 1 from public.user_branch_roles where tenant_id=p_tenant and branch_id=p_branch and user_id=p_actor and role in ('owner','manager'))
+   or not exists(select 1 from public.user_branch_roles where tenant_id=p_tenant and branch_id=p_branch and user_id=p_approver and role in ('owner','manager'))
+   then raise exception 'FORBIDDEN_BRANCH'; end if;
+ perform pg_advisory_xact_lock(hashtextextended(p_tenant::text||':'||p_branch::text||':rw-adjust:'||p_request::text,0));
+ select * into prior from public.stock_movements where tenant_id=p_tenant and branch_id=p_branch and request_id='rw-adjust:'||p_request::text;
+ if found then
+   return public.rw_adjust_branch_stock_candidate(p_tenant,p_branch,p_product,prior.ingredient_id,p_actor,prior.approval_id,p_request,p_delta,p_reason);
+ end if;
+ perform 1 from public.products where id=p_product and tenant_id=p_tenant and branch_id=p_branch
+  and is_active and deleted_at is null and stock_deduction_mode='recipe_deduction' for update;
+ if not found then raise exception 'PRODUCT_NOT_FOUND'; end if;
+ if (select count(*) from public.recipes where product_id=p_product)<>1 then raise exception 'AMBIGUOUS_STOCK_MAPPING'; end if;
+ select r.ingredient_id into ingredient_id_value from public.recipes r join public.ingredients i on i.id=r.ingredient_id
+  where r.product_id=p_product and r.tenant_id=p_tenant and r.branch_id=p_branch
+  and i.tenant_id=p_tenant and i.branch_id=p_branch and i.base_unit='piece' and i.name like 'STOCK:%'
+  and r.quantity_per_item=1 and not r.applies_when_takeaway_only for update of i;
+ if not found then raise exception 'AMBIGUOUS_STOCK_MAPPING'; end if;
+ insert into public.manager_pin_approvals(id,tenant_id,branch_id,requested_by,approved_by,action,target_table,target_id,note,expires_at)
+ values(approval_id_value,p_tenant,p_branch,p_actor,p_approver,'stock_adjustment','ingredients',ingredient_id_value,
+  jsonb_build_object('request_id',p_request,'product_id',p_product,'delta',p_delta,'reason',btrim(p_reason))::text,clock_timestamp()+interval '5 minutes');
+ return public.rw_adjust_branch_stock_candidate(p_tenant,p_branch,p_product,ingredient_id_value,p_actor,approval_id_value,p_request,p_delta,p_reason);
+end $;
+revoke all on function public.rw_adjust_branch_with_pin_candidate(uuid,uuid,uuid,uuid,uuid,uuid,integer,text) from public,anon,authenticated;
+grant execute on function public.rw_adjust_branch_with_pin_candidate(uuid,uuid,uuid,uuid,uuid,uuid,integer,text) to service_role;
 commit;

@@ -84,3 +84,13 @@ do $$ declare transfer_id_value uuid; response jsonb; begin
  if response->>'status'<>'cancelled' then raise exception 'PIN_ADAPTER_CANCELLATION'; end if;
 end $$;
 reset role;
+
+set role service_role;
+do $$ declare movement uuid; begin
+ movement:=public.rw_adjust_branch_with_pin_candidate('00000000-0000-0000-0000-000000000001','00000000-0000-0000-0000-000000000011','00000000-0000-0000-0000-000000000042','00000000-0000-0000-0000-000000000031','00000000-0000-0000-0000-000000001520','00000000-0000-0000-0000-000000000031',1,'adapter test');
+ if public.rw_adjust_branch_with_pin_candidate('00000000-0000-0000-0000-000000000001','00000000-0000-0000-0000-000000000011','00000000-0000-0000-0000-000000000042','00000000-0000-0000-0000-000000000031','00000000-0000-0000-0000-000000001520','00000000-0000-0000-0000-000000000031',1,'adapter test')<>movement then raise exception 'BRANCH_PIN_ADAPTER_REPLAY'; end if;
+ if (select quantity_on_hand from public.ingredients where id='00000000-0000-0000-0000-000000000052')<>1 then raise exception 'BRANCH_PIN_ADAPTER_QTY'; end if;
+ begin perform public.rw_adjust_branch_with_pin_candidate('00000000-0000-0000-0000-000000000001','00000000-0000-0000-0000-000000000011','00000000-0000-0000-0000-000000000042','00000000-0000-0000-0000-000000000031','00000000-0000-0000-0000-000000001521','00000000-0000-0000-0000-000000000031',-9,'adapter test'); raise exception 'EXPECTED_FAILURE'; exception when others then if sqlerrm<>'INSUFFICIENT_STOCK' then raise; end if; end;
+ if (select count(*) from public.manager_pin_approvals where note::jsonb->>'request_id'='00000000-0000-0000-0000-000000001521')<>0 then raise exception 'BRANCH_PIN_ADAPTER_ROLLBACK'; end if;
+end $$;
+reset role;

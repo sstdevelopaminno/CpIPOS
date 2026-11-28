@@ -19,6 +19,7 @@ create type stock_movement_type as enum ('manual_adjustment','sale_deduction');
 create table stock_movements(id uuid primary key default gen_random_uuid(),tenant_id uuid not null references tenants,branch_id uuid not null references branches,ingredient_id uuid not null references ingredients,movement_type stock_movement_type not null,quantity_delta numeric not null,reason text not null,ref_table text,ref_id uuid,approval_id uuid references manager_pin_approvals,created_by uuid not null,request_id text,unique(tenant_id,branch_id,request_id));
 grant usage on schema public to service_role;
 grant select,update on products,ingredients,manager_pin_approvals to service_role;
+grant insert on manager_pin_approvals to service_role;
 grant select on recipes,user_branch_roles,branches,tenant_subscription_contracts,subscription_packages to service_role;
 grant select,insert on stock_movements to service_role;
 insert into tenants values ('00000000-0000-0000-0000-000000000001'),('00000000-0000-0000-0000-000000000002');

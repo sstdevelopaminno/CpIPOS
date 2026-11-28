@@ -86,7 +86,7 @@ export async function POST(req:Request) {
     if(!body||typeof body!=="object"||Array.isArray(body)) throw new WarehouseError("INVALID_COMMAND");
     const {db,tenant,branch,actor,owner}=await scope();
     const action=body.action;
-    if(action!=="receive"&&!owner) throw new WarehouseError("FORBIDDEN_WAREHOUSE",403);
+    if(action!=="receive"&&action!=="branch_adjust"&&!owner) throw new WarehouseError("FORBIDDEN_WAREHOUSE",403);
     const request=uuid(body.requestId);
     const common={p_tenant:tenant,p_actor:actor,p_request:request};
     let fn:string;
@@ -123,6 +123,14 @@ export async function POST(req:Request) {
         const verified=await validateManagerPin("stock_adjustment",pin,{tenantId:tenant,branchId:branch});
         if(!verified.approved||verified.approverRole!=="owner"||!verified.approverUserId)throw new WarehouseError("PIN_REJECTED",403);
         fn="rw_apply_transfer_pin_candidate";params={...common,p_transfer:uuid(body.transferId),p_approver:verified.approverUserId,p_action:action};break;
+      }
+      case "branch_adjust": {
+        const delta=body.delta;
+        if(typeof delta!=="number"||!Number.isSafeInteger(delta)||delta===0||Math.abs(delta)>999999999)throw new WarehouseError("INVALID_QUANTITY");
+        const pin=clean(body.pin,64);
+        const verified=await validateManagerPin("stock_adjustment",pin,{tenantId:tenant,branchId:branch});
+        if(!verified.approved||!verified.approverUserId||!["owner","manager"].includes(verified.approverRole??""))throw new WarehouseError("PIN_REJECTED",403);
+        fn="rw_adjust_branch_with_pin_candidate";params={...common,p_branch:branch,p_product:uuid(body.productId),p_delta:delta,p_reason:clean(body.reason,500),p_approver:verified.approverUserId};break;
       }
       case "dispatch":
         fn="rw_dispatch_candidate";params={...common,p_transfer:uuid(body.transferId)};break;
