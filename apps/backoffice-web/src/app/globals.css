@@ -10508,3 +10508,7 @@ body:has(.pos-app-root) {
   min-height: 0;
   overscroll-behavior: contain;
 }
+
+/* CUSTOM RW inventory only; retain native shell and other POS layouts. */
+.pos-app-content-area:has(> .rw-stock-layout) { justify-content: stretch; padding: 0 !important; }
+.pos-app-content-area:has(> .rw-stock-layout) > .rw-stock-layout { max-width: none; min-width: 0; min-height: 0; border: 0; border-radius: 0; }

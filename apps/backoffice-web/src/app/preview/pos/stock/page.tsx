@@ -14,6 +14,8 @@ import { getProductSpecialPrice, isProductRecommended } from "@/lib/pos/product-
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 import { redirect } from "next/navigation";
 import Link from "next/link";
+import { loadProductMediaMap } from "@/lib/product-media";
+import { estimateRetailStockCost, explicitRetailPrice } from "@/lib/retail-wholesale/stock-display";
 import { getCustomPosStockUiMode } from "@/lib/server/custom-stock-ui-policy";
 import { isAuthorizedRecyclingTenant } from "@/lib/server/recycling-pos-service";
 
@@ -37,6 +39,10 @@ type ProductRow = {
   stock_on_hand_units?: number | null;
   stock_on_hand_note?: string;
   has_ingredient_recipe?: boolean;
+  rw_cost?: number | null;
+  rw_online_price?: number | null;
+  rw_wholesale_price?: number | null;
+  rw_thumbnail?: string | null;
 };
 
 type DeliveryPriceRow = {
@@ -61,12 +67,14 @@ type RecipeStockRow = {
         name?: string | null;
         base_unit?: string | null;
         quantity_on_hand: number | null;
+        avg_unit_cost?: number | null;
       }
     | Array<{
         id?: string | null;
         name?: string | null;
         base_unit?: string | null;
         quantity_on_hand: number | null;
+        avg_unit_cost?: number | null;
       }>
     | null;
 };
@@ -132,6 +140,7 @@ export default async function PosStockPage({
   if(customStockMode==="optical"||customStockMode==="retail") {
     redirect("/preview/pos/stock/custom");
   }
+  const retailWholesale = customStockMode === "retail_wholesale";
   const lang = await getCurrentLanguage();
   const th = lang === "th";
 
@@ -150,9 +159,12 @@ export default async function PosStockPage({
   let selectedBranchId = "";
   let selectedBranchName = "";
   let branchScopeWarning = "";
+  let rwDataWarning = "";
+  let warehouseView = false;
 
   try {
     const resolvedSearchParams = (await searchParams) ?? {};
+    warehouseView = retailWholesale && resolvedSearchParams.stock_scope === "warehouse";
     const cookieStore = await cookies();
     const cookieFallback = readBoolCookie(cookieStore.get(POS_ALLOW_NEGATIVE_STOCK_COOKIE)?.value);
     const fallbackAllowNegativeStock = cookieFallback ?? envFallbackAllowNegativeStock();
@@ -211,6 +223,9 @@ export default async function PosStockPage({
         ? requestedBranchId
         : fallbackBranchId;
     selectedBranchName = branchOptions.find((item) => item.id === selectedBranchId)?.name ?? selectedBranchId;
+    if (retailWholesale && selectedBranchId !== auth.branchId) {
+      canManageCatalog = canManageCatalog && (membershipRows ?? []).some(row => row.branch_id === selectedBranchId && (row.role === "owner" || row.role === "manager"));
+    }
 
     if (requestedBranchId && requestedBranchId !== selectedBranchId) {
       branchScopeWarning = th
@@ -346,7 +361,7 @@ export default async function PosStockPage({
     if (productIds.length > 0) {
       const { data: recipeRows, error: recipeError } = await supabase
         .from("recipes")
-        .select("product_id,quantity_per_item,ingredients(id,name,base_unit,quantity_on_hand)")
+        .select(retailWholesale ? "product_id,quantity_per_item,ingredients(id,name,base_unit,quantity_on_hand,avg_unit_cost)" : "product_id,quantity_per_item,ingredients(id,name,base_unit,quantity_on_hand)")
         .eq("tenant_id", auth.tenantId!)
         .eq("branch_id", selectedBranchId)
         .in("product_id", productIds);
@@ -382,12 +397,38 @@ export default async function PosStockPage({
       }
     }
 
+    const rwCostLines = new Map<string, Array<{ quantity: number; cost: unknown }>>();
+    if (retailWholesale && canManageCatalog) {
+      for (const row of recipeRowsForStock) {
+        const ingredient = Array.isArray(row.ingredients) ? row.ingredients[0] : row.ingredients;
+        const entries = rwCostLines.get(row.product_id) ?? [];
+        entries.push({quantity: Number(row.quantity_per_item), cost: ingredient?.avg_unit_cost});
+        rwCostLines.set(row.product_id, entries);
+      }
+    }
+    const rwMedia = new Map<string, string>();
+    if (retailWholesale) {
+      try {
+        for(let i=0;i<productIds.length;i+=200) {
+          const assets=await loadProductMediaMap({tenantId:auth.tenantId!,branchId:selectedBranchId,productIds:productIds.slice(i,i+200)});
+          for(const [id,asset] of assets) rwMedia.set(id,asset.thumbnail_url);
+        }
+      } catch {
+        rwDataWarning = th ? "โหลดรูปสินค้าบางรายการไม่สำเร็จ" : "Some product images could not be loaded.";
+      }
+    }
     productsForTable = productsData.map((row) => {
       const basePrice = Number(row.price);
       const stockUnits = recipeStockByProduct.has(row.id) ? (recipeStockByProduct.get(row.id) ?? null) : null;
       return {
         ...row,
         price: basePrice,
+        ...(retailWholesale ? {
+          rw_cost: canManageCatalog ? estimateRetailStockCost(rwCostLines.get(row.id) ?? []) : null,
+          rw_online_price: explicitRetailPrice(row.metadata?.rw_online_price),
+          rw_wholesale_price: explicitRetailPrice(row.metadata?.rw_wholesale_price),
+          rw_thumbnail: rwMedia.get(row.id) ?? null
+        } : {}),
         stock_deduction_mode: row.stock_deduction_mode ?? "unit_only",
         delivery_price_preview: getPreferredDeliveryPrice(deliveryPriceMap, row.id, basePrice),
         stock_on_hand_units: stockUnits,
@@ -467,6 +508,7 @@ export default async function PosStockPage({
         commissionVatRatePct: Number(row.commission_vat_rate_pct ?? 0)
       }));
   } catch {
+    if(retailWholesale) rwDataWarning = th ? "โหลดข้อมูลสินค้าไม่ครบ กรุณาตรวจสอบการเชื่อมต่อก่อนปรับสต๊อก" : "Product data is incomplete. Check the connection before adjusting stock.";
     deliveryRatesForAddProduct = DEFAULT_DELIVERY_CHANNEL_CONFIGS.filter(
       (entry) => entry.channel === "line_man" || entry.channel === "grab" || entry.channel === "shopee"
     ).map((entry) => ({
@@ -478,13 +520,13 @@ export default async function PosStockPage({
   }
 
   return (
-    <section className="pos-section-card w-full self-start overflow-hidden rounded-2xl border border-slate-300 bg-white">
+    <section className={retailWholesale ? "rw-stock-layout flex h-full min-h-0 w-full flex-col overflow-y-auto bg-white" : "pos-section-card w-full self-start overflow-hidden rounded-2xl border border-slate-300 bg-white"}>
       <div className="border-b border-slate-200 bg-[linear-gradient(130deg,#f8fbff_0%,#f2f7ff_34%,#fff7ed_100%)] px-4 py-3 lg:px-6 lg:py-4">
         <div className="grid gap-3 lg:grid-cols-[minmax(260px,1fr)_minmax(360px,520px)_auto] lg:items-start">
           <div>
             <PosBackButton lang={lang} href="/preview/pos/more" label={lang === "th" ? "กลับเมนูเพิ่มเติม" : "Back to More"} className="mb-3" />
             <h2 className="mt-1 text-xl font-extrabold text-slate-900 lg:text-2xl">
-              {t(lang, "pos_stock_title")}
+              {retailWholesale ? (th ? "จัดการสินค้าและสต๊อก · ค้าปลีก–ค้าส่ง" : "Retail & Wholesale Inventory") : t(lang, "pos_stock_title")}
             </h2>
             {customStockMode==="mixed"?<Link href="/preview/pos/stock/custom"
               className="mt-2 inline-flex min-h-10 items-center rounded-xl border border-emerald-300 bg-emerald-50 px-4 text-sm font-bold text-emerald-800 hover:bg-emerald-100">
@@ -519,7 +561,7 @@ export default async function PosStockPage({
                 </div>
               </div>
             </details>
-            <AddProductPopupButton
+            {!warehouseView ? <AddProductPopupButton
               th={th}
               categories={categoryList}
               ingredients={ingredientList}
@@ -527,18 +569,27 @@ export default async function PosStockPage({
               branchId={selectedBranchId}
               disabled={!canManageCatalog}
               buttonLabel={th ? `เพิ่มสินค้า (${selectedBranchName})` : `Add Product (${selectedBranchName})`}
-            />
+            /> : null}
           </div>
         </div>
 
-        <div
+        {retailWholesale ? <nav aria-label={th ? "ประเภทสต๊อก" : "Inventory scope"} className="mt-3 flex flex-wrap gap-2">
+          <Link href={`/preview/pos/stock?branch_id=${encodeURIComponent(selectedBranchId)}`} aria-current={!warehouseView?"page":undefined} className={`rounded-lg border px-4 py-2 text-sm font-bold ${!warehouseView?"border-blue-600 bg-blue-600 text-white":"border-slate-300 bg-white text-slate-700"}`}>{th?"สต๊อกร้าน / สาขา":"Branch stock"}</Link>
+          <Link href={`/preview/pos/stock?branch_id=${encodeURIComponent(selectedBranchId)}&stock_scope=warehouse`} aria-current={warehouseView?"page":undefined} className={`rounded-lg border px-4 py-2 text-sm font-bold ${warehouseView?"border-blue-600 bg-blue-600 text-white":"border-slate-300 bg-white text-slate-700"}`}>{th?"สต๊อกคลังสินค้า":"Warehouse stock"}</Link>
+        </nav>:null}
+        {!warehouseView ? <div
           id="stock-page-action-toolbar"
           className="mt-2 flex min-h-9 flex-wrap items-center justify-end gap-2 border-t border-slate-200/80 pt-2"
           aria-label={th ? "เครื่องมือจัดการสินค้า" : "Product management tools"}
-        />
+        /> : null}
       </div>
 
-      <div className="grid gap-3 px-4 py-3 lg:px-6 lg:py-3">
+      {warehouseView ? <section className="m-4 rounded-lg border border-amber-200 bg-amber-50 p-5" data-testid="rw-warehouse-not-active">
+        <h3 className="font-extrabold text-slate-900">{th?"คลังสินค้ากลาง · ยังไม่เปิดรับ/โอนสินค้าจริง":"Central warehouse · transactions not enabled"}</h3>
+        <p className="mt-2 text-sm text-slate-700">{th?"คลังกลางแยกจากยอดสาขา ระบบยังไม่เปิดให้รับสินค้า ออกใบโอน หรือยืนยันรับปลายทาง จึงไม่มีการแสดงยอดสมมติ":"Warehouse inventory is separate from branch stock. Receiving, transfer and destination receipt are not enabled; no estimated balances are displayed."}</p>
+        <p className="mt-2 text-xs text-slate-600">{th?"ขั้นตอนที่เตรียมไว้: รับเข้าคลัง → จอง/จัดส่ง → สินค้าระหว่างทาง → สาขาตรวจรับ":"Planned flow: warehouse receipt → reserve/dispatch → in transit → branch receipt"}</p>
+      </section> : <div className={retailWholesale?"min-w-0 flex-1 px-2 py-2":"grid gap-3 px-4 py-3 lg:px-6 lg:py-3"}>
+        {rwDataWarning ? <p role="alert" className="mb-2 rounded border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900">{rwDataWarning}</p>:null}
         <div id="stock-products-table-area">
           <StockProductsTable
             th={th}
@@ -553,9 +604,10 @@ export default async function PosStockPage({
             branchId={selectedBranchId}
             branchOptions={branchOptions}
             canManageCatalog={canManageCatalog}
+            retailWholesale={retailWholesale}
           />
         </div>
-      </div>
+      </div>}
 
       <style>{`
         #stock-products-table-area > div > div:last-of-type:not(.fixed) {

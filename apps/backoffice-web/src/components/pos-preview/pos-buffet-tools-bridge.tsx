@@ -12,7 +12,7 @@ function wait(ms: number) {
 
 function resolveProductActionTarget(): HTMLElement | null {
   const root = document.getElementById(TOOLBAR_ID);
-  if (!root) return null;
+  if (!root || root.closest(".rw-stock-layout")) return null;
   const portalContent = root.firstElementChild as HTMLElement | null;
   const actionGroup = portalContent?.lastElementChild as HTMLElement | null;
   return actionGroup ?? root;

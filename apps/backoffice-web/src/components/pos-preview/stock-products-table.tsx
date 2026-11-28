@@ -55,6 +55,10 @@ type ProductRow = {
   stock_deduction_mode?: "unit_only" | "recipe_deduction" | null;
   is_recommended?: boolean;
   special_price?: number | null;
+  rw_cost?: number | null;
+  rw_online_price?: number | null;
+  rw_wholesale_price?: number | null;
+  rw_thumbnail?: string | null;
 };
 
 type SellableStockStatus = {
@@ -80,6 +84,7 @@ type Props = {
   branchId: string;
   branchOptions: BranchOption[];
   canManageCatalog: boolean;
+  retailWholesale?: boolean;
 };
 
 type ApiEnvelope<T> = {
@@ -157,9 +162,10 @@ export function StockProductsTable({
   inventorySettingsMessage = "",
   branchId,
   branchOptions,
-  canManageCatalog
+  canManageCatalog,
+  retailWholesale = false
 }: Props) {
-  const PAGE_SIZE = 10;
+  const PAGE_SIZE = retailWholesale ? 25 : 10;
   const router = useRouter();
   const [modeFilter, setModeFilter] = useState<"all" | "unit_only" | "ingredients">("all");
   const [currentPage, setCurrentPage] = useState(1);
@@ -848,6 +854,7 @@ const headerTools = (
   return (
     <div className="min-w-0">
       {toolbarTarget ? createPortal(headerTools, toolbarTarget) : null}
+      {retailWholesale?<p className="mb-2 text-xs text-slate-500">{th?"— หมายถึงยังไม่มีข้อมูลที่ยืนยันได้ · ต้นทุนจากต้นทุนเฉลี่ยของสต๊อกเดิม · ราคาออนไลน์/ขายส่งยังไม่เชื่อมระบบคิดเงิน":"— means no verified value · cost from existing average inventory cost · online/wholesale pricing is not connected to checkout yet"}</p>:null}
       {!canManageCatalog ? (
         <p className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-700">
           {th ? "สิทธิ์พนักงาน: ดูข้อมูลได้ แต่เพิ่ม/แก้ไข/ลบสินค้าไม่ได้" : "Staff role: view only. Add/edit/delete is disabled."}
@@ -982,35 +989,39 @@ const headerTools = (
           </table>
         </div>
       ) : (
-        <div className="max-h-[45vh] overflow-auto rounded-xl border border-slate-200">
-          <table className="min-w-[1080px] w-full border-collapse">
+        <div className={retailWholesale?"max-h-[calc(100dvh-230px)] min-h-32 overflow-auto border border-slate-200":"max-h-[45vh] overflow-auto rounded-xl border border-slate-200"}>
+          <table className={retailWholesale?"min-w-[1220px] w-full border-collapse":"min-w-[1080px] w-full border-collapse"}>
             <thead className="sticky top-0 z-10 bg-slate-50">
               <tr className="bg-slate-50">
                 <th className="border-b border-slate-200 px-3 py-2 text-left"><input type="checkbox" checked={filteredProducts.length > 0 && selectedFilteredProductIds.length === filteredProducts.length} onChange={toggleSelectAllFilteredProducts} aria-label={th ? "เลือกสินค้าทั้งหมดตามตัวกรอง" : "Select all filtered products"} className="h-4 w-4 rounded border-slate-300" /></th>
-                <th className="border-b border-slate-200 px-3 py-2 text-left text-xs font-bold text-slate-500">SKU</th>
-                <th className="border-b border-slate-200 px-3 py-2 text-left text-xs font-bold text-slate-500">{th ? "หมวดหมู่" : "Category"}</th>
-                <th className="border-b border-slate-200 px-3 py-2 text-left text-xs font-bold text-slate-500">{th ? "สินค้า" : "Product"}</th>
-                <th className="border-b border-slate-200 px-3 py-2 text-left text-xs font-bold text-slate-500">{th ? "คงเหลือขายได้" : "Sellable Stock"}</th>
-                <th className="border-b border-slate-200 px-3 py-2 text-right text-xs font-bold text-slate-500">{th ? "ราคาหน้าร้าน" : "Store Price"}</th>
+                <th className="border-b border-slate-200 px-3 py-2 text-left text-xs font-bold text-slate-500">{retailWholesale?(th?"บาร์โค้ด":"Barcode"):"SKU"}</th>
+                <th className="border-b border-slate-200 px-3 py-2 text-left text-xs font-bold text-slate-500">{retailWholesale?(th?"รูปสินค้า":"Image"):(th ? "หมวดหมู่" : "Category")}</th>
+                <th className="border-b border-slate-200 px-3 py-2 text-left text-xs font-bold text-slate-500">{retailWholesale?(th?"ชื่อสินค้า":"Product name"):(th ? "สินค้า" : "Product")}</th>
+                <th className="border-b border-slate-200 px-3 py-2 text-left text-xs font-bold text-slate-500">{retailWholesale?(th?"จำนวนสต๊อก":"Stock quantity"):(th ? "คงเหลือขายได้" : "Sellable Stock")}</th>
+                {retailWholesale&&canManageCatalog?<th className="border-b border-slate-200 px-3 py-2 text-right text-xs font-bold text-slate-500">{th?"ราคาต้นทุน":"Unit cost"}</th>:null}
+                <th className="border-b border-slate-200 px-3 py-2 text-right text-xs font-bold text-slate-500">{th ? "ราคาขายหน้าร้าน" : "Store Price"}</th>
+                {retailWholesale?<th className="border-b border-slate-200 px-3 py-2 text-right text-xs font-bold text-slate-500">{th?"ราคาขายออนไลน์":"Online price"}</th>:null}
                 <th className="border-b border-slate-200 px-3 py-2 text-right text-xs font-bold text-amber-700">{th ? "ราคาพิเศษ" : "Special Price"}</th>
-                <th className="border-b border-slate-200 px-3 py-2 text-right text-xs font-bold text-slate-500">{th ? "ราคาเดลิเวอรี่" : "Delivery Price"}</th>
+                <th className="border-b border-slate-200 px-3 py-2 text-right text-xs font-bold text-slate-500">{retailWholesale?(th?"ราคาขายส่ง":"Wholesale price"):(th ? "ราคาเดลิเวอรี่" : "Delivery Price")}</th>
                 <th className="border-b border-slate-200 px-3 py-2 text-left text-xs font-bold text-slate-500">{th ? "สถานะ" : "Status"}</th>
                 <th className="border-b border-slate-200 px-3 py-2 text-left text-xs font-bold text-slate-500">{th ? "จัดการ" : "Actions"}</th>
               </tr>
             </thead>
             <tbody>
-              {filteredProducts.length === 0 ? <tr><td colSpan={10} className="px-3 py-6 text-center text-sm text-slate-500">{th ? "ไม่พบรายการสินค้าตามตัวกรองนี้" : "No products match this filter."}</td></tr> : pagedProducts.map((item) => (
+              {filteredProducts.length === 0 ? <tr><td colSpan={retailWholesale?(canManageCatalog?12:11):10} className="px-3 py-6 text-center text-sm text-slate-500">{th ? "ไม่พบรายการสินค้าตามตัวกรองนี้" : "No products match this filter."}</td></tr> : pagedProducts.map((item) => (
                 <tr key={item.id}>
                   <td className="border-b border-slate-100 px-3 py-3"><input type="checkbox" checked={selectedProductIds.includes(item.id)} onChange={() => toggleProductSelection(item.id)} aria-label={th ? `เลือกรายการสินค้า ${item.name}` : `Select product ${item.name}`} className="h-4 w-4 rounded border-slate-300" /></td>
                   <td className="border-b border-slate-100 px-3 py-3 text-sm font-semibold text-slate-700"><StockSkuReveal sku={item.sku} th={th} name={item.name} /></td>
-                  <td className="border-b border-slate-100 px-3 py-3 text-sm text-slate-700">{item.category ?? (th ? "ไม่ระบุหมวดหมู่" : "Uncategorized")}</td>
-                  <td className="border-b border-slate-100 px-3 py-3"><p className="text-sm font-bold text-slate-900">{item.name}</p></td>
+                  <td className="border-b border-slate-100 px-3 py-3 text-sm text-slate-700">{retailWholesale ? (item.rw_thumbnail ? <img src={item.rw_thumbnail} alt={item.name} loading="lazy" className="h-12 w-12 rounded border border-slate-200 object-contain"/> : <span className="grid h-12 w-12 place-items-center rounded bg-slate-100 text-[10px] text-slate-500">{th?"ไม่มีรูป":"No image"}</span>) : item.category ?? (th ? "ไม่ระบุหมวดหมู่" : "Uncategorized")}</td>
+                  <td className="border-b border-slate-100 px-3 py-3"><p className="text-sm font-bold text-slate-900">{item.name}</p>{retailWholesale&&item.category?<p className="text-xs text-slate-500">{item.category}</p>:null}</td>
                   <td className="border-b border-slate-100 px-3 py-3">{item.stock_on_hand_units === null ? <div className="flex items-center gap-1.5"><p className="text-sm font-bold text-slate-600">-</p>{item.has_ingredient_recipe ? <span className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-emerald-300 bg-emerald-50 text-[10px] font-extrabold leading-none text-emerald-700">+</span> : null}</div> : <div className="flex items-center gap-1.5"><p className="text-sm font-bold text-slate-900">{item.stock_on_hand_units}</p>{item.has_ingredient_recipe ? <span className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-emerald-300 bg-emerald-50 text-[10px] font-extrabold leading-none text-emerald-700">+</span> : null}</div>}</td>
+                  {retailWholesale&&canManageCatalog?<td className="border-b border-slate-100 px-3 py-3 text-right text-sm tabular-nums">{item.rw_cost==null?"—":formatMoney(item.rw_cost)}</td>:null}
                   <td className="border-b border-slate-100 px-3 py-3 text-right text-sm font-bold text-slate-800">{formatMoney(item.price)}</td>
+                  {retailWholesale?<td className="border-b border-slate-100 px-3 py-3 text-right text-sm tabular-nums">{item.rw_online_price==null?"—":formatMoney(item.rw_online_price)}</td>:null}
                   <td className="border-b border-slate-100 px-3 py-3 text-right text-sm font-bold text-amber-700">
                     {item.special_price == null ? "-" : formatMoney(item.special_price)}
                   </td>
-                  <td className="border-b border-slate-100 px-3 py-3 text-right text-sm font-bold text-orange-600">{formatMoney(item.delivery_price_preview ?? item.price)}</td>
+                  <td className="border-b border-slate-100 px-3 py-3 text-right text-sm font-bold text-orange-600">{retailWholesale?(item.rw_wholesale_price==null?"—":formatMoney(item.rw_wholesale_price)):formatMoney(item.delivery_price_preview ?? item.price)}</td>
                   <td className="border-b border-slate-100 px-3 py-3">{(() => { const status = getSellableStockStatus(item.stock_on_hand_units, item.is_active, th); return <span className={`inline-flex min-h-7 items-center rounded-full border px-2.5 text-xs font-bold ${status.className}`}>{status.label}</span>; })()}</td>
                   <td className="sticky right-0 z-10 min-w-[132px] border-b border-l border-slate-100 bg-white px-3 py-3 shadow-[-8px_0_12px_-12px_rgba(15,23,42,0.45)]"><div className="flex flex-nowrap items-center gap-1.5">
                     <EditProductPopupButton th={th} compact product={{ id: item.id, sku: item.sku, name: item.name, category: item.category, price: item.price, specialPrice: item.special_price ?? null, deliveryPrice: item.delivery_price_preview ?? item.price, isRecommended: item.is_recommended === true }} categories={categoryList} ingredients={ingredientList} deliveryRates={deliveryRates} branchId={branchId} disabled={!canManageCatalog} />

@@ -1,6 +1,7 @@
+import { isRetailWholesaleProfile } from "@/lib/retail-wholesale/profile";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 
-export type CustomPosStockMode = "legacy" | "optical" | "retail" | "mixed";
+export type CustomPosStockMode = "legacy" | "optical" | "retail" | "mixed" | "retail_wholesale";
 
 /**
  * The CUSTOM package alone grants no Optical page. Only exactly one current
@@ -23,6 +24,7 @@ export async function getCustomPosStockUiMode(tenantId: string): Promise<CustomP
   const metadata=contract.metadata as Record<string,unknown>|null;
   const modes=(metadata?.sales_modes??{}) as Record<string,unknown>;
   if(!modes||typeof modes!=="object")return "legacy";
+  if(isRetailWholesaleProfile(plan?.code,modes))return "retail_wholesale";
   const optical=modes.optical_retail===true;
   const food=["takeaway","dine_in","delivery","buffet_table"].some(x=>modes[x]===true);
   const retail=modes.general_sale===true;
