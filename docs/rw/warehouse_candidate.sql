@@ -66,7 +66,7 @@ create table rw_warehouse_candidate.branch_receipts (
 );
 alter table rw_warehouse_candidate.branch_receipts enable row level security;
 create function rw_warehouse_candidate.guard_branch_receipt_movement()
-returns trigger language plpgsql security invoker set search_path=pg_catalog,rw_warehouse_candidate as $
+returns trigger language plpgsql security invoker set search_path=pg_catalog,rw_warehouse_candidate as $$
 begin
  if new.movement_type::text='warehouse_transfer_in' then
    update rw_warehouse_candidate.branch_receipts r set used_at=now()
@@ -77,7 +77,7 @@ begin
    if not found then raise exception 'rw_warehouse_movement_not_authorized'; end if;
  end if;
  return new;
-end $;
+end $$;
 create trigger trg_rw_warehouse_receipt_guard before insert on public.stock_movements
 for each row execute function rw_warehouse_candidate.guard_branch_receipt_movement();
 
