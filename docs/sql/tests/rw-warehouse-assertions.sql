@@ -72,3 +72,15 @@ reset role;
 select public.rw_inbound_candidate('00000000-0000-0000-0000-000000000001','00000000-0000-0000-0000-000000000061','00000000-0000-0000-0000-000000000031','00000000-0000-0000-0000-000000000120','B',1,100,'TEST-002');
 select public.rw_dispatch_candidate('00000000-0000-0000-0000-000000000001','00000000-0000-0000-0000-000000000072','00000000-0000-0000-0000-000000000031','00000000-0000-0000-0000-000000000121');
 select 'SYNTHETIC RPC ASSERTIONS PASSED';
+
+-- Exercise the real adapter on the draft created by request 150.
+set role service_role;
+do $$ declare transfer_id_value uuid; response jsonb; begin
+ select (result->>'transfer_id')::uuid into transfer_id_value from public.rw_warehouse_commands where tenant_id='00000000-0000-0000-0000-000000000001' and request_id='00000000-0000-0000-0000-000000000150';
+ response:=public.rw_apply_transfer_pin_candidate('00000000-0000-0000-0000-000000000001',transfer_id_value,'00000000-0000-0000-0000-000000000031','00000000-0000-0000-0000-000000001510','00000000-0000-0000-0000-000000000031','approve_transfer');
+ if response->>'status'<>'approved' then raise exception 'PIN_ADAPTER_APPROVAL'; end if;
+ if public.rw_apply_transfer_pin_candidate('00000000-0000-0000-0000-000000000001',transfer_id_value,'00000000-0000-0000-0000-000000000031','00000000-0000-0000-0000-000000001510','00000000-0000-0000-0000-000000000031','approve_transfer')<>response then raise exception 'PIN_ADAPTER_REPLAY'; end if;
+ response:=public.rw_apply_transfer_pin_candidate('00000000-0000-0000-0000-000000000001',transfer_id_value,'00000000-0000-0000-0000-000000000031','00000000-0000-0000-0000-000000001511','00000000-0000-0000-0000-000000000031','cancel_transfer');
+ if response->>'status'<>'cancelled' then raise exception 'PIN_ADAPTER_CANCELLATION'; end if;
+end $$;
+reset role;

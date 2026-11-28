@@ -14,6 +14,8 @@ import { getProductSpecialPrice, isProductRecommended } from "@/lib/pos/product-
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 import { redirect } from "next/navigation";
 import Link from "next/link";
+import { RwWarehouseWorkspace } from "@/components/pos-preview/rw-warehouse-workspace";
+import { rwWarehouseUatAllowed } from "@/lib/retail-wholesale/warehouse-uat-policy";
 import { collectPagedShiftRows, collectShiftRowsForIds } from "@/lib/pos-shift-query-pagination";
 import { loadProductMediaMap } from "@/lib/product-media";
 import { estimateRetailStockCost, explicitRetailPrice } from "@/lib/retail-wholesale/stock-display";
@@ -247,11 +249,15 @@ export default async function PosStockPage({
             <span aria-current="page" className="rounded-lg border border-blue-600 bg-blue-600 px-4 py-2 text-sm font-bold text-white">{th?"สต๊อกคลังสินค้า":"Warehouse stock"}</span>
           </nav>
         </header>
-        <section className="m-4 rounded-lg border border-amber-200 bg-amber-50 p-5" data-testid="rw-warehouse-not-active">
+        {rwWarehouseUatAllowed(scope.session.tenant_id, {
+          VERCEL_ENV: process.env.VERCEL_ENV,
+          RW_WAREHOUSE_UAT_ENABLED: process.env.RW_WAREHOUSE_UAT_ENABLED,
+          RW_WAREHOUSE_UAT_TENANT_ID: process.env.RW_WAREHOUSE_UAT_TENANT_ID
+        }) ? <RwWarehouseWorkspace th={th}/> : <section className="m-4 rounded-lg border border-amber-200 bg-amber-50 p-5" data-testid="rw-warehouse-not-active">
           <h3 className="font-extrabold text-slate-900">{th?"คลังสินค้ากลาง · ยังไม่เปิดรับ/โอนสินค้าจริง":"Central warehouse · transactions not enabled"}</h3>
           <p className="mt-2 text-sm text-slate-700">{th?"คลังกลางแยกจากยอดสาขา ระบบยังไม่เปิดให้รับสินค้า ออกใบโอน หรือยืนยันรับปลายทาง จึงไม่มีการแสดงยอดสมมติ":"Warehouse inventory is separate from branch stock. Receiving, transfer and destination receipt are not enabled; no estimated balances are displayed."}</p>
           <p className="mt-2 text-xs text-slate-600">{th?"ขั้นตอนที่เตรียมไว้: รับเข้าคลัง → จัดส่ง → สินค้าระหว่างทาง → สาขาตรวจรับ":"Planned flow: warehouse receipt → dispatch → in transit → branch receipt"}</p>
-        </section>
+        </section>}
       </section>
     );
 

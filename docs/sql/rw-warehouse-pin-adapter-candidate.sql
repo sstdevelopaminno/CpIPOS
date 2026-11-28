@@ -18,8 +18,8 @@ begin
  perform pg_advisory_xact_lock(hashtextextended(p_tenant::text||':'||p_request::text,0));
  select * into prior from public.rw_warehouse_commands where tenant_id=p_tenant and request_id=p_request;
  if found then
-  if prior.actor_id<>p_actor or prior.payload->>'operation'<>p_action::text
-     or prior.payload->>'transfer_id'<>p_transfer::text then raise exception 'REQUEST_CONFLICT'; end if;
+  if prior.actor_id<>p_actor or (prior.payload->>'operation') is distinct from p_action::text
+     or (prior.payload->>'transfer_id') is distinct from p_transfer::text then raise exception 'REQUEST_CONFLICT'; end if;
   -- Reuse original approval, not a newly minted token. The decision RPC rechecks entitlement.
   return public.rw_transfer_decision_candidate(p_tenant,p_transfer,p_actor,p_request,
     (prior.payload->>'approval_id')::uuid,p_action);
