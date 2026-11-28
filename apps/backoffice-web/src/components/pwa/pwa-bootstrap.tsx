@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 
 import { isSafeForAppUpdate } from "@/lib/app-update-safety";
+import { shouldShowAndroidTabletUpdateNotice } from "@/lib/android-pos/update-notice-client";
 
 const UPDATE_CHECK_MS = 5 * 60_000;
 
@@ -37,6 +38,8 @@ export function PwaBootstrap({ loadedCommit = null }: { loadedCommit?: string | 
       return;
     }
 
+    // Keep the offline service worker for every supported platform; only Android gets the update prompt.
+    const showNotice = shouldShowAndroidTabletUpdateNotice();
     let disposed = false;
     let registration: ServiceWorkerRegistration | undefined;
     let checking = false;
@@ -49,7 +52,7 @@ export function PwaBootstrap({ loadedCommit = null }: { loadedCommit?: string | 
       lastCheck = Date.now();
       try {
         await registration.update();
-        if (!disposed && registration.waiting) setWaitingWorker(registration.waiting);
+        if (showNotice && !disposed && registration.waiting) setWaitingWorker(registration.waiting);
       } catch {
         // Retry on focus, reconnect or the next periodic check.
       } finally {
@@ -61,7 +64,7 @@ export function PwaBootstrap({ loadedCommit = null }: { loadedCommit?: string | 
       const nextWorker = registration?.installing;
       if (!nextWorker) return;
       nextWorker.addEventListener("statechange", () => {
-        if (!disposed && nextWorker.state === "installed" && navigator.serviceWorker.controller) {
+        if (showNotice && !disposed && nextWorker.state === "installed" && navigator.serviceWorker.controller) {
           setWaitingWorker(nextWorker);
         }
       });
@@ -71,7 +74,7 @@ export function PwaBootstrap({ loadedCommit = null }: { loadedCommit?: string | 
       try {
         registration = await navigator.serviceWorker.register("/sw.js", { scope: "/", updateViaCache: "none" });
         if (disposed) return;
-        if (registration.waiting) setWaitingWorker(registration.waiting);
+        if (showNotice && registration.waiting) setWaitingWorker(registration.waiting);
         registration.addEventListener("updatefound", watchUpdate);
         watchUpdate();
         await check();
@@ -96,7 +99,7 @@ export function PwaBootstrap({ loadedCommit = null }: { loadedCommit?: string | 
 
   useEffect(() => {
     // A web deployment can change without changing the service worker script.
-    if (!loadedCommit || process.env.NODE_ENV !== "production") return;
+    if (!shouldShowAndroidTabletUpdateNotice() || !loadedCommit || process.env.NODE_ENV !== "production") return;
     let disposed = false;
     let checking = false;
     let lastCheck = 0;
@@ -140,7 +143,7 @@ export function PwaBootstrap({ loadedCommit = null }: { loadedCommit?: string | 
   }, [loadedCommit]);
 
   useEffect(() => {
-    if (!updateRequested || !waitingWorker || !("serviceWorker" in navigator)) return;
+    if (!shouldShowAndroidTabletUpdateNotice() || !updateRequested || !waitingWorker || !("serviceWorker" in navigator)) return;
     let disposed = false;
     // Only the tab that explicitly requested activation may reload.
     const onControllerChange = async () => {
@@ -168,7 +171,7 @@ export function PwaBootstrap({ loadedCommit = null }: { loadedCommit?: string | 
     };
   }, [updateRequested, waitingWorker]);
 
-  if (!waitingWorker && !webUpdateAvailable) return null;
+  if ((!waitingWorker && !webUpdateAvailable) || !shouldShowAndroidTabletUpdateNotice()) return null;
 
   return (
     <div
