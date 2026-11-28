@@ -1,0 +1,85 @@
+begin;
+do $$
+declare
+ t uuid:='10000000-0000-4000-8000-000000000001';
+ other_t uuid:='10000000-0000-4000-8000-000000000002';
+ b uuid:='20000000-0000-4000-8000-000000000001';
+ other_b uuid:='20000000-0000-4000-8000-000000000002';
+ owner_id uuid:='30000000-0000-4000-8000-000000000001';
+ manager_id uuid:='30000000-0000-4000-8000-000000000002';
+ staff_id uuid:='30000000-0000-4000-8000-000000000003';
+ plan uuid:='40000000-0000-4000-8000-000000000001';
+ w uuid:='50000000-0000-4000-8000-000000000001';
+ item uuid:='60000000-0000-4000-8000-000000000001';
+ prod uuid:='70000000-0000-4000-8000-000000000001';
+ ing uuid:='80000000-0000-4000-8000-000000000001';
+ receipt_req uuid:=gen_random_uuid(); dispatch_req uuid:=gen_random_uuid(); partial_req uuid:=gen_random_uuid(); final_req uuid:=gen_random_uuid();
+ tr uuid; result jsonb; again jsonb; q numeric; v bigint;
+begin
+ insert into public.tenants values(t,true),(other_t,true);
+ insert into public.users_profiles values(owner_id,true,null),(manager_id,true,null),(staff_id,true,null);
+ insert into public.branches values(b,t,true),(other_b,other_t,true);
+ insert into public.subscription_packages values(plan,'custom');
+ insert into public.tenant_subscription_contracts(tenant_id,package_id,status,metadata,currency)
+ values(t,plan,'active','{"sales_modes":{"retail_wholesale":true,"general_sale":false}}','THB'),(other_t,plan,'active','{"sales_modes":{"general_sale":true}}','THB');
+ insert into public.user_branch_roles values(t,b,owner_id,'owner'),(t,b,manager_id,'manager'),(t,b,staff_id,'staff'),(other_t,other_b,owner_id,'owner');
+ insert into public.products values(prod,t,b,'SKU-001',true,null,'unit_only');
+ insert into public.ingredients values(ing,t,b,'STOCK:SKU-001:Test','piece',2,1.50,1.50,now());
+ insert into public.recipes(tenant_id,branch_id,product_id,ingredient_id,quantity_per_item) values(t,b,prod,ing,1);
+ insert into rw_warehouse_candidate.warehouses(tenant_id,id,code,name) values(t,w,'W01','Synthetic Warehouse');
+ insert into rw_warehouse_candidate.items(tenant_id,id,sku,name) values(t,item,'SKU-001','Test Product');
+ insert into rw_warehouse_candidate.branch_links values(t,item,b,prod,ing);
+ result:=rw_warehouse_candidate.receive_warehouse(t,owner_id,receipt_req,w,item,3,100,'receipt-line-001');
+ if result->>'quantity'<>'3' or result->>'value_minor'<>'100' then raise exception 'assert_receipt'; end if;
+ again:=rw_warehouse_candidate.receive_warehouse(t,owner_id,receipt_req,w,item,3,100,'receipt-line-001');
+ if again<>result then raise exception 'assert_duplicate_receipt'; end if;
+ begin perform rw_warehouse_candidate.receive_warehouse(t,owner_id,receipt_req,w,item,4,100,'receipt-line-001'); raise exception 'expected_conflict'; exception when others then if sqlerrm<>'rw_idempotency_conflict' then raise; end if; end;
+ begin perform rw_warehouse_candidate.receive_warehouse(t,owner_id,gen_random_uuid(),w,item,3,100,'receipt-line-001'); raise exception 'expected_duplicate_source'; exception when unique_violation then null; end;
+ if (select quantity from rw_warehouse_candidate.balances where tenant_id=t and warehouse_id=w and item_id=item)<>3 then raise exception 'assert_receipt_rollback'; end if;
+ begin perform rw_warehouse_candidate.dispatch(t,owner_id,gen_random_uuid(),w,item,b,4); raise exception 'expected_insufficient'; exception when others then if sqlerrm<>'rw_warehouse_insufficient' then raise; end if; end;
+ result:=rw_warehouse_candidate.dispatch(t,owner_id,dispatch_req,w,item,b,3);
+ tr:=(result->>'transfer_id')::uuid;
+ again:=rw_warehouse_candidate.dispatch(t,owner_id,dispatch_req,w,item,b,3);
+ if again<>result or result->>'state'<>'in_transit' then raise exception 'assert_dispatch'; end if;
+ select quantity_on_hand into q from public.ingredients where id=ing;
+ if q<>2 then raise exception 'assert_no_early_branch_stock'; end if;
+ if exists(select 1 from public.stock_movements) then raise exception 'assert_no_early_movement'; end if;
+ -- Existing approval guard stays active. New movement type cannot be spoofed.
+ begin
+  insert into public.stock_movements(id,tenant_id,branch_id,ingredient_id,movement_type,quantity_delta,created_by)
+  values(gen_random_uuid(),t,b,ing,'manual_adjustment',1,manager_id);
+  raise exception 'expected_pin_denial';
+ exception when others then if sqlerrm<>'Manual stock adjustment requires approval.' then raise; end if; end;
+ begin
+  insert into public.stock_movements(id,tenant_id,branch_id,ingredient_id,movement_type,quantity_delta,created_by,ref_table,ref_id,request_id)
+  values(gen_random_uuid(),t,b,ing,'warehouse_transfer_in',1,manager_id,'rw_warehouse_transfers',tr,'rw:'||gen_random_uuid()::text);
+  raise exception 'expected_forgery_denial';
+ exception when others then if sqlerrm<>'rw_warehouse_movement_not_authorized' then raise; end if; end;
+ begin perform rw_warehouse_candidate.receive_branch(t,staff_id,gen_random_uuid(),tr,b,1); raise exception 'expected_staff_denial'; exception when others then if sqlerrm<>'rw_branch_manager_required' then raise; end if; end;
+ begin perform rw_warehouse_candidate.receive_branch(other_t,owner_id,gen_random_uuid(),tr,other_b,1); raise exception 'expected_sd_denial'; exception when others then if sqlerrm<>'rw_custom_thb_required' then raise; end if; end;
+ begin perform rw_warehouse_candidate.receive_branch(t,manager_id,gen_random_uuid(),tr,b,4); raise exception 'expected_overreceipt'; exception when others then if sqlerrm<>'rw_transfer_over_receipt' then raise; end if; end;
+ result:=rw_warehouse_candidate.receive_branch(t,manager_id,partial_req,tr,b,1);
+ if result->>'state'<>'partially_received' or result->>'received_value_minor'<>'33' then raise exception 'assert_partial'; end if;
+ again:=rw_warehouse_candidate.receive_branch(t,manager_id,partial_req,tr,b,1);
+ if again<>result then raise exception 'assert_receipt_replay'; end if;
+ -- Mapping drift must block the next receipt and preserve all quantities.
+ update public.recipes set quantity_per_item=2 where product_id=prod;
+ begin perform rw_warehouse_candidate.receive_branch(t,manager_id,final_req,tr,b,2); raise exception 'expected_mapping_denial'; exception when others then if sqlerrm<>'rw_branch_recipe_invalid' then raise; end if; end;
+ update public.recipes set quantity_per_item=1 where product_id=prod;
+ -- Inject a failure at the movement write; the ingredient update must roll back.
+ alter table public.stock_movements add constraint injected_test_failure check(quantity_delta<2);
+ begin perform rw_warehouse_candidate.receive_branch(t,manager_id,final_req,tr,b,2); raise exception 'expected_failure'; exception when check_violation then null; end;
+ if (select quantity_on_hand from public.ingredients where id=ing)<>3 or (select received_quantity from rw_warehouse_candidate.transfers where tenant_id=t and id=tr)<>1 then raise exception 'assert_atomic_rollback'; end if;
+ alter table public.stock_movements drop constraint injected_test_failure;
+ result:=rw_warehouse_candidate.receive_branch(t,manager_id,final_req,tr,b,2);
+ if result->>'state'<>'received' or result->>'received_value_minor'<>'100' or result->>'branch_quantity'<>'5' then raise exception 'assert_final'; end if;
+ if (select count(*) from public.stock_movements where movement_type='warehouse_transfer_in')<>2 then raise exception 'assert_movement_count'; end if;
+ if (select count(*) from rw_warehouse_candidate.branch_receipts where tenant_id=t and transfer_id=tr and used_at is not null)<>2 then raise exception 'assert_receipt_authorization_consumed'; end if;
+ if (select sum(quantity_delta) from public.stock_movements)<>3 then raise exception 'assert_quantity_conservation'; end if;
+ if (select quantity from rw_warehouse_candidate.balances where tenant_id=t and warehouse_id=w and item_id=item)<>0 then raise exception 'assert_warehouse_empty'; end if;
+ if (select avg_unit_cost from public.ingredients where id=ing)<>0.8 then raise exception 'assert_weighted_cost'; end if;
+ if (select last_purchase_unit_cost from public.ingredients where id=ing)<>1.5 then raise exception 'assert_transfer_not_purchase'; end if;
+ if has_schema_privilege('anon','rw_warehouse_candidate','USAGE') or has_schema_privilege('authenticated','rw_warehouse_candidate','USAGE') or has_schema_privilege('service_role','rw_warehouse_candidate','USAGE') then raise exception 'assert_private_schema'; end if;
+ raise notice 'RW warehouse scratch acceptance passed';
+end $$;
+rollback;
