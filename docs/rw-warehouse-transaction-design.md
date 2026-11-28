@@ -1,0 +1,34 @@
+# CUSTOM RW warehouse transaction integration — development only
+
+Do not activate the warehouse UI, apply production DDL, or promote this branch until the gates below are satisfied.
+
+## Verified current architecture
+- Stock page: `apps/backoffice-web/src/app/preview/pos/stock/page.tsx`, scoped by inventory:view and explicit CUSTOM retail_wholesale profile.
+- Existing branch POS stock: `products` + `recipes` + `ingredients.quantity_on_hand`, including STOCK: fallback ingredients. Product IDs and ingredient IDs are branch-specific; a SKU is not a substitute for a verified destination mapping.
+- Stock popup currently submits an absolute calculated quantity via update_product_with_stock_setup; the catalog endpoint overwrites the ingredient quantity. Ingredient popup similarly uses upsert_ingredient. Editing and create/reuse paths also need an audit. This can lose concurrent POS deductions and can modify unrelated product fields.
+- Existing public create_stock_adjustment_tx delegates to app.create_stock_adjustment_tx. It changes quantity by a delta, records stock_movements and handles duplicate request IDs. It does not itself verify or consume a PIN approval; authorization must not be bypassed. Existing deduct_order_recipe_stock updates quantity by delta and writes sale_deduction.
+- Existing approval table manager_pin_approvals has tenant_id, branch_id, requested_by, approved_by, action, target_table, target_id, expires_at and consumed_at.
+- Existing finance_accounting_journals and finance_accounting_journal_lines require real document/account mappings; do not invent accounts, costs or opening balances.
+
+## Transaction contract (not yet deployed)
+1. New server-only commands validate the explicit CUSTOM RW entitlement, authenticated actor, branch membership and existing permission checks. Resolve a single scoped product and exact dedicated piece ingredient (one recipe, quantity 1, not shared, no takeaway override); reject ambiguous mapping. Do not trust submitted tenant/actor IDs.
+2. For branch adjustment, use signed delta, never the stale screen quantity. Preserve existing approval flow. Lock and validate the approval (tenant, branch, action, requester, target, expiry, unused), consume and record it in the SAME transaction as movement and quantity update. Bind request ID to payload; duplicate exact request returns original result, changed payload conflicts. No unrelated product or price writes. Audit other absolute writers before warehouse launch.
+3. Warehouse balances must be independent of branch balances. Proposed tables: warehouse master, warehouse SKU mapping, warehouse balances with nonnegative integer units and exact minor-unit carrying value, transfer header, transfer lines with immutable destination product/ingredient mapping, command idempotency and immutable movement ledger. Every row is tenant scoped. Default deny browser roles, explicit least privilege and RLS; no migration backfill of customer balances.
+4. Draft -> approved -> dispatched/in_transit -> partially_received -> received. Cancel only before dispatch. Approval alone does not move quantities. Dispatch atomically deducts warehouse quantities and increases transit. Receive atomically reduces transit and increases existing destination ingredients by actual received delta; ledger and receipt update in same transaction. Lock transfer header and affected balances in stable order, reject negative balances or over-receipt, enforce unique commands and payload binding. Do not silently write off lost/damaged stock; require separate audited reversal workflow. No sales revenue on transfer.
+5. Preserve carrying value in transit and on receipt. Finance must confirm chart-of-accounts mapping and costing rules; post balanced inventory reclassification only when accounting policy requires it. Retain exact minor-unit residual on final receipt; reject missing cost configuration, never estimate. Avoid creating duplicate GL entries on retry.
+6. Test with isolated fixtures: simultaneous sale/receive and sale/adjust, concurrent dispatches, duplicate and conflicting requests, expired/reused/cross-tenant PIN, rollback on ledger failure, cross-branch access, mapping drift, partial and over-receipts, cost reconciliation and non-RW regressions. Pure transfer state tests are not database concurrency tests.
+7. Require PostgreSQL UAT with separate test sessions, CI, backoffice build and authenticated preview UAT. Only after all pass, review migration rollout and feature gate, merge main and verify the actual Vercel production commit. No production customer writes for tests.
+
+## Candidate implementation checkpoint
+The following SQL files are checked in under docs/sql, deliberately outside auto-applied migrations:
+- rw-branch-adjustment-candidate.sql — signed delta, exact payload-bound PIN consumption, idempotency and movement within one transaction.
+- rw-warehouse-schema-candidate.sql — six tenant-scoped tables, RLS and service-only grants.
+- rw-warehouse-inbound-candidate.sql — inbound quantities and carrying value, idempotency.
+- rw-warehouse-dispatch-candidate.sql — approved transfer dispatch, deterministic SKU locking, transit ledger.
+- rw-warehouse-receive-candidate.sql — partial receipt, destination mapping check, branch stock delta and exact transfer-value residual.
+
+These are **unexecuted candidates**, not migrations or working APIs. Before release: verify issuance of stock_adjustment PIN payload and design a dedicated transfer approval action; implement draft creation/approval/cancellation API, registration of warehouse and SKU, guarded UI, and audit all legacy absolute writers. Owner-only warehouse operations are conservative defaults, subject to existing role policy. Receipt currently assumes two-decimal currency and existing branch moving average; finance policy, document source uniqueness, precision and GL mapping remain unverified. Do not allow inbound receipt based on an unverified purchase document or duplicate document lines. Do not enable service routes before those controls and tests pass.
+
+### Required isolated UAT
+Only main exists in Supabase CpiPOS-001; development branch creation requires explicit cost confirmation. No production DDL or fixture writes were performed.
+Apply candidates in isolated DB, in order: schema, branch adjustment, inbound, dispatch, receive. Run valid and invalid cases with dedicated fake tenants and branches; test identical and conflicting request IDs, expired/reused/other-target PIN, concurrent sale/receipt and sale/adjust from separate connections, failed second line rollback, dispatch/partial/final receipt, denied anon/authenticated grants, mismatched SKU and tenant, cost reconciliation with exact final residual, and GL debit/credit reconciliation. Then test authenticated UI and existing POS modes. CI alone does not execute the candidate SQL or verify those invariants. Keep warehouse disabled until all gates pass.

@@ -69,3 +69,34 @@ jobs:
         if: github.event_name == 'push'
         timeout-minutes: 10
         run: corepack pnpm --filter backoffice-web build
+
+  rw-warehouse-postgres:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: synthetic-test-only
+          POSTGRES_DB: rw_warehouse_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d rw_warehouse_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: 5432
+      PGUSER: postgres
+      PGPASSWORD: synthetic-test-only
+      PGDATABASE: rw_warehouse_test
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Run candidate SQL in synthetic PostgreSQL
+        shell: bash
+        run: bash docs/sql/tests/run-rw-warehouse-postgres.sh

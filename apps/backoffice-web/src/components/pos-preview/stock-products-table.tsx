@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { BestSellersPopupButton } from "@/components/pos-preview/best-sellers-popup-button";
@@ -87,6 +87,7 @@ type Props = {
   branchOptions: BranchOption[];
   canManageCatalog: boolean;
   retailWholesale?: boolean;
+  rwAtomicUat?: boolean;
 };
 
 type ApiEnvelope<T> = {
@@ -165,7 +166,8 @@ export function StockProductsTable({
   branchId,
   branchOptions,
   canManageCatalog,
-  retailWholesale = false
+  retailWholesale = false,
+  rwAtomicUat = false
 }: Props) {
   const PAGE_SIZE = retailWholesale ? 25 : 10;
   const router = useRouter();
@@ -191,6 +193,10 @@ export function StockProductsTable({
   const [stockPopupMode, setStockPopupMode] = useState<"add" | "subtract" | null>(null);
   const [stockPopupQty, setStockPopupQty] = useState("");
   const [stockPopupError, setStockPopupError] = useState("");
+  const [stockPin,setStockPin]=useState("");
+  const [stockReason,setStockReason]=useState("");
+  const stockRequest=useRef<{fingerprint:string;id:string}|null>(null);
+  const stockSubmitting=useRef(false);
   const [notice, setNotice] = useState<string>("");
   const [noticeOpen, setNoticeOpen] = useState(false);
   const [productSearchText, setProductSearchText] = useState("");
@@ -527,7 +533,7 @@ export function StockProductsTable({
       setNotice(th ? "สิทธิ์ไม่เพียงพอสำหรับปรับสต๊อก" : "You do not have permission to adjust stock.");
       return;
     }
-    if (item.stock_deduction_mode !== "unit_only") {
+    if (rwAtomicUat ? item.stock_deduction_mode !== "recipe_deduction" || item.has_ingredient_recipe : item.stock_deduction_mode !== "unit_only") {
       setNotice(th ? "สินค้าแบบสูตรวัตถุดิบให้ปรับผ่านปุ่มแก้ไขสินค้า" : "For recipe mode, adjust stock from Edit Product.");
       return;
     }
@@ -535,6 +541,7 @@ export function StockProductsTable({
     setStockPopupMode(null);
     setStockPopupQty("");
     setStockPopupError("");
+    setStockPin("");setStockReason("");stockRequest.current=null;
   }
 
   function closeStockPopup() {
@@ -542,6 +549,7 @@ export function StockProductsTable({
     setStockPopupMode(null);
     setStockPopupQty("");
     setStockPopupError("");
+    setStockPin("");setStockReason("");stockRequest.current=null;
   }
 
   async function submitStockPopup() {
@@ -561,23 +569,38 @@ export function StockProductsTable({
       return;
     }
     const delta = Math.floor(qty);
-    if (delta <= 0) {
+    if (delta <= 0 || (rwAtomicUat && (!Number.isSafeInteger(qty) || qty>999999999))) {
       setStockPopupError(th ? "จำนวนต้องเป็นเลขจำนวนเต็มมากกว่า 0" : "Quantity must be a whole number greater than 0.");
       return;
     }
     const nextStock = stockPopupMode === "add" ? currentStock + delta : currentStock - delta;
-    if (nextStock < 0) {
+    if (!rwAtomicUat && nextStock < 0) {
       setStockPopupError(th ? "ตัดสต๊อกเกินจำนวนคงเหลือไม่ได้" : "Cannot subtract more than available stock.");
       return;
     }
+    if(stockSubmitting.current)return;
+    if(rwAtomicUat&&(!stockPin.trim()||!stockReason.trim())){
+      setStockPopupError(th?"กรุณาระบุเหตุผลและ PIN":"Enter reason and PIN.");return;
+    }
+    stockSubmitting.current=true;
     setStockPopupError("");
     setBusyProductId(stockPopupProduct.id);
     try {
-      const response = await fetchWithTimeout("/api/backoffice/catalog", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "update_product_with_stock_setup", branch_id: branchId, product_id: stockPopupProduct.id, name: stockPopupProduct.name, category: stockPopupProduct.category ?? (th ? "ไม่ระบุหมวดหมู่" : "Uncategorized"), stock_quantity: nextStock, store_price: Number(stockPopupProduct.price ?? 0), delivery_price: Number(stockPopupProduct.delivery_price_preview ?? stockPopupProduct.price ?? 0), use_ingredient_recipe: false, ingredient_lines: [] })
-      }, 20000);
+      const signedDelta=stockPopupMode==="add"?delta:-delta;
+      const command={action:"branch_adjust",branchId,productId:stockPopupProduct.id,delta:signedDelta,reason:stockReason.trim()};
+      const fingerprint=JSON.stringify(command);
+      if(rwAtomicUat&&stockRequest.current?.fingerprint!==fingerprint) stockRequest.current={fingerprint,id:crypto.randomUUID()};
+      const response = rwAtomicUat
+        ? await fetchWithTimeout("/api/backoffice/rw-warehouse", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({...command,pin:stockPin,requestId:stockRequest.current?.id})
+          }, 20000)
+        : await fetchWithTimeout("/api/backoffice/catalog", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action: "update_product_with_stock_setup", branch_id: branchId, product_id: stockPopupProduct.id, name: stockPopupProduct.name, category: stockPopupProduct.category ?? (th ? "ไม่ระบุหมวดหมู่" : "Uncategorized"), stock_quantity: nextStock, store_price: Number(stockPopupProduct.price ?? 0), delivery_price: Number(stockPopupProduct.delivery_price_preview ?? stockPopupProduct.price ?? 0), use_ingredient_recipe: false, ingredient_lines: [] })
+          }, 20000);
       const body = (await response.json()) as ApiEnvelope<unknown>;
       if (!response.ok || body.error) throw new Error(body.error?.message ?? "Update failed");
       setNotice(th ? "ปรับสต๊อกสำเร็จ" : "Stock updated.");
@@ -586,6 +609,7 @@ export function StockProductsTable({
     } catch (error) {
       setStockPopupError(error instanceof Error ? error.message : th ? "อัปเดตสต๊อกไม่สำเร็จ" : "Stock update failed.");
     } finally {
+      setStockPin("");stockSubmitting.current=false;
       setBusyProductId(null);
     }
   }
@@ -856,6 +880,7 @@ const headerTools = (
   return (
     <div className="min-w-0">
       {toolbarTarget ? createPortal(headerTools, toolbarTarget) : null}
+      {rwAtomicUat&&<p role="status" className="mb-2 rounded border border-amber-200 bg-amber-50 p-2 text-xs">{th?"UAT: ปรับสต๊อกผ่าน PIN เท่านั้น การแก้ไขแค็ตตาล็อกเดิมถูกระงับ":"UAT: PIN stock adjustment only; legacy catalogue edits are blocked."}</p>}
       {retailWholesale?<p className="mb-2 text-xs text-slate-500">{th?"— หมายถึงยังไม่มีข้อมูลที่ยืนยันได้ · จำนวนสต๊อกคือจำนวนที่ขายได้ในสาขา · ต้นทุนจากต้นทุนเฉลี่ยของสต๊อกเดิม · ราคาออนไลน์/ขายส่งยังไม่เชื่อมระบบคิดเงิน":"— means no verified value · stock is branch sellable quantity · cost from existing average inventory cost · online/wholesale pricing is not connected to checkout yet"}</p>:null}
       {!canManageCatalog ? (
         <p className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-700">
@@ -1055,6 +1080,7 @@ const headerTools = (
               <button type="button" onClick={() => { setStockPopupMode("subtract"); setStockPopupQty((prev) => (prev.trim() ? prev : "1")); setStockPopupError(""); }} className={`inline-flex min-h-10 items-center justify-center rounded-lg border text-sm font-bold transition ${stockPopupMode === "subtract" ? "border-red-600 bg-red-600 text-white" : "border-red-200 bg-red-50 text-red-700 hover:bg-red-100"}`}><span className="inline-flex flex-col items-center leading-none"><span className="text-base font-extrabold">-</span><span>{th ? "ตัดสต๊อก" : "Subtract Stock"}</span></span></button>
             </div>
             {stockPopupMode ? <label className="grid gap-1 text-xs font-semibold text-slate-700"><span>{th ? "จำนวน" : "Quantity"}</span><input value={stockPopupQty} onChange={(event) => setStockPopupQty(event.target.value)} type="number" min={1} step="1" className="min-h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900" /></label> : <p className="text-xs font-semibold text-slate-500">{th ? "เลือกโหมดก่อน แล้วช่องใส่จำนวนจะปรากฏ" : "Select a mode first, then quantity input will appear."}</p>}
+            {rwAtomicUat&&<div className="mt-2 grid gap-2"><label className="grid gap-1 text-xs font-semibold">{th?"เหตุผลปรับสต๊อก":"Adjustment reason"}<input className="min-h-10 rounded border px-3" value={stockReason} maxLength={500} onChange={e=>setStockReason(e.target.value)}/></label><label className="grid gap-1 text-xs font-semibold">{th?"PIN เจ้าของ/ผู้จัดการ":"Owner/manager PIN"}<input type="password" autoComplete="off" className="min-h-10 rounded border px-3" value={stockPin} maxLength={64} onChange={e=>setStockPin(e.target.value)}/></label></div>}
             {stockPopupError ? <p className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700">{stockPopupError}</p> : null}
             <div className="mt-4 flex justify-end gap-2"><button type="button" onClick={closeStockPopup} className="inline-flex min-h-10 items-center rounded-lg border border-slate-300 px-4 text-sm font-semibold text-slate-700 hover:bg-slate-50">{th ? "ยกเลิก" : "Cancel"}</button><button type="button" onClick={() => void submitStockPopup()} disabled={busyProductId === stockPopupProduct.id} className="inline-flex min-h-10 items-center rounded-lg border border-blue-600 bg-blue-600 px-4 text-sm font-bold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60">{busyProductId === stockPopupProduct.id ? (th ? "กำลังบันทึก..." : "Saving...") : th ? "บันทึก" : "Save"}</button></div>
           </div>

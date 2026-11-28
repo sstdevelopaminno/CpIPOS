@@ -1,3 +1,4 @@
+import { rwWarehouseUatAllowed } from "@/lib/retail-wholesale/warehouse-uat-policy";
 import { getCustomPosStockUiMode } from "@/lib/server/custom-stock-ui-policy";
 import { parseRetailPriceSetting } from "@/lib/retail-wholesale/stock-display";
 import { getAuthContext } from "@/lib/auth-context";
@@ -995,6 +996,19 @@ export async function POST(req: Request) {
       requestedBranchId: typeof rawBody.branch_id === "string" ? rawBody.branch_id : null
     });
     const body = rawBody as CatalogActionPayload;
+    // UAT only: keep the legacy non-transactional stock and recipe writers closed.
+    // New catalogue items must be seeded by an isolated test fixture until their
+    // creation/metadata-only edit commands are migrated. No change to live stores.
+    if (rwWarehouseUatAllowed(auth.tenantId!,{
+      VERCEL_ENV:process.env.VERCEL_ENV,
+      RW_WAREHOUSE_UAT_ENABLED:process.env.RW_WAREHOUSE_UAT_ENABLED,
+      RW_WAREHOUSE_UAT_TENANT_ID:process.env.RW_WAREHOUSE_UAT_TENANT_ID,
+      NEXT_PUBLIC_SUPABASE_URL:process.env.NEXT_PUBLIC_SUPABASE_URL,
+    RW_WAREHOUSE_UAT_PROJECT_REF:process.env.RW_WAREHOUSE_UAT_PROJECT_REF
+    }) && await getCustomPosStockUiMode(auth.tenantId!)==="retail_wholesale" &&
+      body.action!=="set_rw_prices") {
+      return fail("rw_legacy_catalog_mutation_disabled","Use the atomic RW stock workspace. Legacy catalogue mutations are disabled during warehouse UAT.",409);
+    }
     const deleteOrArchiveIngredient = async (ingredientId: string) => {
       const { data: ingredient, error: ingredientError } = await supabase
         .from("ingredients")
