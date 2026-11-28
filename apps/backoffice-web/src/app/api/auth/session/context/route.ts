@@ -107,7 +107,7 @@ export async function GET() {
         permissions: []
       },
       error: null
-    });
+    }, { headers: { "Cache-Control": "private, no-store, max-age=0" } });
   }
 
   const flow = await withAuthTimeout(recoverSingleBranchFlow(rawFlow), "session_context_branch_recovery_timeout");
@@ -140,6 +140,7 @@ export async function GET() {
     error: null
   });
 
+  response.headers.set("Cache-Control", "private, no-store, max-age=0");
   if (flow !== rawFlow) writePreEntryFlowState(response, flow);
   return response;
 }
@@ -153,6 +154,7 @@ export async function DELETE() {
     },
     error: null
   });
+  response.headers.set("Cache-Control", "private, no-store, max-age=0");
   clearPosSessionCookies(response);
   clearPreEntryFlowState(response);
   return response;

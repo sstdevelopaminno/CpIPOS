@@ -186,8 +186,8 @@ export function AndroidPosMandatoryUpdate() {
 
         {!rollbackMode ? (
           <div style={{ marginTop: 18, borderRadius: 14, background: "#eff6ff", padding: 14, color: "#1e3a8a", lineHeight: 1.65 }}>
-            1. กด “ดาวน์โหลดและติดตั้ง”<br />
-            2. เปิดไฟล์ APK ที่ดาวน์โหลดและยืนยันติดตั้ง<br />
+            1. กด “ตรวจสอบก่อนดาวน์โหลด” แล้วกดลิงก์ดาวน์โหลด APK<br />
+            2. เปิดไฟล์ APK ที่ดาวน์โหลดและยืนยันติดตั้งทับแอปเดิม (ไม่ถอนการติดตั้ง)<br />
             3. เปิด CpIPOS อีกครั้ง ระบบจะตรวจ code {targetCode} อัตโนมัติ
           </div>
         ) : null}

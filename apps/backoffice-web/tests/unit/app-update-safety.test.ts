@@ -33,6 +33,12 @@ describe("app update safety", () => {
     expect(normalize("/preview/pos")).toBe("/preview/pos");
     for (const target of ["https://example.com", "//example.com", "intent://evil", "javascript:alert(1)", "https://pos.cuttingpointinnovation.com//example.com", "blob:https://pos.cuttingpointinnovation.com/id", null]) expect(normalize(target)).toBe("/");
   });
+  it("does not allow stale HTTP caches to reuse POS session status or logout responses", () => {
+    for (const file of ["api/pos/session/current/route.ts", "api/auth/session/context/route.ts", "api/auth/session/logout/route.ts"]) {
+      const source = readFileSync(new URL("../../src/app/" + file, import.meta.url), "utf8");
+      expect(source).toContain('private, no-store, max-age=0');
+    }
+  });
   it("requires HTTPS and explicit trusted download interaction in the Android wrapper", () => {
     const source = readFileSync(new URL("../../../pos-android/app/src/main/java/com/cpipos/pos/MainActivity.kt", import.meta.url), "utf8");
     expect(source).toContain('uri.scheme.equals("https", ignoreCase = true)');

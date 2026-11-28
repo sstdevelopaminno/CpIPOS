@@ -100,6 +100,7 @@ async function renewSessionLeaseIfNeeded(
 }
 
 function setTimingHeaders(response: NextResponse, startedAt: number) {
+  response.headers.set("Cache-Control", "private, no-store, max-age=0");
   const durationMs = Date.now() - startedAt;
   response.headers.set("x-pos-api-ms", String(durationMs));
   response.headers.set("server-timing", `total;dur=${durationMs}`);
