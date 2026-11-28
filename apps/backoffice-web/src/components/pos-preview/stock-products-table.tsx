@@ -590,11 +590,17 @@ export function StockProductsTable({
       const command={action:"branch_adjust",branchId,productId:stockPopupProduct.id,delta:signedDelta,reason:stockReason.trim()};
       const fingerprint=JSON.stringify(command);
       if(rwAtomicUat&&stockRequest.current?.fingerprint!==fingerprint) stockRequest.current={fingerprint,id:crypto.randomUUID()};
-      const response = await fetchWithTimeout(rwAtomicUat?"/api/backoffice/rw-warehouse":"/api/backoffice/catalog", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(rwAtomicUat?{...command,pin:stockPin,requestId:stockRequest.current?.id}:{ action: "update_product_with_stock_setup", branch_id: branchId, product_id: stockPopupProduct.id, name: stockPopupProduct.name, category: stockPopupProduct.category ?? (th ? "ไม่ระบุหมวดหมู่" : "Uncategorized"), stock_quantity: nextStock, store_price: Number(stockPopupProduct.price ?? 0), delivery_price: Number(stockPopupProduct.delivery_price_preview ?? stockPopupProduct.price ?? 0), use_ingredient_recipe: false, ingredient_lines: [] })
-      }, 20000);
+      const response = rwAtomicUat
+        ? await fetchWithTimeout("/api/backoffice/rw-warehouse", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({...command,pin:stockPin,requestId:stockRequest.current?.id})
+          }, 20000)
+        : await fetchWithTimeout("/api/backoffice/catalog", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action: "update_product_with_stock_setup", branch_id: branchId, product_id: stockPopupProduct.id, name: stockPopupProduct.name, category: stockPopupProduct.category ?? (th ? "ไม่ระบุหมวดหมู่" : "Uncategorized"), stock_quantity: nextStock, store_price: Number(stockPopupProduct.price ?? 0), delivery_price: Number(stockPopupProduct.delivery_price_preview ?? stockPopupProduct.price ?? 0), use_ingredient_recipe: false, ingredient_lines: [] })
+          }, 20000);
       const body = (await response.json()) as ApiEnvelope<unknown>;
       if (!response.ok || body.error) throw new Error(body.error?.message ?? "Update failed");
       setNotice(th ? "ปรับสต๊อกสำเร็จ" : "Stock updated.");
