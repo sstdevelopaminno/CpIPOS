@@ -1,0 +1,42 @@
+name: RW Warehouse Synthetic PostgreSQL UAT
+on:
+  pull_request:
+    paths:
+      - 'docs/rw/warehouse_candidate.sql'
+      - 'tests/rw/**'
+      - '.github/workflows/rw-warehouse-scratch-ci.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  rw-warehouse-scratch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: synthetic-only
+          POSTGRES_DB: rw_scratch
+        options: >-
+          --health-cmd "pg_isready -U postgres -d rw_scratch"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Bootstrap disposable schema (no live credentials)
+        env:
+          PG_CONTAINER: ${{ job.services.postgres.id }}
+        run: docker exec -i "$PG_CONTAINER" psql -U postgres -d rw_scratch -v ON_ERROR_STOP=1 < tests/rw/warehouse_scratch_schema.sql
+      - name: Install candidate on scratch PostgreSQL
+        env:
+          PG_CONTAINER: ${{ job.services.postgres.id }}
+        run: docker exec -i "$PG_CONTAINER" psql -U postgres -d rw_scratch -v ON_ERROR_STOP=1 < docs/rw/warehouse_candidate.sql
+      - name: Test stock, idempotency, partial receipt, role isolation and rollback
+        env:
+          PG_CONTAINER: ${{ job.services.postgres.id }}
+        run: docker exec -i "$PG_CONTAINER" psql -U postgres -d rw_scratch -v ON_ERROR_STOP=1 < tests/rw/warehouse_scratch_acceptance.sql
