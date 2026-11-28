@@ -1,5 +1,8 @@
 -- DRAFT ONLY: isolated PostgreSQL acceptance, NOT a Supabase migration.
 -- No client access, no automatic activation, no finance posting.
+-- Separate enum statement must commit before the value is used.
+-- Production enum change requires a reviewed migration and consumer audit.
+alter type public.stock_movement_type add value if not exists 'warehouse_transfer_in';
 begin;
 create schema rw_warehouse_candidate;
 revoke all on schema rw_warehouse_candidate from public, anon, authenticated, service_role;
@@ -50,6 +53,34 @@ create table rw_warehouse_candidate.events (
  payload jsonb not null, result jsonb not null, created_at timestamptz not null default now(),
  primary key(tenant_id,request_id)
 );
+-- Private one-use movement authorization, created and consumed in the same
+-- receipt transaction. Do not let a generic manual adjustment writer spoof
+-- a warehouse transfer just by choosing the new movement type.
+create table rw_warehouse_candidate.branch_receipts (
+ tenant_id uuid not null, request_id uuid not null, transfer_id uuid not null,
+ branch_id uuid not null, ingredient_id uuid not null, actor uuid not null,
+ quantity bigint not null check(quantity>0), value_minor bigint not null check(value_minor>=0),
+ movement_id uuid not null unique, used_at timestamptz,
+ primary key(tenant_id,request_id),
+ foreign key(tenant_id,transfer_id) references rw_warehouse_candidate.transfers(tenant_id,id)
+);
+alter table rw_warehouse_candidate.branch_receipts enable row level security;
+create function rw_warehouse_candidate.guard_branch_receipt_movement()
+returns trigger language plpgsql security invoker set search_path=pg_catalog,rw_warehouse_candidate as $
+begin
+ if new.movement_type::text='warehouse_transfer_in' then
+   update rw_warehouse_candidate.branch_receipts r set used_at=now()
+   where r.tenant_id=new.tenant_id and r.branch_id=new.branch_id and r.ingredient_id=new.ingredient_id
+   and r.actor=new.created_by and r.quantity=new.quantity_delta and r.movement_id=new.id
+   and r.transfer_id=new.ref_id and new.ref_table='rw_warehouse_transfers'
+   and new.request_id='rw:'||r.request_id::text and r.used_at is null;
+   if not found then raise exception 'rw_warehouse_movement_not_authorized'; end if;
+ end if;
+ return new;
+end $;
+create trigger trg_rw_warehouse_receipt_guard before insert on public.stock_movements
+for each row execute function rw_warehouse_candidate.guard_branch_receipt_movement();
+
 -- One verified supplier receipt line may not be counted twice even with a new request key.
 create unique index rw_warehouse_receipt_source_once on rw_warehouse_candidate.events
 (tenant_id,(payload->>'source_ref')) where action='receive_warehouse';
@@ -173,11 +204,12 @@ begin
 end $$;
 
 -- Receipt is the only point that credits the canonical branch ingredient.
--- A manual_adjustment movement is used provisionally; Finance classification
--- and all legacy absolute stock editors need separate integration UAT.
+-- A dedicated internal-transfer movement preserves the existing PIN approval
+-- guard on manual adjustments. Finance classification and all legacy absolute
+-- stock editors need separate integration UAT.
 create function rw_warehouse_candidate.receive_branch(p_tenant uuid,p_actor uuid,p_request uuid,p_transfer uuid,p_branch uuid,p_units bigint)
 returns jsonb language plpgsql security invoker set search_path=pg_catalog,rw_warehouse_candidate as $$
-declare v_payload jsonb; v_result jsonb; t rw_warehouse_candidate.transfers%rowtype; l rw_warehouse_candidate.branch_links%rowtype; i public.ingredients%rowtype; v_cost bigint; v_average numeric; v_state text;
+declare v_payload jsonb; v_result jsonb; t rw_warehouse_candidate.transfers%rowtype; l rw_warehouse_candidate.branch_links%rowtype; i public.ingredients%rowtype; v_cost bigint; v_average numeric; v_state text; v_movement uuid:=gen_random_uuid();
 begin
  if p_branch is null then raise exception 'rw_scope_required'; end if;
  perform rw_warehouse_candidate.require_actor(p_tenant,p_actor,p_branch);
@@ -196,8 +228,10 @@ begin
  v_average:=round((i.quantity_on_hand*i.avg_unit_cost+v_cost::numeric/100)/(i.quantity_on_hand+p_units),4);
  update public.ingredients set quantity_on_hand=quantity_on_hand+p_units,avg_unit_cost=v_average,updated_at=now()
  where tenant_id=p_tenant and branch_id=p_branch and id=t.ingredient_id;
+ insert into rw_warehouse_candidate.branch_receipts(tenant_id,request_id,transfer_id,branch_id,ingredient_id,actor,quantity,value_minor,movement_id)
+ values(p_tenant,p_request,t.id,p_branch,t.ingredient_id,p_actor,p_units,v_cost,v_movement);
  insert into public.stock_movements(id,tenant_id,branch_id,ingredient_id,movement_type,quantity_delta,reason,ref_table,ref_id,created_by,request_id)
- values(gen_random_uuid(),p_tenant,p_branch,t.ingredient_id,'manual_adjustment',p_units,'RW internal warehouse receipt (candidate)','rw_warehouse_transfers',t.id,p_actor,'rw:'||p_request::text);
+ values(v_movement,p_tenant,p_branch,t.ingredient_id,'warehouse_transfer_in',p_units,'RW internal warehouse receipt (candidate)','rw_warehouse_transfers',t.id,p_actor,'rw:'||p_request::text);
  v_state:=case when t.received_quantity+p_units=t.quantity then 'received' else 'partially_received' end;
  update rw_warehouse_candidate.transfers set received_quantity=received_quantity+p_units,received_value_minor=received_value_minor+v_cost,state=v_state
  where tenant_id=p_tenant and id=t.id;

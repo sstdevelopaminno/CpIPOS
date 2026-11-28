@@ -44,6 +44,17 @@ begin
  select quantity_on_hand into q from public.ingredients where id=ing;
  if q<>2 then raise exception 'assert_no_early_branch_stock'; end if;
  if exists(select 1 from public.stock_movements) then raise exception 'assert_no_early_movement'; end if;
+ -- Existing approval guard stays active. New movement type cannot be spoofed.
+ begin
+  insert into public.stock_movements(id,tenant_id,branch_id,ingredient_id,movement_type,quantity_delta,created_by)
+  values(gen_random_uuid(),t,b,ing,'manual_adjustment',1,manager_id);
+  raise exception 'expected_pin_denial';
+ exception when others then if sqlerrm<>'Manual stock adjustment requires approval.' then raise; end if; end;
+ begin
+  insert into public.stock_movements(id,tenant_id,branch_id,ingredient_id,movement_type,quantity_delta,created_by,ref_table,ref_id,request_id)
+  values(gen_random_uuid(),t,b,ing,'warehouse_transfer_in',1,manager_id,'rw_warehouse_transfers',tr,'rw:'||gen_random_uuid()::text);
+  raise exception 'expected_forgery_denial';
+ exception when others then if sqlerrm<>'rw_warehouse_movement_not_authorized' then raise; end if; end;
  begin perform rw_warehouse_candidate.receive_branch(t,staff_id,gen_random_uuid(),tr,b,1); raise exception 'expected_staff_denial'; exception when others then if sqlerrm<>'rw_branch_manager_required' then raise; end if; end;
  begin perform rw_warehouse_candidate.receive_branch(other_t,owner_id,gen_random_uuid(),tr,other_b,1); raise exception 'expected_sd_denial'; exception when others then if sqlerrm<>'rw_custom_thb_required' then raise; end if; end;
  begin perform rw_warehouse_candidate.receive_branch(t,manager_id,gen_random_uuid(),tr,b,4); raise exception 'expected_overreceipt'; exception when others then if sqlerrm<>'rw_transfer_over_receipt' then raise; end if; end;
@@ -62,7 +73,8 @@ begin
  alter table public.stock_movements drop constraint injected_test_failure;
  result:=rw_warehouse_candidate.receive_branch(t,manager_id,final_req,tr,b,2);
  if result->>'state'<>'received' or result->>'received_value_minor'<>'100' or result->>'branch_quantity'<>'5' then raise exception 'assert_final'; end if;
- if (select count(*) from public.stock_movements)<>2 then raise exception 'assert_movement_count'; end if;
+ if (select count(*) from public.stock_movements where movement_type='warehouse_transfer_in')<>2 then raise exception 'assert_movement_count'; end if;
+ if (select count(*) from rw_warehouse_candidate.branch_receipts where tenant_id=t and transfer_id=tr and used_at is not null)<>2 then raise exception 'assert_receipt_authorization_consumed'; end if;
  if (select sum(quantity_delta) from public.stock_movements)<>3 then raise exception 'assert_quantity_conservation'; end if;
  if (select quantity from rw_warehouse_candidate.balances where tenant_id=t and warehouse_id=w and item_id=item)<>0 then raise exception 'assert_warehouse_empty'; end if;
  if (select avg_unit_cost from public.ingredients where id=ing)<>0.8 then raise exception 'assert_weighted_cost'; end if;
