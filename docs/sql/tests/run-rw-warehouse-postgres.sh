@@ -4,7 +4,7 @@ test "${PGHOST:-}" = "127.0.0.1"
 test "${PGDATABASE:-}" = "rw_warehouse_test"
 PSQL=(psql -X -v ON_ERROR_STOP=1)
 "${PSQL[@]}" -f docs/sql/tests/rw-warehouse-fixture.sql
-for file in rw-warehouse-schema rw-branch-adjustment rw-warehouse-inbound rw-warehouse-dispatch rw-warehouse-receive; do
+for file in rw-warehouse-schema rw-branch-adjustment rw-warehouse-inbound rw-warehouse-transfer-approval rw-warehouse-dispatch rw-warehouse-receive; do
   "${PSQL[@]}" -f "docs/sql/${file}-candidate.sql"
 done
 "${PSQL[@]}" -f docs/sql/tests/rw-warehouse-assertions.sql
