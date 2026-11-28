@@ -4,7 +4,8 @@ do $$ begin if current_database() <> 'rw_warehouse_test' then raise exception 'D
 create role anon nologin;
 create role authenticated nologin;
 create role service_role nologin bypassrls;
-create table tenants(id uuid primary key);
+create table tenants(id uuid primary key,is_active boolean not null default true);
+create table users_profiles(id uuid primary key,is_active boolean not null default true);
 create table branches(id uuid primary key,tenant_id uuid not null references tenants,id_dummy text,is_active boolean not null default true);
 create table products(id uuid primary key,tenant_id uuid not null references tenants,branch_id uuid not null references branches,sku text not null,is_active boolean not null default true,deleted_at timestamptz,stock_deduction_mode text not null);
 create table ingredients(id uuid primary key,tenant_id uuid not null references tenants,branch_id uuid not null references branches,name text not null,base_unit text not null,quantity_on_hand numeric not null,avg_unit_cost numeric not null);
@@ -12,7 +13,7 @@ create table recipes(id uuid primary key default gen_random_uuid(),tenant_id uui
 create type branch_role as enum ('owner','manager','staff','kitchen','accountant');
 create table user_branch_roles(tenant_id uuid not null references tenants,branch_id uuid not null references branches,user_id uuid not null,role branch_role not null);
 create table subscription_packages(id uuid primary key,code text not null);
-create table tenant_subscription_contracts(tenant_id uuid not null references tenants,package_id uuid not null references subscription_packages,status text not null,ended_at timestamptz,metadata jsonb not null);
+create table tenant_subscription_contracts(tenant_id uuid not null references tenants,package_id uuid not null references subscription_packages,status text not null,ended_at timestamptz,metadata jsonb not null,currency text not null default 'THB');
 create type approval_action as enum ('stock_adjustment');
 create table manager_pin_approvals(id uuid primary key,tenant_id uuid not null references tenants,branch_id uuid not null references branches,requested_by uuid not null,approved_by uuid not null,action approval_action not null,target_table text not null,target_id uuid not null,note text,expires_at timestamptz not null,consumed_at timestamptz);
 create type stock_movement_type as enum ('manual_adjustment','sale_deduction');
@@ -22,10 +23,10 @@ grant select,update on products,ingredients,manager_pin_approvals to service_rol
 grant insert on manager_pin_approvals to service_role;
 grant select on recipes,user_branch_roles,branches,tenant_subscription_contracts,subscription_packages to service_role;
 grant select,insert on stock_movements to service_role;
-insert into tenants values ('00000000-0000-0000-0000-000000000001'),('00000000-0000-0000-0000-000000000002');
+insert into tenants(id) values ('00000000-0000-0000-0000-000000000001'),('00000000-0000-0000-0000-000000000002');
 insert into branches(id,tenant_id) values ('00000000-0000-0000-0000-000000000011','00000000-0000-0000-0000-000000000001'),('00000000-0000-0000-0000-000000000012','00000000-0000-0000-0000-000000000002');
 insert into subscription_packages values ('00000000-0000-0000-0000-000000000021','CUSTOM');
-insert into tenant_subscription_contracts values ('00000000-0000-0000-0000-000000000001','00000000-0000-0000-0000-000000000021','active',null,'{"sales_modes":{"retail_wholesale":true}}');
+insert into tenant_subscription_contracts(tenant_id,package_id,status,ended_at,metadata) values ('00000000-0000-0000-0000-000000000001','00000000-0000-0000-0000-000000000021','active',null,'{"sales_modes":{"retail_wholesale":true}}');
 insert into user_branch_roles values ('00000000-0000-0000-0000-000000000001','00000000-0000-0000-0000-000000000011','00000000-0000-0000-0000-000000000031','owner');
 insert into products(id,tenant_id,branch_id,sku,stock_deduction_mode) values
 ('00000000-0000-0000-0000-000000000041','00000000-0000-0000-0000-000000000001','00000000-0000-0000-0000-000000000011','A','recipe_deduction'),
@@ -36,3 +37,6 @@ insert into ingredients values
 insert into recipes(tenant_id,branch_id,product_id,ingredient_id,quantity_per_item) values
 ('00000000-0000-0000-0000-000000000001','00000000-0000-0000-0000-000000000011','00000000-0000-0000-0000-000000000041','00000000-0000-0000-0000-000000000051',1),
 ('00000000-0000-0000-0000-000000000001','00000000-0000-0000-0000-000000000011','00000000-0000-0000-0000-000000000042','00000000-0000-0000-0000-000000000052',1);
+
+insert into users_profiles(id) values ('00000000-0000-0000-0000-000000000031'),('00000000-0000-0000-0000-000000000032');
+insert into user_branch_roles values ('00000000-0000-0000-0000-000000000001','00000000-0000-0000-0000-000000000011','00000000-0000-0000-0000-000000000032','accountant');

@@ -2,7 +2,7 @@ import { fail, ok } from "@/lib/http";
 import {
   accountingIdentity, accountingBranches, accountingDocuments, accountingAging,
   accountingAccounts, accountingCreate, accountingTransition, accountingPost,
-  accountingCreateAccount, accountingJournals, accountingJournalDetail, accountingDocumentDetail, accountingWarehouseIntents,
+  accountingCreateAccount, accountingJournals, accountingJournalDetail, accountingDocumentDetail, accountingWarehouseIntents, accountingPostWarehouseTransfer,
   FinanceAccountingError
 } from "@/lib/server/finance-accounting-workflow";
 import { todayBangkok } from "@/lib/finance-sales-analytics";
@@ -65,6 +65,7 @@ export async function POST(request:Request) {
     const identity=await accountingIdentity("main.finance");
     let result:unknown;
     switch(body.action) {
+      case "post_warehouse_reclassification": result=await accountingPostWarehouseTransfer(identity,body); break;
       case "create_document": result=await accountingCreate(identity,body); break;
       case "transition_document": result=await accountingTransition(identity,body); break;
       case "post_document": result=await accountingPost(identity,body); break;

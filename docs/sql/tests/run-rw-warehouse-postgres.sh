@@ -7,7 +7,10 @@ PSQL=(psql -X -v ON_ERROR_STOP=1)
 for file in rw-warehouse-schema rw-branch-adjustment rw-warehouse-inbound rw-warehouse-draft rw-warehouse-transfer-approval rw-warehouse-pin-adapter rw-warehouse-dispatch rw-warehouse-receive rw-warehouse-finance-intents; do
   "${PSQL[@]}" -f "docs/sql/${file}-candidate.sql"
 done
+"${PSQL[@]}" -f supabase/migrations/20261118164343_finance_accounting_v2_documents_journal.sql
+"${PSQL[@]}" -f docs/sql/rw-warehouse-gl-candidate.sql
 "${PSQL[@]}" -f docs/sql/tests/rw-warehouse-assertions.sql
+"${PSQL[@]}" -f docs/sql/tests/rw-warehouse-gl-assertions.sql
 # Separate connections. Simulate the existing POS delta writer holding a row lock.
 # Receipt must wait and apply its delta to the updated quantity, not a stale snapshot.
 PGAPPNAME=rw_test_sale "${PSQL[@]}" <<'SQL' &
