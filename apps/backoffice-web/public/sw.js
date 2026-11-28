@@ -1,7 +1,7 @@
-const CACHE_NAME = "cpipos-shell-v6";
+const CACHE_PREFIX = "cpipos-shell-";
+const CACHE_NAME = "cpipos-shell-v7";
 const OFFLINE_POS_URL = "/offline-pos.html";
 const ASSETS_TO_CACHE = [
-  "/",
   OFFLINE_POS_URL,
   "/manifest.webmanifest",
   "/brand/cpipos-logo.png",
@@ -37,7 +37,7 @@ self.addEventListener("install", (event) => {
 self.addEventListener("activate", (event) => {
   event.waitUntil(
     caches.keys()
-      .then((keys) => Promise.all(keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key))))
+      .then((keys) => Promise.all(keys.filter((key) => key.startsWith(CACHE_PREFIX) && key !== CACHE_NAME).map((key) => caches.delete(key))))
       .then(() => self.clients.claim())
   );
 });
@@ -68,7 +68,7 @@ self.addEventListener("fetch", (event) => {
   if (!STATIC_SHELL_ASSETS.has(url.pathname)) return;
 
   event.respondWith(
-    caches.match(request).then((cached) => {
+    caches.open(CACHE_NAME).then((cache) => cache.match(request)).then((cached) => {
       if (cached) return cached;
       return fetch(request).then((response) => {
         if (!response || response.status !== 200 || response.type !== "basic") return response;
@@ -81,6 +81,18 @@ self.addEventListener("fetch", (event) => {
 });
 
 
+// Never use a push payload as an external navigation or resource URL.
+function safeSameOriginPath(value, fallback = "/") {
+  try {
+    if (typeof value !== "string" || !value) return fallback;
+    const target = new URL(value, self.location.origin);
+    if (target.origin !== self.location.origin || target.username || target.password) return fallback;
+    return target.pathname + target.search + target.hash;
+  } catch {
+    return fallback;
+  }
+}
+
 self.addEventListener("push", (event) => {
   let payload = {};
   try {
@@ -88,21 +100,22 @@ self.addEventListener("push", (event) => {
   } catch {
     payload = { title: "CpIPOS", body: event.data ? event.data.text() : "" };
   }
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) payload = {};
   const title = payload.title || "CpIPOS";
   const options = {
     body: payload.body || "",
-    icon: payload.icon || "/brand/cpipos-symbol-sidebar.png",
-    badge: payload.badge || "/icons/cpipos-browser-icon.png",
+    icon: safeSameOriginPath(payload.icon, "/brand/cpipos-symbol-sidebar.png"),
+    badge: safeSameOriginPath(payload.badge, "/icons/cpipos-browser-icon.png"),
     tag: payload.tag || "cpipos-notification",
     renotify: true,
-    data: { url: payload.url || "/", kind: payload.kind || "general" }
+    data: { url: safeSameOriginPath(payload.url), kind: payload.kind || "general" }
   };
   event.waitUntil(
     Promise.all([
       self.registration.showNotification(title, options),
       self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clients) => {
         for (const client of clients) {
-          client.postMessage({ type: "CPIPOS_PUSH_NOTIFICATION", payload });
+          client.postMessage({ type: "CPIPOS_PUSH_NOTIFICATION", payload: { ...payload, url: options.data.url, icon: options.icon, badge: options.badge } });
         }
       })
     ])
@@ -111,14 +124,12 @@ self.addEventListener("push", (event) => {
 
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
-  const target = new URL(event.notification.data?.url || "/", self.location.origin).href;
+  const target = new URL(safeSameOriginPath(event.notification.data?.url), self.location.origin).href;
   event.waitUntil(
     self.clients.matchAll({ type: "window", includeUncontrolled: true }).then(async (clients) => {
       for (const client of clients) {
-        if ("navigate" in client) {
-          await client.navigate(target);
-          return client.focus();
-        }
+        // Focusing an existing register must not destroy its active sale.
+        if ("focus" in client) return client.focus();
       }
       return self.clients.openWindow(target);
     })

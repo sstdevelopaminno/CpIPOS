@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { shouldDisableNativeCustomerDisplayForDiagnostics } from "@/lib/android-pos/native-device-policy";
 import { ANDROID_MODERN_RELEASE } from "@/lib/android-runtime-release";
+import { isSafeForAppUpdate, isTrustedAndroidDownload } from "@/lib/app-update-safety";
 
 type NativeDiagnostics = {
   install_id?: unknown;
@@ -41,6 +42,7 @@ export function AndroidPosMandatoryUpdate() {
   const [targetCode, setTargetCode] = useState<number>(ANDROID_MODERN_RELEASE.versionCode);
   const [downloadUrl, setDownloadUrl] = useState(FALLBACK_DOWNLOAD_URL);
   const [rollbackMode, setRollbackMode] = useState(false);
+  const [safeToUpdate, setSafeToUpdate] = useState(false);
 
   const check = useCallback(async () => {
     const bridge = window.CpiposMdm;
@@ -78,7 +80,13 @@ export function AndroidPosMandatoryUpdate() {
       setRequired(data.required === true);
       if (data.target_version_name) setTargetName(data.target_version_name);
       if (Number.isFinite(Number(data.target_version_code))) setTargetCode(Number(data.target_version_code));
-      if (data.download_url) setDownloadUrl(data.download_url);
+      if (data.download_url && isTrustedAndroidDownload(data.download_url, window.location.origin)) {
+        setDownloadUrl(data.download_url);
+      } else {
+        setDownloadUrl(FALLBACK_DOWNLOAD_URL);
+      }
+    } catch {
+      // Offline or temporary server failure must not interrupt sales.
     } finally {
       setChecking(false);
     }
@@ -89,10 +97,38 @@ export function AndroidPosMandatoryUpdate() {
     const timer = window.setInterval(() => {
       if (document.visibilityState === "visible") void check();
     }, POLL_MS);
-    return () => window.clearInterval(timer);
+    const onWake = () => { if (document.visibilityState === "visible") void check(); };
+    window.addEventListener("online", onWake);
+    document.addEventListener("visibilitychange", onWake);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("online", onWake);
+      document.removeEventListener("visibilitychange", onWake);
+    };
   }, [check]);
 
+  useEffect(() => {
+    if (!required) return;
+    let disposed = false;
+    const refresh = async () => {
+      const safe = await isSafeForAppUpdate();
+      if (!disposed) setSafeToUpdate(safe);
+    };
+    void refresh();
+    const timer = window.setInterval(() => void refresh(), 5_000);
+    return () => { disposed = true; window.clearInterval(timer); };
+  }, [required]);
+
   if (!required) return null;
+
+  // Let the operator finish and reconcile an in-flight sale before enforcing the APK update.
+  if (!safeToUpdate) {
+    return (
+      <div role="status" style={{ position: "fixed", right: 16, top: 16, zIndex: 10000, maxWidth: 340, padding: 12, borderRadius: 10, background: "#fff7ed", color: "#9a3412", boxShadow: "0 4px 16px #0002", pointerEvents: "none" }}>
+        ต้องอัปเดต CpIPOS {targetName} กรุณาปิดงานขาย ซิงก์ข้อมูลค้าง และกลับหน้าเข้าสู่ระบบเพื่อดาวน์โหลด
+      </div>
+    );
+  }
 
   return (
     <div
@@ -154,7 +190,10 @@ export function AndroidPosMandatoryUpdate() {
 
         <button
           type="button"
-          onClick={() => window.location.assign(downloadUrl)}
+          onClick={async () => {
+            if (!(await isSafeForAppUpdate())) { setSafeToUpdate(false); return; }
+            if (isTrustedAndroidDownload(downloadUrl, window.location.origin)) window.location.assign(downloadUrl);
+          }}
           style={{
             width: "100%",
             marginTop: 16,
