@@ -14,6 +14,7 @@ import { getProductSpecialPrice, isProductRecommended } from "@/lib/pos/product-
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 import { redirect } from "next/navigation";
 import Link from "next/link";
+import { collectPagedShiftRows, collectShiftRowsForIds } from "@/lib/pos-shift-query-pagination";
 import { loadProductMediaMap } from "@/lib/product-media";
 import { estimateRetailStockCost, explicitRetailPrice } from "@/lib/retail-wholesale/stock-display";
 import { getCustomPosStockUiMode } from "@/lib/server/custom-stock-ui-policy";
@@ -242,7 +243,9 @@ export default async function PosStockPage({
         .eq("is_active", true)
         .order("updated_at", { ascending: false });
 
-    const productResponseWithStockMode = await queryActiveProducts();
+    const productResponseWithStockMode = retailWholesale
+      ? await collectPagedShiftRows<ProductRow>((from,to)=>queryActiveProducts().is("deleted_at",null).order("id",{ascending:true}).range(from,to))
+      : await queryActiveProducts();
 
     let productsData = ((productResponseWithStockMode.data ?? []) as ProductRow[]).map((row) => ({
       ...row,
@@ -250,10 +253,10 @@ export default async function PosStockPage({
       special_price: getProductSpecialPrice(row.metadata),
       stock_deduction_mode: row.stock_deduction_mode ?? "unit_only"
     }));
-    let productsCount = productResponseWithStockMode.count ?? 0;
+    let productsCount = "count" in productResponseWithStockMode ? productResponseWithStockMode.count ?? 0 : productResponseWithStockMode.data?.length ?? 0;
     let productsError: PostgrestErrorLike | null = productResponseWithStockMode.error as PostgrestErrorLike | null;
 
-    if (productsError && isMissingColumnError(productsError, "stock_deduction_mode")) {
+    if (!retailWholesale && productsError && isMissingColumnError(productsError, "stock_deduction_mode")) {
       const legacyProducts = await supabase
         .from("products")
         .select("id,sku,name,category,price,is_active,updated_at", { count: "exact" })
@@ -359,12 +362,16 @@ export default async function PosStockPage({
     let recipeRowsForStock: RecipeStockRow[] = [];
     const productIds = productsData.map((row) => String(row.id));
     if (productIds.length > 0) {
-      const { data: recipeRows, error: recipeError } = await supabase
+      const recipeQuery = (ids: string[]) => supabase
         .from("recipes")
         .select(retailWholesale ? "product_id,quantity_per_item,ingredients(id,name,base_unit,quantity_on_hand,avg_unit_cost)" : "product_id,quantity_per_item,ingredients(id,name,base_unit,quantity_on_hand)")
         .eq("tenant_id", auth.tenantId!)
         .eq("branch_id", selectedBranchId)
-        .in("product_id", productIds);
+        .in("product_id", ids);
+      const { data: recipeRows, error: recipeError } = retailWholesale
+        ? await collectShiftRowsForIds<RecipeStockRow>(productIds,(batch,from,to)=>recipeQuery(batch).order("product_id",{ascending:true}).order("id",{ascending:true}).range(from,to))
+        : await recipeQuery(productIds);
+      if(retailWholesale && recipeError) throw new Error("RW stock lookup failed.");
 
       if (!recipeError) {
         recipeRowsForStock = (recipeRows ?? []) as RecipeStockRow[];
@@ -508,7 +515,10 @@ export default async function PosStockPage({
         commissionVatRatePct: Number(row.commission_vat_rate_pct ?? 0)
       }));
   } catch {
-    if(retailWholesale) rwDataWarning = th ? "โหลดข้อมูลสินค้าไม่ครบ กรุณาตรวจสอบการเชื่อมต่อก่อนปรับสต๊อก" : "Product data is incomplete. Check the connection before adjusting stock.";
+    if(retailWholesale) {
+      canManageCatalog = false;
+      rwDataWarning = th ? "โหลดข้อมูลสินค้าไม่ครบ กรุณาตรวจสอบการเชื่อมต่อก่อนปรับสต๊อก" : "Product data is incomplete. Check the connection before adjusting stock.";
+    }
     deliveryRatesForAddProduct = DEFAULT_DELIVERY_CHANNEL_CONFIGS.filter(
       (entry) => entry.channel === "line_man" || entry.channel === "grab" || entry.channel === "shopee"
     ).map((entry) => ({

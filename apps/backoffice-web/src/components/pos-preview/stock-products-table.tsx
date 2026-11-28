@@ -8,6 +8,7 @@ import { CategoryManagePopupButton } from "@/components/pos-preview/category-man
 import { EditProductPopupButton } from "@/components/pos-preview/edit-product-popup-button";
 import { StockSettingsPopupButton } from "@/components/pos-preview/stock-settings-popup-button";
 import { StockRowActionIcons } from "@/components/pos-preview/stock-row-action-icons";
+import { RetailPriceSetupButton } from "@/components/pos-preview/retail-price-setup-button";
 import { StockSkuReveal } from "@/components/pos-preview/stock-sku-reveal";
 import { UnitStockPopupButton } from "@/components/pos-preview/unit-stock-popup-button";
 import { IngredientUnitManagePopupButton, type IngredientUnitOption } from "@/components/pos-preview/ingredient-unit-manage-popup-button";
@@ -59,6 +60,7 @@ type ProductRow = {
   rw_online_price?: number | null;
   rw_wholesale_price?: number | null;
   rw_thumbnail?: string | null;
+  updated_at?: string;
 };
 
 type SellableStockStatus = {
@@ -335,12 +337,12 @@ export function StockProductsTable({
   const pagedProducts = useMemo(() => {
     const start = (currentPage - 1) * PAGE_SIZE;
     return filteredProducts.slice(start, start + PAGE_SIZE);
-  }, [currentPage, filteredProducts]);
+  }, [currentPage, filteredProducts, PAGE_SIZE]);
 
   const pagedIngredients = useMemo(() => {
     const start = (currentPage - 1) * PAGE_SIZE;
     return filteredIngredients.slice(start, start + PAGE_SIZE);
-  }, [currentPage, filteredIngredients]);
+  }, [currentPage, filteredIngredients, PAGE_SIZE]);
 
   function selectMode(nextMode: "all" | "unit_only" | "ingredients") {
     setModeFilter(nextMode);
@@ -999,7 +1001,7 @@ const headerTools = (
                 <th className="border-b border-slate-200 px-3 py-2 text-left text-xs font-bold text-slate-500">{retailWholesale?(th?"ชื่อสินค้า":"Product name"):(th ? "สินค้า" : "Product")}</th>
                 <th className="border-b border-slate-200 px-3 py-2 text-left text-xs font-bold text-slate-500">{retailWholesale?(th?"จำนวนสต๊อก":"Stock quantity"):(th ? "คงเหลือขายได้" : "Sellable Stock")}</th>
                 {retailWholesale&&canManageCatalog?<th className="border-b border-slate-200 px-3 py-2 text-right text-xs font-bold text-slate-500">{th?"ราคาต้นทุน":"Unit cost"}</th>:null}
-                <th className="border-b border-slate-200 px-3 py-2 text-right text-xs font-bold text-slate-500">{th ? "ราคาขายหน้าร้าน" : "Store Price"}</th>
+                <th className="border-b border-slate-200 px-3 py-2 text-right text-xs font-bold text-slate-500">{th ? (retailWholesale?"ราคาขายหน้าร้าน":"ราคาหน้าร้าน") : "Store Price"}</th>
                 {retailWholesale?<th className="border-b border-slate-200 px-3 py-2 text-right text-xs font-bold text-slate-500">{th?"ราคาขายออนไลน์":"Online price"}</th>:null}
                 <th className="border-b border-slate-200 px-3 py-2 text-right text-xs font-bold text-amber-700">{th ? "ราคาพิเศษ" : "Special Price"}</th>
                 <th className="border-b border-slate-200 px-3 py-2 text-right text-xs font-bold text-slate-500">{retailWholesale?(th?"ราคาขายส่ง":"Wholesale price"):(th ? "ราคาเดลิเวอรี่" : "Delivery Price")}</th>
@@ -1025,7 +1027,8 @@ const headerTools = (
                   <td className="border-b border-slate-100 px-3 py-3">{(() => { const status = getSellableStockStatus(item.stock_on_hand_units, item.is_active, th); return <span className={`inline-flex min-h-7 items-center rounded-full border px-2.5 text-xs font-bold ${status.className}`}>{status.label}</span>; })()}</td>
                   <td className="sticky right-0 z-10 min-w-[132px] border-b border-l border-slate-100 bg-white px-3 py-3 shadow-[-8px_0_12px_-12px_rgba(15,23,42,0.45)]"><div className="flex flex-nowrap items-center gap-1.5">
                     <EditProductPopupButton th={th} compact product={{ id: item.id, sku: item.sku, name: item.name, category: item.category, price: item.price, specialPrice: item.special_price ?? null, deliveryPrice: item.delivery_price_preview ?? item.price, isRecommended: item.is_recommended === true }} categories={categoryList} ingredients={ingredientList} deliveryRates={deliveryRates} branchId={branchId} disabled={!canManageCatalog} />
-                    <StockRowActionIcons th={th} busy={busyProductId === item.id} onDelete={() => openDeactivateProductPopup(item)} onStock={() => openStockPopup(item)} disabled={!canManageCatalog} />
+                    {retailWholesale&&canManageCatalog?<RetailPriceSetupButton key={item.updated_at} th={th} branchId={branchId} product={item}/>:null}
+                     <StockRowActionIcons th={th} busy={busyProductId === item.id} onDelete={() => openDeactivateProductPopup(item)} onStock={() => openStockPopup(item)} disabled={!canManageCatalog} />
                   </div></td>
                 </tr>
               ))}

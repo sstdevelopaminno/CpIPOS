@@ -14,3 +14,12 @@ export function estimateRetailStockCost(lines: Array<{quantity:number;cost:unkno
   }
   return Number.isFinite(sum)?Math.round(sum*100)/100:null;
 }
+
+export function parseRetailPriceSetting(value:unknown):{ok:true;value:number|null}|{ok:false} {
+  if(value===null||value==="")return {ok:true,value:null};
+  if(typeof value!=="string"&&typeof value!=="number")return {ok:false};
+  const raw=String(value).trim();
+  if(!/^\d{1,10}(\.\d{1,2})?$/.test(raw))return {ok:false};
+  const parsed=Number(raw);
+  return Number.isFinite(parsed)?{ok:true,value:parsed}:{ok:false};
+}

@@ -1,3 +1,5 @@
+import { getCustomPosStockUiMode } from "@/lib/server/custom-stock-ui-policy";
+import { parseRetailPriceSetting } from "@/lib/retail-wholesale/stock-display";
 import { getAuthContext } from "@/lib/auth-context";
 import { fail, ok } from "@/lib/http";
 import { convertToGrams, toIntegerGrams } from "@/lib/ingredient-stock";
@@ -173,6 +175,7 @@ type CatalogBranchScopedPayload = {
 };
 
 type CatalogActionPayload =
+  | { action:"set_rw_prices"; product_id:string; expected_updated_at:string; online_price:unknown; wholesale_price:unknown }
   | UpsertProductPayload
   | UpsertIngredientPayload
   | AddIngredientStockPayload
@@ -1063,6 +1066,33 @@ export async function POST(req: Request) {
 
       return { ok: true as const, archived: true };
     };
+
+    if (body.action === "set_rw_prices") {
+      if (await getCustomPosStockUiMode(auth.tenantId!) !== "retail_wholesale") return fail("rw_mode_required","CUSTOM RW required.",403);
+      await requirePosApiFeature({tenantId:auth.tenantId,branchId:scopedBranchId},"stock_management");
+      if(scopedBranchId!==auth.branchId) {
+        const {data:membership,error}=await supabase.from("user_branch_roles").select("role").eq("tenant_id",auth.tenantId!).eq("branch_id",scopedBranchId).eq("user_id",auth.userId).maybeSingle();
+        if(error||!canManageCatalogRole(String(membership?.role??"")))return fail("forbidden_branch_scope","Manager or owner required in the target branch.",403);
+      }
+      const {data:branch,error:branchError}=await supabase.from("branches").select("id").eq("tenant_id",auth.tenantId!).eq("id",scopedBranchId).eq("is_active",true).maybeSingle();
+      if(branchError||!branch)return fail("forbidden_branch_scope","Active branch required.",403);
+      const online=parseRetailPriceSetting(body.online_price);
+      const wholesale=parseRetailPriceSetting(body.wholesale_price);
+      if(!online.ok||!wholesale.ok)return fail("invalid_rw_price","Enter a nonnegative price with up to two decimal places, or clear the field.",422);
+      if(typeof body.product_id!=="string"||typeof body.expected_updated_at!=="string"||!Number.isFinite(Date.parse(body.expected_updated_at)))return fail("invalid_rw_product","Product and revision required.",422);
+      const {data:product,error:productError}=await supabase.from("products").select("id,metadata,updated_at").eq("tenant_id",auth.tenantId!).eq("branch_id",scopedBranchId).eq("id",body.product_id).eq("is_active",true).is("deleted_at",null).maybeSingle();
+      if(productError)return fail("product_query_failed","Unable to load product.",500);
+      if(!product)return fail("product_not_found","Product not found.",404);
+      if(product.updated_at!==body.expected_updated_at)return fail("rw_price_conflict","Product changed. Reload before saving.",409);
+      const metadata={...((product.metadata&&typeof product.metadata==="object"&&!Array.isArray(product.metadata))?product.metadata:{})};
+      metadata.rw_online_price=online.value;
+      metadata.rw_wholesale_price=wholesale.value;
+      // Compare-and-set metadata and revision; never change stock, retail price or checkout.
+      const {data:updated,error:updateError}=await supabase.from("products").update({metadata,updated_at:new Date().toISOString()}).eq("tenant_id",auth.tenantId!).eq("branch_id",scopedBranchId).eq("id",product.id).eq("updated_at",product.updated_at).eq("is_active",true).is("deleted_at",null).select("id,updated_at").maybeSingle();
+      if(updateError)return fail("rw_price_update_failed","Unable to save prices.",500);
+      if(!updated)return fail("rw_price_conflict","Product changed. Reload before saving.",409);
+      return ok(updated);
+    }
 
     if (body.action === "create_ingredient_unit") {
       const name = String(body.name ?? "").trim().slice(0, 80);
