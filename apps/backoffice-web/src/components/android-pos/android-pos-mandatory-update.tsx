@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { shouldDisableNativeCustomerDisplayForDiagnostics } from "@/lib/android-pos/native-device-policy";
+import { shouldShowAndroidTabletUpdateNotice } from "@/lib/android-pos/update-notice-client";
 import { ANDROID_MODERN_RELEASE } from "@/lib/android-runtime-release";
 import { isLocallyIdle, isSafeForAppUpdate, isTrustedAndroidDownload } from "@/lib/app-update-safety";
 
@@ -46,6 +47,7 @@ export function AndroidPosMandatoryUpdate() {
   const [downloadConfirmed, setDownloadConfirmed] = useState(false);
 
   const check = useCallback(async () => {
+    if (!shouldShowAndroidTabletUpdateNotice()) return;
     const bridge = window.CpiposMdm;
     if (!bridge?.diagnosticsJson) {
       setRequired(false);
@@ -94,6 +96,7 @@ export function AndroidPosMandatoryUpdate() {
   }, []);
 
   useEffect(() => {
+    if (!shouldShowAndroidTabletUpdateNotice()) return;
     void check();
     const timer = window.setInterval(() => {
       if (document.visibilityState === "visible") void check();
@@ -123,7 +126,7 @@ export function AndroidPosMandatoryUpdate() {
     return () => { disposed = true; window.clearInterval(timer); };
   }, [required]);
 
-  if (!required) return null;
+  if (!required || !shouldShowAndroidTabletUpdateNotice()) return null;
 
   // Let the operator finish and reconcile an in-flight sale before enforcing the APK update.
   if (!safeToUpdate) {

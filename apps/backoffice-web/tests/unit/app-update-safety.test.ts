@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { hasStoredWork, hasLegacyUnsyncedSales, isTrustedAndroidDownload, isUpdateSafeRoute } from "../../src/lib/app-update-safety";
+import { isAndroidTabletUpdateClient } from "../../src/lib/android-pos/update-notice-client";
 import { readFileSync } from "node:fs";
 import { runInNewContext } from "node:vm";
 
@@ -48,5 +49,23 @@ describe("app update safety", () => {
     const gate = readFileSync(new URL("../../src/components/android-pos/android-pos-mandatory-update.tsx", import.meta.url), "utf8");
     expect(gate).toContain("href={downloadUrl}");
     expect(gate).not.toContain("window.location.assign(downloadUrl)");
+  });
+});
+
+describe("Android Tablet only update notices", () => {
+  it("accepts the installed Android POS wrapper, not OS or screen size alone", () => {
+    for (const version of ["1.0.12", "1.0.25", "1.0.27", "1.0.28"]) {
+      expect(isAndroidTabletUpdateClient("Mozilla/5.0 (Linux; Android 13; Tablet) CpIPOS-AndroidPOS/" + version + " POS-WebView-Wrapper MDM-Ready Native-Print-Agent")).toBe(true);
+    }
+    for (const ua of ["Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/131.0", "Mozilla/5.0 (Windows NT 10.0) CpIPOS-AndroidPOS/1.0.28", "Mozilla/5.0 (Linux; Android 13; Tablet) Chrome/131.0", "Mozilla/5.0 (iPad; CPU OS 17_0)", "Mozilla/5.0 (Linux; Android 14) CpIPOS-Native-Mobile/2.1.4", ""]) expect(isAndroidTabletUpdateClient(ua)).toBe(false);
+  });
+  it("guards both update notice entry points while preserving universal service worker registration", () => {
+    const pwa = readFileSync(new URL("../../src/components/pwa/pwa-bootstrap.tsx", import.meta.url), "utf8");
+    const mandatory = readFileSync(new URL("../../src/components/android-pos/android-pos-mandatory-update.tsx", import.meta.url), "utf8");
+    expect(pwa).toContain('navigator.serviceWorker.register("/sw.js"');
+    expect(pwa).toContain("if (showNotice && registration.waiting)");
+    expect(pwa).toContain("|| !shouldShowAndroidTabletUpdateNotice()) return null;");
+    expect(mandatory).toContain("if (!shouldShowAndroidTabletUpdateNotice()) return;");
+    expect(mandatory).toContain("if (!required || !shouldShowAndroidTabletUpdateNotice()) return null;");
   });
 });
