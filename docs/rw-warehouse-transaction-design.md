@@ -19,4 +19,16 @@ Do not activate the warehouse UI, apply production DDL, or promote this branch u
 6. Test with isolated fixtures: simultaneous sale/receive and sale/adjust, concurrent dispatches, duplicate and conflicting requests, expired/reused/cross-tenant PIN, rollback on ledger failure, cross-branch access, mapping drift, partial and over-receipts, cost reconciliation and non-RW regressions. Pure transfer state tests are not database concurrency tests.
 7. Require PostgreSQL UAT with separate test sessions, CI, backoffice build and authenticated preview UAT. Only after all pass, review migration rollout and feature gate, merge main and verify the actual Vercel production commit. No production customer writes for tests.
 
-Current branch implements only the pure transfer lifecycle and unit tests. There is no SQL migration, server API, PIN integration, ledger posting, or active UI yet. The approval semantics, destination mapping and valuation/accounting policy are mandatory implementation gates.
+## Candidate implementation checkpoint
+The following SQL files are checked in under docs/sql, deliberately outside auto-applied migrations:
+- rw-branch-adjustment-candidate.sql — signed delta, exact payload-bound PIN consumption, idempotency and movement within one transaction.
+- rw-warehouse-schema-candidate.sql — six tenant-scoped tables, RLS and service-only grants.
+- rw-warehouse-inbound-candidate.sql — inbound quantities and carrying value, idempotency.
+- rw-warehouse-dispatch-candidate.sql — approved transfer dispatch, deterministic SKU locking, transit ledger.
+- rw-warehouse-receive-candidate.sql — partial receipt, destination mapping check, branch stock delta and exact transfer-value residual.
+
+These are **unexecuted candidates**, not migrations or working APIs. Before release: verify issuance of stock_adjustment PIN payload and design a dedicated transfer approval action; implement draft creation/approval/cancellation API, registration of warehouse and SKU, guarded UI, and audit all legacy absolute writers. Owner-only warehouse operations are conservative defaults, subject to existing role policy. Receipt currently assumes two-decimal currency and existing branch moving average; finance policy, document source uniqueness, precision and GL mapping remain unverified. Do not allow inbound receipt based on an unverified purchase document or duplicate document lines. Do not enable service routes before those controls and tests pass.
+
+### Required isolated UAT
+Only main exists in Supabase CpiPOS-001; development branch creation requires explicit cost confirmation. No production DDL or fixture writes were performed.
+Apply candidates in isolated DB, in order: schema, branch adjustment, inbound, dispatch, receive. Run valid and invalid cases with dedicated fake tenants and branches; test identical and conflicting request IDs, expired/reused/other-target PIN, concurrent sale/receipt and sale/adjust from separate connections, failed second line rollback, dispatch/partial/final receipt, denied anon/authenticated grants, mismatched SKU and tenant, cost reconciliation with exact final residual, and GL debit/credit reconciliation. Then test authenticated UI and existing POS modes. CI alone does not execute the candidate SQL or verify those invariants. Keep warehouse disabled until all gates pass.
