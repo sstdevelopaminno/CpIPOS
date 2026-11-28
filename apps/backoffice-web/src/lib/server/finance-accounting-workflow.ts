@@ -338,7 +338,9 @@ export async function accountingWarehouseIntents(identity: FinanceIdentity, bran
   if (!rwWarehouseUatAllowed(identity.tenantId,{
     VERCEL_ENV:process.env.VERCEL_ENV,
     RW_WAREHOUSE_UAT_ENABLED:process.env.RW_WAREHOUSE_UAT_ENABLED,
-    RW_WAREHOUSE_UAT_TENANT_ID:process.env.RW_WAREHOUSE_UAT_TENANT_ID
+    RW_WAREHOUSE_UAT_TENANT_ID:process.env.RW_WAREHOUSE_UAT_TENANT_ID,
+    NEXT_PUBLIC_SUPABASE_URL:process.env.NEXT_PUBLIC_SUPABASE_URL,
+    RW_WAREHOUSE_UAT_PROJECT_REF:process.env.RW_WAREHOUSE_UAT_PROJECT_REF
   }) || await getCustomPosStockUiMode(identity.tenantId)!=="retail_wholesale")
     throw new FinanceAccountingError("finance_warehouse_uat_disabled",503);
   if(branchId)validBranch(identity,branchId);

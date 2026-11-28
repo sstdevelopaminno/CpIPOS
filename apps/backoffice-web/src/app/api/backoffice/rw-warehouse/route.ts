@@ -2,7 +2,7 @@ import { getPosApiAuthContext } from "@/lib/pos-api-auth";
 import { requirePosApiFeature, featureGateFail } from "@/lib/pos-api-feature-guard";
 import { PosGuardError } from "@/lib/pos-session-guard";
 import { getCustomPosStockUiMode } from "@/lib/server/custom-stock-ui-policy";
-import { getSupabaseServiceClient } from "@/lib/supabase-admin";
+import { getPrimarySupabaseServiceClient } from "@/lib/supabase-admin";
 import { validateManagerPin } from "@/lib/pin-approval";
 import { rwWarehouseUatAllowed } from "@/lib/retail-wholesale/warehouse-uat-policy";
 import { fail, ok } from "@/lib/http";
@@ -48,11 +48,13 @@ async function scope() {
   if (!auth.tenantId || !auth.branchId || !rwWarehouseUatAllowed(auth.tenantId,{
     VERCEL_ENV:process.env.VERCEL_ENV,
     RW_WAREHOUSE_UAT_ENABLED:process.env.RW_WAREHOUSE_UAT_ENABLED,
-    RW_WAREHOUSE_UAT_TENANT_ID:process.env.RW_WAREHOUSE_UAT_TENANT_ID
+    RW_WAREHOUSE_UAT_TENANT_ID:process.env.RW_WAREHOUSE_UAT_TENANT_ID,
+    NEXT_PUBLIC_SUPABASE_URL:process.env.NEXT_PUBLIC_SUPABASE_URL,
+    RW_WAREHOUSE_UAT_PROJECT_REF:process.env.RW_WAREHOUSE_UAT_PROJECT_REF
   })) throw new WarehouseError("WAREHOUSE_UAT_DISABLED",503);
   await requirePosApiFeature(auth,"stock_management");
   if (await getCustomPosStockUiMode(auth.tenantId)!=="retail_wholesale") throw new WarehouseError("RW_REQUIRED",403);
-  const db=getSupabaseServiceClient();
+  const db=getPrimarySupabaseServiceClient();
   const membership=await db.from("user_branch_roles").select("role")
     .eq("tenant_id",auth.tenantId).eq("branch_id",auth.branchId).eq("user_id",auth.userId).in("role",["owner","manager"]);
   dbResult(membership.error);
@@ -125,6 +127,7 @@ export async function POST(req:Request) {
         fn="rw_apply_transfer_pin_candidate";params={...common,p_transfer:uuid(body.transferId),p_approver:verified.approverUserId,p_action:action};break;
       }
       case "branch_adjust": {
+        if(body.branchId!==branch)throw new WarehouseError("FORBIDDEN_BRANCH",403);
         const delta=body.delta;
         if(typeof delta!=="number"||!Number.isSafeInteger(delta)||delta===0||Math.abs(delta)>999999999)throw new WarehouseError("INVALID_QUANTITY");
         const pin=clean(body.pin,64);
