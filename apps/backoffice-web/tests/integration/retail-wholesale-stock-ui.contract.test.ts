@@ -19,3 +19,12 @@ describe("RW stock UI isolation",()=>{
     expect(read("app/globals.css")).toContain(".pos-app-content-area:has(> .rw-stock-layout)");
   });
 });
+
+it("keeps legacy table width and isolates warehouse navigation from branch quantities",()=>{
+  const table=read("components/pos-preview/stock-products-table.tsx");
+  expect(table).toContain('className="min-w-[1080px] w-full border-collapse"');
+  expect(read("app/globals.css")).toContain('[data-rw-stock-table="1"] { min-width: 1220px; }');
+  const page=read("app/preview/pos/stock/page.tsx");
+  expect(page.indexOf("if (warehouseView) return")).toBeLessThan(page.indexOf("const queryActiveProducts"));
+  expect(read("components/pos-preview/retail-price-setup-button.tsx")).toContain("createPortal(");
+});

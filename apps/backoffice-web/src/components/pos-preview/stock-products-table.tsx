@@ -856,7 +856,7 @@ const headerTools = (
   return (
     <div className="min-w-0">
       {toolbarTarget ? createPortal(headerTools, toolbarTarget) : null}
-      {retailWholesale?<p className="mb-2 text-xs text-slate-500">{th?"— หมายถึงยังไม่มีข้อมูลที่ยืนยันได้ · ต้นทุนจากต้นทุนเฉลี่ยของสต๊อกเดิม · ราคาออนไลน์/ขายส่งยังไม่เชื่อมระบบคิดเงิน":"— means no verified value · cost from existing average inventory cost · online/wholesale pricing is not connected to checkout yet"}</p>:null}
+      {retailWholesale?<p className="mb-2 text-xs text-slate-500">{th?"— หมายถึงยังไม่มีข้อมูลที่ยืนยันได้ · จำนวนสต๊อกคือจำนวนที่ขายได้ในสาขา · ต้นทุนจากต้นทุนเฉลี่ยของสต๊อกเดิม · ราคาออนไลน์/ขายส่งยังไม่เชื่อมระบบคิดเงิน":"— means no verified value · stock is branch sellable quantity · cost from existing average inventory cost · online/wholesale pricing is not connected to checkout yet"}</p>:null}
       {!canManageCatalog ? (
         <p className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-700">
           {th ? "สิทธิ์พนักงาน: ดูข้อมูลได้ แต่เพิ่ม/แก้ไข/ลบสินค้าไม่ได้" : "Staff role: view only. Add/edit/delete is disabled."}
@@ -992,7 +992,7 @@ const headerTools = (
         </div>
       ) : (
         <div className={retailWholesale?"max-h-[calc(100dvh-230px)] min-h-32 overflow-auto border border-slate-200":"max-h-[45vh] overflow-auto rounded-xl border border-slate-200"}>
-          <table className={retailWholesale?"min-w-[1220px] w-full border-collapse":"min-w-[1080px] w-full border-collapse"}>
+          <table data-rw-stock-table={retailWholesale?"1":undefined} className="min-w-[1080px] w-full border-collapse">
             <thead className="sticky top-0 z-10 bg-slate-50">
               <tr className="bg-slate-50">
                 <th className="border-b border-slate-200 px-3 py-2 text-left"><input type="checkbox" checked={filteredProducts.length > 0 && selectedFilteredProductIds.length === filteredProducts.length} onChange={toggleSelectAllFilteredProducts} aria-label={th ? "เลือกสินค้าทั้งหมดตามตัวกรอง" : "Select all filtered products"} className="h-4 w-4 rounded border-slate-300" /></th>

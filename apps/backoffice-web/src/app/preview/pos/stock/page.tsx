@@ -162,6 +162,7 @@ export default async function PosStockPage({
   let branchScopeWarning = "";
   let rwDataWarning = "";
   let warehouseView = false;
+  let canSelectBranch = false;
 
   try {
     const resolvedSearchParams = (await searchParams) ?? {};
@@ -177,6 +178,7 @@ export default async function PosStockPage({
     };
     const supabase = getSupabaseServiceClient();
     canManageCatalog = auth.branchRole === "owner" || auth.branchRole === "manager";
+    canSelectBranch = canManageCatalog;
 
     const rawRequestedBranchId = resolvedSearchParams.branch_id;
     const requestedBranchId = Array.isArray(rawRequestedBranchId)
@@ -233,6 +235,25 @@ export default async function PosStockPage({
         ? "ไม่สามารถเลือกสาขานี้ได้ เนื่องจากสิทธิ์ไม่ครอบคลุม"
         : "Requested branch is not available for your role.";
     }
+
+    // The inactive warehouse workspace has no branch stock query or branch totals.
+    if (warehouseView) return (
+      <section className="rw-stock-layout flex h-full min-h-0 w-full flex-col overflow-y-auto bg-white">
+        <header className="border-b border-slate-200 bg-slate-50 p-4">
+          <PosBackButton lang={lang} href="/preview/pos/more" label={th?"กลับเมนูเพิ่มเติม":"Back to More"} className="mb-3"/>
+          <h2 className="text-xl font-extrabold text-slate-900">{th?"จัดการสินค้าและสต๊อก · ค้าปลีก–ค้าส่ง":"Retail & Wholesale Inventory"}</h2>
+          <nav aria-label={th?"ประเภทสต๊อก":"Inventory scope"} className="mt-3 flex flex-wrap gap-2">
+            <Link href={`/preview/pos/stock?branch_id=${encodeURIComponent(selectedBranchId)}`} className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-700">{th?"สต๊อกร้าน / สาขา":"Branch stock"}</Link>
+            <span aria-current="page" className="rounded-lg border border-blue-600 bg-blue-600 px-4 py-2 text-sm font-bold text-white">{th?"สต๊อกคลังสินค้า":"Warehouse stock"}</span>
+          </nav>
+        </header>
+        <section className="m-4 rounded-lg border border-amber-200 bg-amber-50 p-5" data-testid="rw-warehouse-not-active">
+          <h3 className="font-extrabold text-slate-900">{th?"คลังสินค้ากลาง · ยังไม่เปิดรับ/โอนสินค้าจริง":"Central warehouse · transactions not enabled"}</h3>
+          <p className="mt-2 text-sm text-slate-700">{th?"คลังกลางแยกจากยอดสาขา ระบบยังไม่เปิดให้รับสินค้า ออกใบโอน หรือยืนยันรับปลายทาง จึงไม่มีการแสดงยอดสมมติ":"Warehouse inventory is separate from branch stock. Receiving, transfer and destination receipt are not enabled; no estimated balances are displayed."}</p>
+          <p className="mt-2 text-xs text-slate-600">{th?"ขั้นตอนที่เตรียมไว้: รับเข้าคลัง → จัดส่ง → สินค้าระหว่างทาง → สาขาตรวจรับ":"Planned flow: warehouse receipt → dispatch → in transit → branch receipt"}</p>
+        </section>
+      </section>
+    );
 
     const queryActiveProducts = () =>
       supabase
@@ -547,7 +568,7 @@ export default async function PosStockPage({
           <div className="lg:pt-1 [&>div]:mt-0">
             <StockBranchSelector
               th={th}
-              canManageCatalog={canManageCatalog}
+              canManageCatalog={retailWholesale?canSelectBranch:canManageCatalog}
               branchOptions={branchOptions}
               selectedBranchId={selectedBranchId}
             />
