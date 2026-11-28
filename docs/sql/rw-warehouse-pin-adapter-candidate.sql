@@ -39,7 +39,7 @@ revoke all on function public.rw_apply_transfer_pin_candidate(uuid,uuid,uuid,uui
 grant execute on function public.rw_apply_transfer_pin_candidate(uuid,uuid,uuid,uuid,uuid,public.rw_transfer_approval_action) to service_role;
 create function public.rw_adjust_branch_with_pin_candidate(
  p_tenant uuid,p_branch uuid,p_product uuid,p_actor uuid,p_request uuid,p_approver uuid,p_delta integer,p_reason text
-) returns uuid language plpgsql security invoker set search_path=pg_catalog,public as $
+) returns uuid language plpgsql security invoker set search_path=pg_catalog,public as $$
 declare
  prior public.stock_movements%rowtype;
  ingredient_id_value uuid;
@@ -69,7 +69,7 @@ begin
  values(approval_id_value,p_tenant,p_branch,p_actor,p_approver,'stock_adjustment','ingredients',ingredient_id_value,
   jsonb_build_object('request_id',p_request,'product_id',p_product,'delta',p_delta,'reason',btrim(p_reason))::text,clock_timestamp()+interval '5 minutes');
  return public.rw_adjust_branch_stock_candidate(p_tenant,p_branch,p_product,ingredient_id_value,p_actor,approval_id_value,p_request,p_delta,p_reason);
-end $;
+end $$;
 revoke all on function public.rw_adjust_branch_with_pin_candidate(uuid,uuid,uuid,uuid,uuid,uuid,integer,text) from public,anon,authenticated;
 grant execute on function public.rw_adjust_branch_with_pin_candidate(uuid,uuid,uuid,uuid,uuid,uuid,integer,text) to service_role;
 commit;
