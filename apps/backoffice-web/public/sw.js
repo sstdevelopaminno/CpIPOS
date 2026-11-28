@@ -86,7 +86,9 @@ function safeSameOriginPath(value, fallback = "/") {
   try {
     if (typeof value !== "string" || !value) return fallback;
     const target = new URL(value, self.location.origin);
-    if (target.origin !== self.location.origin || target.username || target.password) return fallback;
+    if (target.origin !== self.location.origin || target.protocol !== self.location.protocol ||
+        target.username || target.password || !target.pathname.startsWith("/") ||
+        target.pathname.startsWith("//")) return fallback;
     return target.pathname + target.search + target.hash;
   } catch {
     return fallback;

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { shouldDisableNativeCustomerDisplayForDiagnostics } from "@/lib/android-pos/native-device-policy";
 import { ANDROID_MODERN_RELEASE } from "@/lib/android-runtime-release";
-import { isSafeForAppUpdate, isTrustedAndroidDownload } from "@/lib/app-update-safety";
+import { isLocallyIdle, isSafeForAppUpdate, isTrustedAndroidDownload } from "@/lib/app-update-safety";
 
 type NativeDiagnostics = {
   install_id?: unknown;
@@ -43,6 +43,7 @@ export function AndroidPosMandatoryUpdate() {
   const [downloadUrl, setDownloadUrl] = useState(FALLBACK_DOWNLOAD_URL);
   const [rollbackMode, setRollbackMode] = useState(false);
   const [safeToUpdate, setSafeToUpdate] = useState(false);
+  const [downloadConfirmed, setDownloadConfirmed] = useState(false);
 
   const check = useCallback(async () => {
     const bridge = window.CpiposMdm;
@@ -112,7 +113,10 @@ export function AndroidPosMandatoryUpdate() {
     let disposed = false;
     const refresh = async () => {
       const safe = await isSafeForAppUpdate();
-      if (!disposed) setSafeToUpdate(safe);
+      if (!disposed) {
+        setSafeToUpdate(safe);
+        if (!safe) setDownloadConfirmed(false);
+      }
     };
     void refresh();
     const timer = window.setInterval(() => void refresh(), 5_000);
@@ -188,11 +192,30 @@ export function AndroidPosMandatoryUpdate() {
           </div>
         ) : null}
 
+        {downloadConfirmed ? (
+          <a
+            href={downloadUrl}
+            onClick={(event) => {
+              // A genuine link gesture is required by the hardened Android WebView.
+              try {
+                if (safeToUpdate && isLocallyIdle() && isTrustedAndroidDownload(downloadUrl, window.location.origin)) return;
+              } catch {
+                // Do not download if local state cannot be read.
+              }
+              event.preventDefault();
+              setDownloadConfirmed(false);
+              setSafeToUpdate(false);
+            }}
+            style={{ display: "block", textAlign: "center", marginTop: 16, borderRadius: 12, padding: "14px 18px", background: "#2563eb", color: "#fff", fontWeight: 800 }}
+          >
+            ดาวน์โหลด APK ที่ตรวจสอบแล้ว {targetName}
+          </a>
+        ) : (
         <button
           type="button"
           onClick={async () => {
             if (!(await isSafeForAppUpdate())) { setSafeToUpdate(false); return; }
-            if (isTrustedAndroidDownload(downloadUrl, window.location.origin)) window.location.assign(downloadUrl);
+            setDownloadConfirmed(isTrustedAndroidDownload(downloadUrl, window.location.origin));
           }}
           style={{
             width: "100%",
@@ -207,8 +230,9 @@ export function AndroidPosMandatoryUpdate() {
             cursor: "pointer"
           }}
         >
-          {rollbackMode ? `ดาวน์โหลดเวอร์ชันเดิม code ${targetCode}` : `ดาวน์โหลดและติดตั้ง ${targetName}`}
+          {rollbackMode ? `ตรวจสอบก่อนดาวน์โหลด code ${targetCode}` : `ตรวจสอบก่อนดาวน์โหลด ${targetName}`}
         </button>
+        )}
 
         {!rollbackMode ? (
           <button

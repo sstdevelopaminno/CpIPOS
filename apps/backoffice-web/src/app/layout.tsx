@@ -45,7 +45,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         <StockBundlePickerPagination />
         <PosMaintenanceNotice />
         <AndroidPosMandatoryUpdate />
-        <PwaBootstrap />
+        <PwaBootstrap loadedCommit={process.env.VERCEL_GIT_COMMIT_SHA ?? process.env.GITHUB_SHA ?? null} />
         <BrowserPrintAgentPosHost />
       </body>
     </html>

@@ -6,8 +6,9 @@ import { isSafeForAppUpdate } from "@/lib/app-update-safety";
 
 const UPDATE_CHECK_MS = 5 * 60_000;
 
-export function PwaBootstrap() {
+export function PwaBootstrap({ loadedCommit = null }: { loadedCommit?: string | null }) {
   const [waitingWorker, setWaitingWorker] = useState<ServiceWorker | null>(null);
+  const [webUpdateAvailable, setWebUpdateAvailable] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [blocked, setBlocked] = useState(false);
   const [updateRequested, setUpdateRequested] = useState(false);
@@ -94,7 +95,52 @@ export function PwaBootstrap() {
   }, []);
 
   useEffect(() => {
-    if (!updateRequested) return;
+    // A web deployment can change without changing the service worker script.
+    if (!loadedCommit || process.env.NODE_ENV !== "production") return;
+    let disposed = false;
+    let checking = false;
+    let lastCheck = 0;
+    let controller: AbortController | undefined;
+    const checkVersion = async () => {
+      if (disposed || checking || !navigator.onLine || document.visibilityState !== "visible" ||
+          Date.now() - lastCheck < 15_000) return;
+      checking = true;
+      lastCheck = Date.now();
+      controller = new AbortController();
+      const timeout = window.setTimeout(() => controller?.abort(), 10_000);
+      try {
+        const response = await fetch("/api/system/version", { cache: "no-store", signal: controller.signal });
+        if (!response.ok) return;
+        const data = await response.json();
+        const liveCommit = data?.data?.web?.commit_sha;
+        if (!disposed && typeof liveCommit === "string" && /^[a-f0-9]{40}$/i.test(liveCommit)) {
+          setWebUpdateAvailable(liveCommit !== loadedCommit);
+        }
+      } catch {
+        // Continue selling when the version endpoint is unavailable.
+      } finally {
+        window.clearTimeout(timeout);
+        checking = false;
+      }
+    };
+    void checkVersion();
+    const onWake = () => void checkVersion();
+    const timer = window.setInterval(onWake, UPDATE_CHECK_MS);
+    window.addEventListener("online", onWake);
+    window.addEventListener("focus", onWake);
+    document.addEventListener("visibilitychange", onWake);
+    return () => {
+      disposed = true;
+      controller?.abort();
+      window.clearInterval(timer);
+      window.removeEventListener("online", onWake);
+      window.removeEventListener("focus", onWake);
+      document.removeEventListener("visibilitychange", onWake);
+    };
+  }, [loadedCommit]);
+
+  useEffect(() => {
+    if (!updateRequested || !waitingWorker || !("serviceWorker" in navigator)) return;
     let disposed = false;
     // Only the tab that explicitly requested activation may reload.
     const onControllerChange = async () => {
@@ -122,7 +168,7 @@ export function PwaBootstrap() {
     };
   }, [updateRequested, waitingWorker]);
 
-  if (!waitingWorker) return null;
+  if (!waitingWorker && !webUpdateAvailable) return null;
 
   return (
     <div
@@ -158,7 +204,8 @@ export function PwaBootstrap() {
             setIsRefreshing(false);
             return;
           }
-          setUpdateRequested(true);
+          if (waitingWorker) setUpdateRequested(true);
+          else window.location.reload();
         }}
         disabled={isRefreshing}
         style={{

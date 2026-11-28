@@ -41,7 +41,7 @@ export function isUpdateSafeRoute(pathname: string): boolean {
   return pathname === "/login/store";
 }
 
-function isLocallyIdle(): boolean {
+export function isLocallyIdle(): boolean {
   return navigator.onLine && isUpdateSafeRoute(window.location.pathname) &&
     !ACTIVE_POS_STORAGE_KEYS.some((key) => hasStoredWork(window.localStorage.getItem(key))) &&
     !hasLegacyUnsyncedSales(window.localStorage.getItem("cpipos_offline_sales_v3"));
@@ -61,7 +61,7 @@ export async function isSafeForAppUpdate(): Promise<boolean> {
 export function isTrustedAndroidDownload(value: string, origin: string): boolean {
   try {
     const url = new URL(value, origin);
-    return url.origin === origin && !url.username && !url.password && !url.search && !url.hash &&
+    return url.protocol === "https:" && url.origin === origin && !url.username && !url.password && !url.search && !url.hash &&
       ["/download/android/latest", "/download/android/modern-latest"].includes(url.pathname);
   } catch {
     return false;

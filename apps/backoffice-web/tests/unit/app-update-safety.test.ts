@@ -28,10 +28,10 @@ describe("app update safety", () => {
   it("blocks external notification targets in the actual service worker", () => {
     const source = readFileSync(new URL("../../public/sw.js", import.meta.url), "utf8");
     const normalize = runInNewContext(source + "\nsafeSameOriginPath;", {
-      self: { location: { origin: "https://pos.cuttingpointinnovation.com" }, addEventListener: () => {} }, URL
+      self: { location: { origin: "https://pos.cuttingpointinnovation.com", protocol: "https:" }, addEventListener: () => {} }, URL
     }) as (value: unknown) => string;
     expect(normalize("/preview/pos")).toBe("/preview/pos");
-    for (const target of ["https://example.com", "//example.com", "intent://evil", "javascript:alert(1)", null]) expect(normalize(target)).toBe("/");
+    for (const target of ["https://example.com", "//example.com", "intent://evil", "javascript:alert(1)", "https://pos.cuttingpointinnovation.com//example.com", "blob:https://pos.cuttingpointinnovation.com/id", null]) expect(normalize(target)).toBe("/");
   });
   it("requires HTTPS and explicit trusted download interaction in the Android wrapper", () => {
     const source = readFileSync(new URL("../../../pos-android/app/src/main/java/com/cpipos/pos/MainActivity.kt", import.meta.url), "utf8");
@@ -39,5 +39,8 @@ describe("app update safety", () => {
     expect(source).toContain("request.hasGesture() && !request.isRedirect");
     expect(source).toContain('notifyPageError(null, "blocked_untrusted_navigation")');
     expect(source).toContain("if (!isOfficialDownloadUri(uri)) return");
+    const gate = readFileSync(new URL("../../src/components/android-pos/android-pos-mandatory-update.tsx", import.meta.url), "utf8");
+    expect(gate).toContain("href={downloadUrl}");
+    expect(gate).not.toContain("window.location.assign(downloadUrl)");
   });
 });
